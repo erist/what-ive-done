@@ -33,6 +33,7 @@ The current repository focuses on **workflow analysis and discovery**, not autom
 - local HTTP ingest server for live collectors
 - Chrome extension scaffold for browser activity metadata
 - first Windows native collector script for active-window changes
+- first macOS native collector script for frontmost app and focused window changes
 - workflow clustering and reporting
 - workflow feedback persistence for rename, exclude, include, hide, and unhide
 - session listing and deletion with automatic reanalysis
@@ -50,7 +51,7 @@ The current repository focuses on **workflow analysis and discovery**, not autom
 
 ### How the Analysis Pipeline Works
 
-1. Raw events are collected from mock data, imported files, the local ingest server, or the Windows collector.
+1. Raw events are collected from mock data, imported files, the local ingest server, or desktop collectors such as the Windows and macOS active-window collectors.
 2. Sensitive fields are sanitized before they are written to SQLite.
 3. Raw events are normalized into semantic actions such as `application_switch`, `page_navigation`, `button_click`, and `form_submit`.
 4. Events are grouped into sessions.
@@ -91,6 +92,7 @@ Never collected:
 - npm `10.x` or later
 - Chrome, if you want live browser collection
 - Windows PowerShell, if you want to run the Windows active-window collector script
+- Xcode or Xcode Command Line Tools with Swift, if you want to run the macOS active-window collector
 - `OPENAI_API_KEY`, if you want to run `llm:analyze` without storing a key in secure storage
 
 Notes:
@@ -179,6 +181,12 @@ Show Windows collector usage:
 npm run dev -- collector:windows:info --json
 ```
 
+Show macOS collector usage:
+
+```bash
+npm run dev -- collector:macos:info --json
+```
+
 ### Live Browser Test with Chrome Extension
 
 1. Start the local ingest server:
@@ -211,6 +219,67 @@ Or post directly to the local ingest server:
 
 ```powershell
 pwsh -File ".\collectors\windows\active-window-collector.ps1" -IngestUrl "http://127.0.0.1:4318/events"
+```
+
+### macOS Collector Flow
+
+The repository also includes a Swift collector for macOS. It captures the frontmost application without extra permissions and captures the focused window title when Accessibility permission is granted.
+
+1. Check the current permission state:
+
+```bash
+swift ./collectors/macos/active-window-collector.swift --check-permissions --json
+```
+
+2. If `accessibilityTrusted` is `false`, grant access at `System Settings > Privacy & Security > Accessibility`.
+3. Capture a single event to stdout:
+
+```bash
+swift ./collectors/macos/active-window-collector.swift --once --stdout
+```
+
+4. Write live events to NDJSON:
+
+```bash
+swift ./collectors/macos/active-window-collector.swift --output-path ./tmp/macos-events.ndjson
+```
+
+5. Or post directly to the local ingest server:
+
+```bash
+swift ./collectors/macos/active-window-collector.swift --ingest-url http://127.0.0.1:4318/events
+```
+
+Optional: compile a reusable binary first:
+
+```bash
+swiftc ./collectors/macos/active-window-collector.swift -o ./tmp/macos-active-window-collector
+./tmp/macos-active-window-collector --once --stdout
+```
+
+### macOS End-to-End Local Test
+
+This is the fastest path to validate the full local workflow on one macOS machine:
+
+1. Start the ingest server:
+
+```bash
+npm run dev -- serve --data-dir ./tmp/macos-live-data --host 127.0.0.1 --port 4318
+```
+
+2. In another terminal, start the macOS collector:
+
+```bash
+swift ./collectors/macos/active-window-collector.swift --ingest-url http://127.0.0.1:4318/events
+```
+
+3. Optionally also load the Chrome extension and point it to the same ingest URL.
+4. Switch between a few desktop apps and browser tabs.
+5. Analyze and print the report:
+
+```bash
+npm run dev -- analyze --data-dir ./tmp/macos-live-data
+npm run dev -- report --data-dir ./tmp/macos-live-data --json
 ```
 
 ### Workflow Review and LLM-Safe Export
@@ -320,6 +389,7 @@ On macOS, `llm:analyze` will read the key from Keychain first and fall back to `
 - 라이브 수집용 로컬 HTTP ingest 서버
 - 브라우저 활동 메타데이터용 Chrome 확장 스캐폴드
 - Windows active-window 변경 수집용 첫 번째 네이티브 PowerShell 수집기
+- macOS 전면 앱 및 포커스 윈도우 변경 수집용 첫 번째 네이티브 Swift 수집기
 - 워크플로우 군집화 및 보고서 출력
 - 이름 변경, 제외, 재포함, 숨김, 숨김 해제를 위한 워크플로우 피드백 저장
 - 세션 목록 조회 및 삭제 후 자동 재분석
@@ -337,7 +407,7 @@ On macOS, `llm:analyze` will read the key from Keychain first and fall back to `
 
 ### 분석 파이프라인
 
-1. mock 데이터, import 파일, 로컬 ingest 서버, Windows 수집기 등에서 원시 이벤트를 수집합니다.
+1. mock 데이터, import 파일, 로컬 ingest 서버, Windows/macOS active-window 수집기 같은 데스크톱 수집기에서 원시 이벤트를 수집합니다.
 2. 민감한 필드를 SQLite 저장 전에 정제합니다.
 3. 원시 이벤트를 `application_switch`, `page_navigation`, `button_click`, `form_submit` 같은 의미 있는 액션으로 정규화합니다.
 4. 이벤트를 세션으로 그룹화합니다.
@@ -378,6 +448,7 @@ On macOS, `llm:analyze` will read the key from Keychain first and fall back to `
 - npm `10.x` 이상
 - 실시간 브라우저 수집을 원하면 Chrome
 - Windows active-window 수집기를 실행하려면 Windows PowerShell
+- macOS active-window 수집기를 실행하려면 Xcode 또는 Xcode Command Line Tools의 Swift
 - secure storage에 키를 저장하지 않았다면 `llm:analyze` 실행에 `OPENAI_API_KEY`
 
 참고:
@@ -466,6 +537,12 @@ Windows 수집기 사용 정보:
 npm run dev -- collector:windows:info --json
 ```
 
+macOS 수집기 사용 정보:
+
+```bash
+npm run dev -- collector:macos:info --json
+```
+
 ### Chrome 확장 실시간 테스트
 
 1. 로컬 ingest 서버 실행:
@@ -498,6 +575,67 @@ pwsh -File ".\collectors\windows\active-window-collector.ps1" -OutputPath ".\eve
 
 ```powershell
 pwsh -File ".\collectors\windows\active-window-collector.ps1" -IngestUrl "http://127.0.0.1:4318/events"
+```
+
+### macOS 수집기 흐름
+
+이 저장소에는 macOS용 Swift 수집기도 포함되어 있습니다. 추가 권한 없이 전면 앱을 수집할 수 있고, Accessibility 권한이 있으면 포커스된 윈도우 제목도 함께 수집합니다.
+
+1. 현재 권한 상태 확인:
+
+```bash
+swift ./collectors/macos/active-window-collector.swift --check-permissions --json
+```
+
+2. `accessibilityTrusted`가 `false`라면 `System Settings > Privacy & Security > Accessibility`에서 권한을 부여합니다.
+3. 현재 전면 앱을 한 번만 stdout으로 확인:
+
+```bash
+swift ./collectors/macos/active-window-collector.swift --once --stdout
+```
+
+4. 라이브 이벤트를 NDJSON으로 저장:
+
+```bash
+swift ./collectors/macos/active-window-collector.swift --output-path ./tmp/macos-events.ndjson
+```
+
+5. 또는 로컬 ingest 서버로 직접 전송:
+
+```bash
+swift ./collectors/macos/active-window-collector.swift --ingest-url http://127.0.0.1:4318/events
+```
+
+선택 사항: 재사용할 바이너리로 먼저 컴파일:
+
+```bash
+swiftc ./collectors/macos/active-window-collector.swift -o ./tmp/macos-active-window-collector
+./tmp/macos-active-window-collector --once --stdout
+```
+
+### macOS 단일 머신 end-to-end 테스트
+
+한 대의 macOS 머신에서 전체 로컬 흐름을 검증하는 가장 빠른 순서입니다.
+
+1. ingest 서버 시작:
+
+```bash
+npm run dev -- serve --data-dir ./tmp/macos-live-data --host 127.0.0.1 --port 4318
+```
+
+2. 다른 터미널에서 macOS 수집기 시작:
+
+```bash
+swift ./collectors/macos/active-window-collector.swift --ingest-url http://127.0.0.1:4318/events
+```
+
+3. 필요하면 Chrome 확장도 같은 ingest URL로 연결합니다.
+4. 데스크톱 앱과 브라우저 탭을 몇 번 전환합니다.
+5. 분석과 리포트 실행:
+
+```bash
+npm run dev -- analyze --data-dir ./tmp/macos-live-data
+npm run dev -- report --data-dir ./tmp/macos-live-data --json
 ```
 
 ### 워크플로우 검토와 LLM-safe export
@@ -1049,6 +1187,7 @@ npm run dev -- llm:payloads --data-dir ./tmp/local-data
 | `import:events` | Import raw events from a JSON or NDJSON file. |
 | `analyze` | Normalize events, build sessions, and detect workflows. |
 | `collector:list` | List available collectors and scripts. |
+| `collector:macos:info` | Show macOS collector usage, permissions, and file paths. |
 | `collector:windows:info` | Show Windows collector usage and file paths. |
 | `report` | Print workflow report as a table or JSON. |
 | `workflow:list` | List workflow clusters with feedback state. |
@@ -1091,7 +1230,10 @@ npm run dev -- doctor
 - `src/privacy/sanitize.ts`: sensitive metadata filtering
 - `src/importers/events.ts`: JSON and NDJSON event import
 - `src/collectors/mock.ts`: deterministic mock event generator
+- `src/collectors/index.ts`: shared collector registry
+- `src/collectors/macos.ts`: macOS collector metadata and script lookup
 - `src/collectors/windows.ts`: Windows collector metadata and script lookup
+- `collectors/macos/active-window-collector.swift`: macOS active-window collector script
 - `collectors/windows/active-window-collector.ps1`: Windows active-window collector script
 - `src/pipeline/normalize.ts`: raw event normalization
 - `src/pipeline/sessionize.ts`: session boundary logic
@@ -1108,7 +1250,8 @@ npm run dev -- doctor
 
 - Browser ingestion currently uses a local HTTP endpoint without authentication.
 - Browser collection is for local development and proof-of-concept validation.
-- The Windows native collector currently captures only active-window changes.
+- The Windows and macOS native collectors currently capture only active-window changes.
+- macOS window title capture depends on Accessibility permission.
 - Workflow naming remains heuristic.
 - Report output is CLI-only.
 - Secure credential storage is implemented only for macOS Keychain today.
