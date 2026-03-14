@@ -181,6 +181,20 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
+function parseBooleanOption(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+
+  if (["true", "yes", "y", "1"].includes(normalized)) {
+    return true;
+  }
+
+  if (["false", "no", "n", "0"].includes(normalized)) {
+    return false;
+  }
+
+  throw new Error(`Expected a boolean value, received: ${value}`);
+}
+
 function renderWorkflowList(json = false, dataDir?: string): void {
   const workflows = withDatabase(dataDir, (database) => database.listWorkflowClusters());
 
@@ -461,7 +475,9 @@ program
   .action((options: { dataDir?: string }) => {
     const { analysisResult, rawEventCount } = withDatabase(options.dataDir, (database) => {
       const rawEvents = database.getRawEventsChronological();
-      const result = analyzeRawEvents(rawEvents);
+      const result = analyzeRawEvents(rawEvents, {
+        feedbackByWorkflowSignature: database.listWorkflowFeedbackSummary(),
+      });
 
       database.replaceAnalysisArtifacts(result);
 
@@ -849,6 +865,124 @@ program
   });
 
 program
+  .command("workflow:label")
+  .description("Store rich workflow feedback for naming, business purpose, and automation review")
+  .argument("<workflow-id>", "Workflow cluster id")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--name <name>", "Workflow display name")
+  .option("--purpose <purpose>", "Business purpose for this workflow")
+  .option("--repetitive <true|false>", "Mark whether the workflow is repetitive", parseBooleanOption)
+  .option(
+    "--automation-candidate <true|false>",
+    "Mark whether the workflow is an automation candidate",
+    parseBooleanOption,
+  )
+  .option("--difficulty <difficulty>", "Automation difficulty (low, medium, high)")
+  .option(
+    "--approve-candidate <true|false>",
+    "Mark whether the automation candidate is approved",
+    parseBooleanOption,
+  )
+  .action(
+    (
+      workflowId: string,
+      options: {
+        dataDir?: string;
+        name?: string;
+        purpose?: string;
+        repetitive?: boolean;
+        automationCandidate?: boolean;
+        difficulty?: "low" | "medium" | "high";
+        approveCandidate?: boolean;
+      },
+    ) => {
+      withDatabase(options.dataDir, (database) => {
+        database.saveWorkflowFeedback({
+          workflowClusterId: workflowId,
+          renameTo: options.name,
+          businessPurpose: options.purpose,
+          repetitive: options.repetitive,
+          automationCandidate: options.automationCandidate,
+          automationDifficulty: options.difficulty,
+          approvedAutomationCandidate: options.approveCandidate,
+        });
+      });
+
+      console.log(
+        JSON.stringify(
+          {
+            status: "workflow_labeled",
+            workflowId,
+            name: options.name ?? null,
+            purpose: options.purpose ?? null,
+            repetitive: options.repetitive ?? null,
+            automationCandidate: options.automationCandidate ?? null,
+            difficulty: options.difficulty ?? null,
+            approvedAutomationCandidate: options.approveCandidate ?? null,
+          },
+          null,
+          2,
+        ),
+      );
+    },
+  );
+
+program
+  .command("workflow:merge")
+  .description("Merge one workflow cluster into another on future analyses")
+  .argument("<workflow-id>", "Workflow cluster id to merge")
+  .argument("<target-workflow-id>", "Workflow cluster id to merge into")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((workflowId: string, targetWorkflowId: string, options: { dataDir?: string }) => {
+    withDatabase(options.dataDir, (database) => {
+      database.saveWorkflowFeedback({
+        workflowClusterId: workflowId,
+        mergeIntoWorkflowId: targetWorkflowId,
+      });
+    });
+
+    console.log(
+      JSON.stringify(
+        { status: "workflow_merge_saved", workflowId, targetWorkflowId },
+        null,
+        2,
+      ),
+    );
+  });
+
+program
+  .command("workflow:split")
+  .description("Split a workflow cluster on future analyses after a selected action")
+  .argument("<workflow-id>", "Workflow cluster id")
+  .requiredOption("--after-action <action-name>", "Action name after which the workflow should split")
+  .option("--data-dir <path>", "Override application data directory")
+  .action(
+    (
+      workflowId: string,
+      options: { dataDir?: string; afterAction: string },
+    ) => {
+      withDatabase(options.dataDir, (database) => {
+        database.saveWorkflowFeedback({
+          workflowClusterId: workflowId,
+          splitAfterActionName: options.afterAction,
+        });
+      });
+
+      console.log(
+        JSON.stringify(
+          {
+            status: "workflow_split_saved",
+            workflowId,
+            splitAfterActionName: options.afterAction,
+          },
+          null,
+          2,
+        ),
+      );
+    },
+  );
+
+program
   .command("workflow:exclude")
   .description("Exclude a workflow cluster from report output")
   .argument("<workflow-id>", "Workflow cluster id")
@@ -940,7 +1074,9 @@ program
     const summary = withDatabase(options.dataDir, (database) => {
       const deletedRawEventCount = database.deleteSessionSourceEvents(sessionId);
       const remainingRawEvents = database.getRawEventsChronological();
-      const analysisResult = analyzeRawEvents(remainingRawEvents);
+      const analysisResult = analyzeRawEvents(remainingRawEvents, {
+        feedbackByWorkflowSignature: database.listWorkflowFeedbackSummary(),
+      });
 
       database.replaceAnalysisArtifacts(analysisResult);
 
@@ -1189,7 +1325,9 @@ program
       }
 
       const rawEvents = database.getRawEventsChronological();
-      const analysisResult = analyzeRawEvents(rawEvents);
+      const analysisResult = analyzeRawEvents(rawEvents, {
+        feedbackByWorkflowSignature: database.listWorkflowFeedbackSummary(),
+      });
 
       database.replaceAnalysisArtifacts(analysisResult);
 

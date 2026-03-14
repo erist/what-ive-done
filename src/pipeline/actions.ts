@@ -75,10 +75,12 @@ function eventMatchesRule(
   rule: ActionRule,
   context: NearbyContext,
 ): boolean {
-  const targetValue = [event.target, context.previousNearby?.target, context.nextNearby?.target]
+  const directTargetValue = (event.target ?? "").toLowerCase();
+  const contextualTargetValue = [context.previousNearby?.target, context.nextNearby?.target]
     .filter((value): value is string => Boolean(value))
     .join(" ")
     .toLowerCase();
+  const targetValue = directTargetValue || contextualTargetValue;
   const pageType = event.pageType ?? context.previousNearby?.pageType ?? context.nextNearby?.pageType;
   const resourceHint =
     event.resourceHint ??
