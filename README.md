@@ -31,6 +31,7 @@ Implemented now:
 - mock workflow generator
 - local HTTP ingest server
 - Chrome extension scaffold for browser event collection
+- workflow feedback persistence for rename and exclude/hide
 
 Not implemented yet:
 
@@ -209,7 +210,57 @@ JSON output:
 npm run dev -- report --data-dir ./tmp/local-data --json
 ```
 
-### 6. Reset Local Data
+Include excluded workflows in the report:
+
+```bash
+npm run dev -- report --data-dir ./tmp/local-data --json --include-excluded
+```
+
+Include hidden workflows too:
+
+```bash
+npm run dev -- report --data-dir ./tmp/local-data --json --include-hidden
+```
+
+### 6. Manage Workflow Feedback
+
+List workflows with current feedback state:
+
+```bash
+npm run dev -- workflow:list --data-dir ./tmp/local-data --json
+```
+
+Rename a workflow:
+
+```bash
+npm run dev -- workflow:rename <workflow-id> "New workflow name" --data-dir ./tmp/local-data
+```
+
+Exclude a workflow from report output:
+
+```bash
+npm run dev -- workflow:exclude <workflow-id> --data-dir ./tmp/local-data
+```
+
+Re-include an excluded workflow:
+
+```bash
+npm run dev -- workflow:include <workflow-id> --data-dir ./tmp/local-data
+```
+
+Hide an incorrect cluster:
+
+```bash
+npm run dev -- workflow:hide <workflow-id> --data-dir ./tmp/local-data
+```
+
+Unhide it later:
+
+```bash
+npm run dev -- workflow:unhide <workflow-id> --data-dir ./tmp/local-data
+```
+
+### 7. Reset Local Data
 
 ```bash
 npm run dev -- reset --data-dir ./tmp/local-data
@@ -306,6 +357,12 @@ npm run dev -- reset --data-dir ./tmp/live-data
 - `collect:mock`: seed deterministic sample workflow events
 - `analyze`: normalize events, build sessions, and detect workflows
 - `report`: print saved workflow clusters as table or JSON
+- `workflow:list`: show workflow clusters with feedback state
+- `workflow:rename`: rename a workflow cluster
+- `workflow:exclude`: exclude a workflow cluster from report output
+- `workflow:include`: re-include an excluded workflow cluster
+- `workflow:hide`: hide an incorrect workflow cluster
+- `workflow:unhide`: show a hidden workflow cluster again
 - `serve`: run the local HTTP ingest server for live collectors
 - `demo`: reset, seed mock data, analyze, and print a report
 - `reset`: remove locally stored events and analysis artifacts
