@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { generateMockRawEvents } from "../collectors/mock.js";
 import type { RawEvent } from "../domain/types.js";
 import { analyzeRawEvents } from "../pipeline/analyze.js";
+import { resolveReportTimeWindow } from "../reporting/windows.js";
 import { AppDatabase } from "./database.js";
 
 test("AppDatabase initializes schema and stores sanitized raw events", () => {
@@ -70,9 +71,51 @@ function toRawEvents(): RawEvent[] {
   }));
 }
 
-function toRawEventInputs() {
-  return generateMockRawEvents();
+function toRawEventInputs(referenceDate?: Date) {
+  return generateMockRawEvents(referenceDate);
 }
+
+test("getRawEventsInRange returns only events within the selected local day", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-range-"));
+  const referenceDate = new Date(2026, 2, 14, 12, 0, 0, 0);
+  const timezoneOffsetMinutes = -referenceDate.getTimezoneOffset();
+  const reportWindow = resolveReportTimeWindow({
+    window: "day",
+    reportDate: "2026-03-14",
+    timezone: "Test/Local",
+    timezoneOffsetMinutes,
+  });
+
+  try {
+    const database = new AppDatabase({
+      dataDir: tempDir,
+      databasePath: join(tempDir, "test.sqlite"),
+    });
+    database.initialize();
+
+    for (const input of toRawEventInputs(referenceDate)) {
+      database.insertRawEvent(input);
+    }
+
+    const rangedEvents = database.getRawEventsInRange(
+      reportWindow.startTime ?? "",
+      reportWindow.endTime ?? "",
+    );
+
+    assert.equal(rangedEvents.length, 20);
+    assert.ok(
+      rangedEvents.every(
+        (event) =>
+          event.timestamp >= (reportWindow.startTime ?? "") &&
+          event.timestamp < (reportWindow.endTime ?? ""),
+      ),
+    );
+
+    database.close();
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
 
 test("workflow feedback persists across analysis refreshes for stable cluster ids", () => {
   const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-feedback-"));

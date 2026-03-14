@@ -21,7 +21,9 @@ Implemented today:
 - Chrome extension scaffold for browser activity metadata
 - Windows PowerShell active-window collector path
 - macOS Swift active-window collector path with permission checks and one-shot capture
-- normalization, sessionization, workflow clustering, and all-time CLI reporting
+- normalization, sessionization, workflow clustering, and all-time/daily/weekly CLI reporting
+- persisted daily and weekly report snapshots
+- local scheduler command for automatic snapshot refresh
 - workflow rename, exclude, include, hide, and unhide feedback
 - session listing, session detail, and session deletion with reanalysis
 - LLM-safe workflow payload export
@@ -30,22 +32,24 @@ Implemented today:
 
 Not implemented yet:
 
-- daily report window
-- weekly report window
-- short-horizon emerging workflow summaries
 - Windows click, file operation, and clipboard collectors
 - desktop UI
 - workflow feedback UI
 - additional LLM providers beyond the current OpenAI adapter
 - secure credential storage on non-macOS platforms
+- report comparison views such as day-over-day or week-over-week diffs
 
 ## Report Scope
 
 Current CLI report behavior:
 
-- `report` prints the current all-time report for the analyzed local dataset
-- `report --json` prints the same all-time report in JSON form
-- date-scoped daily and weekly reports are planned but not implemented
+- `report` prints the current all-time report for the analyzed local dataset by default
+- `report --window day` prints a local calendar day report
+- `report --window week` prints the latest 7-day report ending on the selected local report date
+- `report --json` prints structured JSON, including emerging workflows for short-horizon reports
+- `report:generate` stores a snapshot for a selected report window and date
+- `report:scheduler` refreshes day/week snapshots in a long-running local process
+- `report:snapshot:list` and `report:snapshot:show` read stored snapshots
 
 ## Analysis Pipeline
 
@@ -140,6 +144,28 @@ Print JSON output:
 
 ```bash
 npm run dev -- report --data-dir ./tmp/local-data --json
+```
+
+Print daily or weekly reports:
+
+```bash
+npm run dev -- report --data-dir ./tmp/local-data --window day --json
+npm run dev -- report --data-dir ./tmp/local-data --window week --json
+```
+
+Generate and inspect stored snapshots:
+
+```bash
+npm run dev -- report:generate --data-dir ./tmp/local-data --window day --json
+npm run dev -- report:snapshot:list --data-dir ./tmp/local-data --json
+npm run dev -- report:snapshot:show --data-dir ./tmp/local-data --window week --latest --json
+```
+
+Run the local scheduler:
+
+```bash
+npm run dev -- report:scheduler --data-dir ./tmp/local-data --once --json
+npm run dev -- report:scheduler --data-dir ./tmp/local-data --interval-seconds 300
 ```
 
 One-command demo:
@@ -286,7 +312,11 @@ npm run dev -- credential:delete-openai
 | `collector:macos:check` | Check macOS collector permission status. |
 | `collector:macos:info` | Show macOS collector usage, permissions, and file paths. |
 | `collector:windows:info` | Show Windows collector usage and file paths. |
-| `report` | Print the current all-time workflow report as a table or JSON. |
+| `report` | Print all-time, daily, or weekly workflow reports. |
+| `report:generate` | Generate and store a report snapshot. |
+| `report:snapshot:list` | List stored report snapshots. |
+| `report:snapshot:show` | Show one stored report snapshot. |
+| `report:scheduler` | Run the local report snapshot scheduler. |
 | `workflow:list` | List workflow clusters with feedback state. |
 | `workflow:show` | Show one workflow cluster in detail. |
 | `workflow:rename` | Rename a workflow cluster. |
@@ -337,8 +367,8 @@ npm run dev -- credential:delete-openai
 - browser collection is for local development and proof-of-concept validation
 - the Windows and macOS native collectors currently capture only active-window changes
 - macOS window title capture depends on Accessibility permission
-- daily and weekly report windows are planned but not implemented in the CLI yet
-- short-horizon emerging workflow summaries are planned but not implemented yet
+- short-horizon emerging workflow summaries are heuristic and marked as provisional
+- automatic report refresh requires the local scheduler process to be running
 - workflow naming remains heuristic
 - report output is CLI-only
 - secure credential storage is implemented only for macOS Keychain today
