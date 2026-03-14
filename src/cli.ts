@@ -89,6 +89,43 @@ function renderSessionList(json = false, dataDir?: string): void {
   );
 }
 
+function renderSessionDetail(sessionId: string, dataDir?: string, json = false): void {
+  const session = withDatabase(dataDir, (database) => database.getSessionById(sessionId));
+
+  if (!session) {
+    throw new Error(`Session not found: ${sessionId}`);
+  }
+
+  if (json) {
+    console.log(JSON.stringify(session, null, 2));
+    return;
+  }
+
+  console.log(
+    JSON.stringify(
+      {
+        id: session.id,
+        startTime: session.startTime,
+        endTime: session.endTime,
+        primaryApplication: session.primaryApplication,
+        primaryDomain: session.primaryDomain,
+      },
+      null,
+      2,
+    ),
+  );
+  console.table(
+    session.steps.map((step) => ({
+      order: step.order,
+      timestamp: step.timestamp,
+      application: step.application,
+      domain: step.domain ?? "",
+      action: step.action,
+      target: step.target ?? "",
+    })),
+  );
+}
+
 function renderWorkflowSummaryPayloads(
   dataDir: string | undefined,
   options: { includeExcluded?: boolean | undefined; includeHidden?: boolean | undefined },
@@ -98,6 +135,43 @@ function renderWorkflowSummaryPayloads(
   );
 
   console.log(JSON.stringify(payloadRecords, null, 2));
+}
+
+function renderWorkflowDetail(workflowId: string, dataDir?: string, json = false): void {
+  const workflow = withDatabase(dataDir, (database) => database.getWorkflowClusterById(workflowId));
+
+  if (!workflow) {
+    throw new Error(`Workflow cluster not found: ${workflowId}`);
+  }
+
+  if (json) {
+    console.log(JSON.stringify(workflow, null, 2));
+    return;
+  }
+
+  console.log(
+    JSON.stringify(
+      {
+        id: workflow.id,
+        name: workflow.name,
+        frequency: workflow.frequency,
+        averageDurationSeconds: workflow.averageDurationSeconds,
+        totalDurationSeconds: workflow.totalDurationSeconds,
+        automationSuitability: workflow.automationSuitability,
+        recommendedApproach: workflow.recommendedApproach,
+        excluded: workflow.excluded,
+        hidden: workflow.hidden,
+      },
+      null,
+      2,
+    ),
+  );
+  console.table(
+    workflow.representativeSteps.map((step, index) => ({
+      order: index + 1,
+      step,
+    })),
+  );
 }
 
 function requireEnv(name: string): string {
@@ -342,6 +416,16 @@ program
   });
 
 program
+  .command("workflow:show")
+  .description("Show one workflow cluster in detail")
+  .argument("<workflow-id>", "Workflow cluster id")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--json", "Print machine-readable JSON")
+  .action((workflowId: string, options: { dataDir?: string; json?: boolean }) => {
+    renderWorkflowDetail(workflowId, options.dataDir, options.json);
+  });
+
+program
   .command("workflow:rename")
   .description("Rename a workflow cluster")
   .argument("<workflow-id>", "Workflow cluster id")
@@ -429,6 +513,16 @@ program
   .option("--json", "Print machine-readable JSON")
   .action((options: { dataDir?: string; json?: boolean }) => {
     renderSessionList(options.json, options.dataDir);
+  });
+
+program
+  .command("session:show")
+  .description("Show one analyzed session and its ordered steps")
+  .argument("<session-id>", "Session id")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--json", "Print machine-readable JSON")
+  .action((sessionId: string, options: { dataDir?: string; json?: boolean }) => {
+    renderSessionDetail(sessionId, options.dataDir, options.json);
   });
 
 program

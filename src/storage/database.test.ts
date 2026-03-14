@@ -157,6 +157,37 @@ test("deleting a session removes its source events and changes downstream analys
   }
 });
 
+test("session details can be loaded with ordered steps", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-session-show-"));
+
+  try {
+    const database = new AppDatabase({
+      dataDir: tempDir,
+      databasePath: join(tempDir, "test.sqlite"),
+    });
+    database.initialize();
+
+    for (const input of toRawEventInputs()) {
+      database.insertRawEvent(input);
+    }
+
+    const analysisResult = analyzeRawEvents(database.getRawEventsChronological());
+    database.replaceAnalysisArtifacts(analysisResult);
+
+    const sessionSummary = database.listSessionSummaries()[0];
+    const session = database.getSessionById(sessionSummary!.id);
+
+    assert.ok(session);
+    assert.equal(session.steps.length, 4);
+    assert.equal(session.steps[0]?.order, 1);
+    assert.ok(session.steps[0]?.action);
+
+    database.close();
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("LLM payload records exclude raw event details and honor workflow feedback filters", () => {
   const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-llm-payload-"));
 

@@ -84,8 +84,12 @@ interface SessionSummaryRow {
 
 interface SessionStepContextRow {
   session_id: string;
+  normalized_event_id?: string;
+  timestamp?: string;
+  action?: string;
   application: string;
   domain: string | null;
+  target?: string | null;
 }
 
 interface WorkflowLLMAnalysisRow {
@@ -584,6 +588,70 @@ export class AppDatabase {
       primaryDomain: row.primary_domain ?? undefined,
       stepCount: row.step_count,
     }));
+  }
+
+  getSessionById(sessionId: string): Session | undefined {
+    const sessionRow = this.connection
+      .prepare(`
+        SELECT
+          id,
+          start_time,
+          end_time,
+          primary_application,
+          primary_domain
+        FROM sessions
+        WHERE id = ?
+      `)
+      .get(sessionId) as
+      | {
+          id: string;
+          start_time: string;
+          end_time: string;
+          primary_application: string;
+          primary_domain: string | null;
+        }
+      | undefined;
+
+    if (!sessionRow) {
+      return undefined;
+    }
+
+    const stepRows = this.connection
+      .prepare(`
+        SELECT
+          session_id,
+          normalized_event_id,
+          timestamp,
+          action,
+          application,
+          domain,
+          target
+        FROM session_steps
+        WHERE session_id = ?
+        ORDER BY step_order ASC
+      `)
+      .all(sessionId) as unknown as SessionStepContextRow[];
+
+    return {
+      id: sessionRow.id,
+      startTime: sessionRow.start_time,
+      endTime: sessionRow.end_time,
+      primaryApplication: sessionRow.primary_application,
+      primaryDomain: sessionRow.primary_domain ?? undefined,
+      steps: stepRows.map((row, index) => ({
+        order: index + 1,
+        normalizedEventId: row.normalized_event_id ?? "",
+        timestamp: row.timestamp ?? "",
+        action: row.action ?? "",
+        application: row.application,
+        domain: row.domain ?? undefined,
+        target: row.target ?? undefined,
+      })),
+    };
+  }
+
+  getWorkflowClusterById(workflowClusterId: string): WorkflowCluster | undefined {
+    return this.listWorkflowClusters().find((cluster) => cluster.id === workflowClusterId);
   }
 
   deleteSessionSourceEvents(sessionId: string): number {
