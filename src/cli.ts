@@ -362,7 +362,15 @@ program
   .option("--ingest-port <port>", "Port to bind the local ingest server", "4318")
   .option("--collector-poll-interval-ms <ms>", "Collector polling interval in milliseconds", "1000")
   .option("--collector-restart-delay-ms <ms>", "Collector restart delay after failures", "5000")
+  .option(
+    "--snapshot-windows <windows>",
+    "Comma-separated snapshot windows",
+    parseReportWindowList,
+    ["day", "week"],
+  )
+  .option("--snapshot-interval-seconds <seconds>", "Snapshot scheduler interval in seconds", "300")
   .option("--no-collectors", "Disable collector supervision inside the agent")
+  .option("--no-snapshot-scheduler", "Disable snapshot scheduling inside the agent")
   .action(
     async (options: {
       dataDir?: string;
@@ -371,7 +379,10 @@ program
       ingestPort: string;
       collectorPollIntervalMs: string;
       collectorRestartDelayMs: string;
+      snapshotWindows: ReportWindow[];
+      snapshotIntervalSeconds: string;
       collectors: boolean;
+      snapshotScheduler: boolean;
     }) => {
     const runtime = await startAgentRuntime({
       dataDir: options.dataDir,
@@ -381,6 +392,9 @@ program
       collectorPollIntervalMs: Number.parseInt(options.collectorPollIntervalMs, 10),
       collectorRestartDelayMs: Number.parseInt(options.collectorRestartDelayMs, 10),
       enableCollectors: options.collectors,
+      snapshotWindows: options.snapshotWindows,
+      snapshotIntervalMs: Number.parseInt(options.snapshotIntervalSeconds, 10) * 1000,
+      enableSnapshotScheduler: options.snapshotScheduler,
     });
 
     console.log(JSON.stringify(getAgentStatusSnapshot(options.dataDir), null, 2));

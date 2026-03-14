@@ -1,10 +1,12 @@
 import { startCollectorSupervisor, type RunningCollectorSupervisor } from "./collectors.js";
+import { startSnapshotScheduler, type RunningSnapshotScheduler } from "./scheduler.js";
 import { ensureAppPaths, resolveAppPaths } from "../app-paths.js";
 import { startIngestServer, type IngestServerOptions, type RunningIngestServer } from "../server/ingest-server.js";
 import { AppDatabase } from "../storage/database.js";
 import { acquireAgentLock } from "./lock.js";
 import { getAgentStatusSnapshot, writeAgentRuntimeState } from "./state.js";
-import type { AgentCollectorState, AgentRuntimeState } from "./types.js";
+import type { ReportWindow } from "../domain/types.js";
+import type { AgentCollectorState, AgentRuntimeState, AgentSnapshotSchedulerState } from "./types.js";
 
 export interface StartCollectorSupervisorOptions {
   ingestUrl: string;
@@ -12,6 +14,13 @@ export interface StartCollectorSupervisorOptions {
   pollIntervalMs?: number | undefined;
   restartDelayMs?: number | undefined;
   onCollectorStateChange?: ((state: AgentCollectorState) => void) | undefined;
+}
+
+export interface StartSnapshotSchedulerRuntimeOptions {
+  dataDir?: string | undefined;
+  windows?: ReportWindow[] | undefined;
+  intervalMs?: number | undefined;
+  onStateChange?: ((state: AgentSnapshotSchedulerState) => void) | undefined;
 }
 
 export interface StartAgentRuntimeOptions {
@@ -23,9 +32,15 @@ export interface StartAgentRuntimeOptions {
   collectorPollIntervalMs?: number | undefined;
   collectorRestartDelayMs?: number | undefined;
   enableCollectors?: boolean | undefined;
+  snapshotWindows?: ReportWindow[] | undefined;
+  snapshotIntervalMs?: number | undefined;
+  enableSnapshotScheduler?: boolean | undefined;
   ingestServerFactory?: ((options: IngestServerOptions) => Promise<RunningIngestServer>) | undefined;
   collectorSupervisorFactory?:
     | ((options: StartCollectorSupervisorOptions) => Promise<RunningCollectorSupervisor>)
+    | undefined;
+  snapshotSchedulerFactory?:
+    | ((options: StartSnapshotSchedulerRuntimeOptions) => Promise<RunningSnapshotScheduler>)
     | undefined;
 }
 
@@ -43,6 +58,7 @@ export async function startAgentRuntime(
   const heartbeatIntervalMs = options.heartbeatIntervalMs ?? 30_000;
   const ingestServerFactory = options.ingestServerFactory ?? startIngestServer;
   const collectorSupervisorFactory = options.collectorSupervisorFactory ?? startCollectorSupervisor;
+  const snapshotSchedulerFactory = options.snapshotSchedulerFactory ?? startSnapshotScheduler;
   ensureAppPaths(paths);
 
   const lock = acquireAgentLock(paths.agentLockPath, {
@@ -70,6 +86,12 @@ export async function startAgentRuntime(
       port: options.ingestPort,
     },
     collectors: [],
+    snapshotScheduler: {
+      status: options.enableSnapshotScheduler === false ? "disabled" : "starting",
+      windows: options.snapshotWindows ?? ["day", "week"],
+      intervalMs: options.snapshotIntervalMs ?? 300_000,
+      lastGeneratedSnapshots: [],
+    },
   };
   let stopped = false;
   let resolveStopped!: () => void;
@@ -92,10 +114,19 @@ export async function startAgentRuntime(
     persistState();
   };
 
+  const mergeSnapshotSchedulerState = (snapshotScheduler: AgentSnapshotSchedulerState): void => {
+    state = {
+      ...state,
+      snapshotScheduler,
+    };
+    persistState();
+  };
+
   persistState();
 
   let ingestServer: RunningIngestServer | undefined;
   let collectorSupervisor: RunningCollectorSupervisor | undefined;
+  let snapshotScheduler: RunningSnapshotScheduler | undefined;
 
   try {
     ingestServer = await ingestServerFactory({
@@ -132,7 +163,44 @@ export async function startAgentRuntime(
       };
       persistState();
     }
+
+    if (options.enableSnapshotScheduler !== false) {
+      snapshotScheduler = await snapshotSchedulerFactory({
+        dataDir: options.dataDir,
+        windows: options.snapshotWindows,
+        intervalMs: options.snapshotIntervalMs,
+        onStateChange: mergeSnapshotSchedulerState,
+      });
+
+      state = {
+        ...state,
+        snapshotScheduler: snapshotScheduler.getState(),
+      };
+      persistState();
+    }
   } catch (error) {
+    if (snapshotScheduler) {
+      await snapshotScheduler.stop();
+      state = {
+        ...state,
+        snapshotScheduler: snapshotScheduler.getState(),
+      };
+      persistState();
+    }
+
+    if (collectorSupervisor) {
+      await collectorSupervisor.stop();
+      state = {
+        ...state,
+        collectors: collectorSupervisor.getCollectorStates(),
+      };
+      persistState();
+    }
+
+    if (ingestServer) {
+      await ingestServer.close();
+    }
+
     state = {
       ...state,
       status: "stopped",
@@ -140,11 +208,18 @@ export async function startAgentRuntime(
       stoppedAt: new Date().toISOString(),
       stopReason: "startup_failed",
       ingestServer: {
-        status: "failed",
-        host: options.ingestHost ?? "127.0.0.1",
-        port: options.ingestPort,
+        status: ingestServer ? "stopped" : "failed",
+        host: ingestServer?.host ?? options.ingestHost ?? "127.0.0.1",
+        port: ingestServer?.port ?? options.ingestPort,
         error: error instanceof Error ? error.message : String(error),
       },
+      snapshotScheduler: state.snapshotScheduler
+        ? {
+            ...state.snapshotScheduler,
+            status: "failed",
+            lastError: error instanceof Error ? error.message : String(error),
+          }
+        : undefined,
     };
     persistState();
     lock.release();
@@ -181,6 +256,10 @@ export async function startAgentRuntime(
       heartbeatAt: new Date().toISOString(),
     };
     persistState();
+
+    if (snapshotScheduler) {
+      await snapshotScheduler.stop();
+    }
 
     if (collectorSupervisor) {
       await collectorSupervisor.stop();
