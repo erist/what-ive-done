@@ -121,6 +121,7 @@ export interface WorkflowCluster {
   topVariants: WorkflowVariant[];
   automationSuitability: AutomationSuitability;
   recommendedApproach: string;
+  automationHints: AutomationHint[];
   excluded: boolean;
   hidden: boolean;
   repetitive?: boolean | undefined;
@@ -171,6 +172,14 @@ export interface WorkflowGraph {
   text: string;
 }
 
+export interface AutomationHint {
+  suggestedApproach: string;
+  whyThisFits: string;
+  estimatedDifficulty: AutomationDifficulty;
+  prerequisites: string[];
+  expectedTimeSavings: string;
+}
+
 export interface ReportEntry {
   workflowClusterId: string;
   workflowName: string;
@@ -189,6 +198,7 @@ export interface ReportEntry {
   graph: WorkflowGraph;
   automationSuitability: AutomationSuitability;
   recommendedApproach: string;
+  automationHints: AutomationHint[];
 }
 
 export interface ReportTimeWindow {

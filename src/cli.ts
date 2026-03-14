@@ -90,6 +90,7 @@ function renderWorkflowGraphs(reportEntries: ReportEntry[]): void {
           graph: entry.graph.text,
           steps: entry.representativeSteps,
           businessPurpose: entry.businessPurpose ?? null,
+          firstAutomationHint: entry.automationHints[0] ?? null,
         },
         null,
         2,
