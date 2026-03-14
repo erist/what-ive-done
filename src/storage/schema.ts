@@ -1,4 +1,4 @@
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 export const INITIAL_SCHEMA_SQL = `
   PRAGMA journal_mode = WAL;
@@ -111,6 +111,25 @@ export const INITIAL_SCHEMA_SQL = `
     rationale TEXT NOT NULL,
     created_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS report_snapshots (
+    id TEXT PRIMARY KEY,
+    window TEXT NOT NULL,
+    report_date TEXT NOT NULL,
+    timezone TEXT NOT NULL,
+    timezone_offset_minutes INTEGER NOT NULL,
+    start_time TEXT,
+    end_time TEXT,
+    total_sessions INTEGER NOT NULL,
+    total_tracked_duration_seconds REAL NOT NULL,
+    workflows_json TEXT NOT NULL,
+    emerging_workflows_json TEXT NOT NULL,
+    generated_at TEXT NOT NULL,
+    UNIQUE(window, report_date, timezone)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_report_snapshots_window_date
+    ON report_snapshots(window, report_date DESC, generated_at DESC);
 
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,

@@ -1,5 +1,13 @@
 import { Command } from "commander";
 
+import { getAgentHealthReport, listLatestAgentSnapshots, runAgentOnce } from "./agent/control.js";
+import {
+  getAgentAutostartStatus,
+  installAgentAutostart,
+  uninstallAgentAutostart,
+} from "./agent/autostart/index.js";
+import { getAgentStatusSnapshot } from "./agent/state.js";
+import { startAgentRuntime, stopAgentRuntime } from "./agent/runtime.js";
 import { resolveAppPaths } from "./app-paths.js";
 import { getAvailableCollectors } from "./collectors/index.js";
 import { getMacOSActiveWindowCollectorInfo, resolveMacOSCollectorRunner } from "./collectors/macos.js";
@@ -9,10 +17,23 @@ import { generateMockRawEvents } from "./collectors/mock.js";
 import { importEventsFromFile } from "./importers/events.js";
 import { createOpenAIWorkflowAnalyzer } from "./llm/openai.js";
 import { analyzeRawEvents } from "./pipeline/analyze.js";
-import { buildReportEntries, formatDuration } from "./reporting/report.js";
+import { buildWorkflowReport, formatDuration } from "./reporting/report.js";
+import {
+  buildWorkflowReportFromDatabase,
+  generateReportSnapshot,
+  runReportSchedulerCycle,
+} from "./reporting/service.js";
+import { parseReportWindow, parseReportWindowList, resolveReportTimeWindow } from "./reporting/windows.js";
 import { startIngestServer } from "./server/ingest-server.js";
 import { AppDatabase } from "./storage/database.js";
-import type { WorkflowLLMAnalysis } from "./domain/types.js";
+import type {
+  ReportEntry,
+  ReportSnapshot,
+  ReportSnapshotSummary,
+  ReportWindow,
+  WorkflowLLMAnalysis,
+  WorkflowReport,
+} from "./domain/types.js";
 
 const program = new Command();
 
@@ -27,16 +48,7 @@ function withDatabase<T>(dataDir: string | undefined, fn: (database: AppDatabase
   }
 }
 
-function renderReport(json = false, dataDir?: string): void {
-  const reportEntries = withDatabase(dataDir, (database) =>
-    buildReportEntries(database.listWorkflowClusters()),
-  );
-
-  if (json) {
-    console.log(JSON.stringify(reportEntries, null, 2));
-    return;
-  }
-
+function renderReportTable(reportEntries: ReportEntry[]): void {
   console.table(
     reportEntries.map((entry) => ({
       workflow: entry.workflowName,
@@ -47,6 +59,134 @@ function renderReport(json = false, dataDir?: string): void {
       recommendation: entry.recommendedApproach,
     })),
   );
+}
+
+function renderSnapshotListTable(snapshots: ReportSnapshotSummary[]): void {
+  console.table(
+    snapshots.map((snapshot) => ({
+      id: snapshot.id,
+      window: snapshot.window,
+      reportDate: snapshot.reportDate,
+      timezone: snapshot.timezone,
+      totalSessions: snapshot.totalSessions,
+      workflows: snapshot.workflowCount,
+      emergingWorkflows: snapshot.emergingWorkflowCount,
+      generatedAt: snapshot.generatedAt,
+    })),
+  );
+}
+
+function renderSnapshotSummary(snapshot: ReportSnapshot): void {
+  console.log(
+    JSON.stringify(
+      {
+        id: snapshot.id,
+        window: snapshot.timeWindow.window,
+        reportDate: snapshot.timeWindow.reportDate,
+        timezone: snapshot.timeWindow.timezone,
+        windowStart: snapshot.timeWindow.startTime ?? null,
+        windowEnd: snapshot.timeWindow.endTime ?? null,
+        totalSessions: snapshot.totalSessions,
+        totalTrackedDuration: formatDuration(snapshot.totalTrackedDurationSeconds),
+        generatedAt: snapshot.generatedAt,
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+function buildStoredWorkflowReport(
+  dataDir: string | undefined,
+  options: {
+    window?: ReportWindow | undefined;
+    date?: string | undefined;
+    includeExcluded?: boolean | undefined;
+    includeHidden?: boolean | undefined;
+  } = {},
+): WorkflowReport {
+  return withDatabase(dataDir, (database) =>
+    buildWorkflowReportFromDatabase(database, {
+      window: options.window,
+      date: options.date,
+      includeExcluded: options.includeExcluded,
+      includeHidden: options.includeHidden,
+    }),
+  );
+}
+
+function renderWindowedWorkflowReport(report: WorkflowReport, json = false): void {
+  if (json) {
+    console.log(JSON.stringify(report, null, 2));
+    return;
+  }
+
+  console.log(
+    JSON.stringify(
+      {
+        window: report.timeWindow.window,
+        reportDate: report.timeWindow.reportDate,
+        timezone: report.timeWindow.timezone,
+        windowStart: report.timeWindow.startTime ?? null,
+        windowEnd: report.timeWindow.endTime ?? null,
+        totalSessions: report.totalSessions,
+        totalTrackedDuration: formatDuration(report.totalTrackedDurationSeconds),
+      },
+      null,
+      2,
+    ),
+  );
+
+  if (report.workflows.length === 0) {
+    console.log("No confirmed workflows detected for this window.");
+  } else {
+    renderReportTable(report.workflows);
+  }
+
+  if (report.emergingWorkflows.length > 0) {
+    console.log("Emerging workflows");
+    console.table(
+      report.emergingWorkflows.map((entry) => ({
+        workflow: entry.workflowName,
+        frequency: entry.frequency,
+        averageDuration: formatDuration(entry.averageDurationSeconds),
+        totalDuration: formatDuration(entry.totalDurationSeconds),
+        confidence: entry.confidence,
+      })),
+    );
+  }
+}
+
+function renderReport(
+  json = false,
+  dataDir?: string,
+  options: {
+    window?: ReportWindow | undefined;
+    date?: string | undefined;
+    includeExcluded?: boolean | undefined;
+    includeHidden?: boolean | undefined;
+  } = {},
+): void {
+  const report = buildStoredWorkflowReport(dataDir, options);
+  const useLegacyAllTimeOutput = (options.window ?? "all") === "all" && options.date === undefined;
+
+  if (useLegacyAllTimeOutput) {
+    if (json) {
+      console.log(JSON.stringify(report.workflows, null, 2));
+      return;
+    }
+
+    renderReportTable(report.workflows);
+    return;
+  }
+
+  renderWindowedWorkflowReport(report, json);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function renderWorkflowList(json = false, dataDir?: string): void {
@@ -213,9 +353,170 @@ program
       arch: process.arch,
       dataDir: paths.dataDir,
       databasePath: paths.databasePath,
+      agentLockPath: paths.agentLockPath,
     };
 
     console.log(JSON.stringify(result, null, 2));
+  });
+
+program
+  .command("agent:run")
+  .description("Run the resident local agent runtime")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--heartbeat-interval-ms <ms>", "Heartbeat interval in milliseconds", "30000")
+  .option("--ingest-host <host>", "Host to bind the local ingest server", "127.0.0.1")
+  .option("--ingest-port <port>", "Port to bind the local ingest server", "4318")
+  .option("--collector-poll-interval-ms <ms>", "Collector polling interval in milliseconds", "1000")
+  .option("--collector-restart-delay-ms <ms>", "Collector restart delay after failures", "5000")
+  .option(
+    "--snapshot-windows <windows>",
+    "Comma-separated snapshot windows",
+    parseReportWindowList,
+    ["day", "week"],
+  )
+  .option("--snapshot-interval-seconds <seconds>", "Snapshot scheduler interval in seconds", "300")
+  .option("--no-collectors", "Disable collector supervision inside the agent")
+  .option("--no-snapshot-scheduler", "Disable snapshot scheduling inside the agent")
+  .action(
+    async (options: {
+      dataDir?: string;
+      heartbeatIntervalMs: string;
+      ingestHost: string;
+      ingestPort: string;
+      collectorPollIntervalMs: string;
+      collectorRestartDelayMs: string;
+      snapshotWindows: ReportWindow[];
+      snapshotIntervalSeconds: string;
+      collectors: boolean;
+      snapshotScheduler: boolean;
+    }) => {
+    const runtime = await startAgentRuntime({
+      dataDir: options.dataDir,
+      heartbeatIntervalMs: Number.parseInt(options.heartbeatIntervalMs, 10),
+      ingestHost: options.ingestHost,
+      ingestPort: Number.parseInt(options.ingestPort, 10),
+      collectorPollIntervalMs: Number.parseInt(options.collectorPollIntervalMs, 10),
+      collectorRestartDelayMs: Number.parseInt(options.collectorRestartDelayMs, 10),
+      enableCollectors: options.collectors,
+      snapshotWindows: options.snapshotWindows,
+      snapshotIntervalMs: Number.parseInt(options.snapshotIntervalSeconds, 10) * 1000,
+      enableSnapshotScheduler: options.snapshotScheduler,
+    });
+
+    console.log(JSON.stringify(getAgentStatusSnapshot(options.dataDir), null, 2));
+
+    await runtime.waitForStop();
+    },
+  );
+
+program
+  .command("agent:status")
+  .description("Show resident agent runtime status")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    const status = getAgentStatusSnapshot(options.dataDir);
+
+    console.log(JSON.stringify(status, null, 2));
+  });
+
+program
+  .command("agent:stop")
+  .description("Stop the resident agent runtime if it is running")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    const result = stopAgentRuntime(options.dataDir);
+
+    console.log(JSON.stringify(result, null, 2));
+  });
+
+program
+  .command("agent:health")
+  .description("Show a concise health summary for the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    const report = getAgentHealthReport(options.dataDir);
+
+    console.log(JSON.stringify(report, null, 2));
+  });
+
+program
+  .command("agent:run-once")
+  .description("Run one manual snapshot refresh cycle without starting the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--windows <windows>", "Comma-separated snapshot windows", parseReportWindowList, ["day", "week"])
+  .action((options: { dataDir?: string; windows: ReportWindow[] }) => {
+    const result = runAgentOnce(options.dataDir, {
+      windows: options.windows,
+    });
+
+    console.log(JSON.stringify(result, null, 2));
+  });
+
+program
+  .command("agent:snapshot:latest")
+  .description("Show the latest stored snapshots for the control plane")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--windows <windows>", "Comma-separated snapshot windows", parseReportWindowList, ["day", "week"])
+  .action((options: { dataDir?: string; windows: ReportWindow[] }) => {
+    const snapshots = listLatestAgentSnapshots(options.dataDir, options.windows);
+
+    console.log(JSON.stringify(snapshots, null, 2));
+  });
+
+program
+  .command("agent:collectors")
+  .description("Show collector states managed by the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    const status = getAgentStatusSnapshot(options.dataDir);
+
+    console.log(JSON.stringify(status.state?.collectors ?? [], null, 2));
+  });
+
+program
+  .command("agent:autostart:status")
+  .description("Show OS autostart status for the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--plist-path <path>", "Override the LaunchAgent plist path")
+  .action((options: { dataDir?: string; plistPath?: string }) => {
+    const status = getAgentAutostartStatus({
+      dataDir: options.dataDir,
+      plistPath: options.plistPath,
+    });
+
+    console.log(JSON.stringify(status, null, 2));
+  });
+
+program
+  .command("agent:autostart:install")
+  .description("Install OS autostart for the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--plist-path <path>", "Override the LaunchAgent plist path")
+  .option("--no-load", "Write the LaunchAgent file without loading it")
+  .action((options: { dataDir?: string; plistPath?: string; load: boolean }) => {
+    const status = installAgentAutostart({
+      dataDir: options.dataDir,
+      plistPath: options.plistPath,
+      load: options.load,
+    });
+
+    console.log(JSON.stringify(status, null, 2));
+  });
+
+program
+  .command("agent:autostart:uninstall")
+  .description("Remove OS autostart for the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--plist-path <path>", "Override the LaunchAgent plist path")
+  .option("--no-unload", "Remove the LaunchAgent file without unloading it first")
+  .action((options: { dataDir?: string; plistPath?: string; unload: boolean }) => {
+    const status = uninstallAgentAutostart({
+      dataDir: options.dataDir,
+      plistPath: options.plistPath,
+      unload: options.unload,
+    });
+
+    console.log(JSON.stringify(status, null, 2));
   });
 
 program
@@ -456,37 +757,227 @@ program
   .description("Show detected workflows")
   .option("--data-dir <path>", "Override application data directory")
   .option("--json", "Print machine-readable JSON")
+  .option("--window <window>", "Report window (all, day, week)", parseReportWindow, "all")
+  .option("--date <date>", "Local report date in YYYY-MM-DD format")
   .option("--include-excluded", "Include excluded workflows")
   .option("--include-hidden", "Include hidden workflows")
   .action(
     (options: {
       dataDir?: string;
       json?: boolean;
+      window: ReportWindow;
+      date?: string;
       includeExcluded?: boolean;
       includeHidden?: boolean;
     }) => {
-      const reportEntries = withDatabase(options.dataDir, (database) =>
-        buildReportEntries(database.listWorkflowClusters(), {
+      renderReport(options.json, options.dataDir, {
+        window: options.window,
+        date: options.date,
+        includeExcluded: options.includeExcluded,
+        includeHidden: options.includeHidden,
+      });
+    },
+  );
+
+program
+  .command("report:generate")
+  .description("Generate and store a report snapshot")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--window <window>", "Report window (all, day, week)", parseReportWindow, "day")
+  .option("--date <date>", "Local report date in YYYY-MM-DD format")
+  .option("--json", "Print machine-readable JSON")
+  .option("--include-excluded", "Include excluded workflows")
+  .option("--include-hidden", "Include hidden workflows")
+  .action(
+    (options: {
+      dataDir?: string;
+      window: ReportWindow;
+      date?: string;
+      json?: boolean;
+      includeExcluded?: boolean;
+      includeHidden?: boolean;
+    }) => {
+      const snapshot = withDatabase(options.dataDir, (database) =>
+        generateReportSnapshot(database, {
+          window: options.window,
+          date: options.date,
           includeExcluded: options.includeExcluded,
           includeHidden: options.includeHidden,
         }),
       );
 
       if (options.json) {
-        console.log(JSON.stringify(reportEntries, null, 2));
+        console.log(JSON.stringify(snapshot, null, 2));
         return;
       }
 
-      console.table(
-        reportEntries.map((entry) => ({
-          workflow: entry.workflowName,
-          frequency: entry.frequency,
-          averageDuration: formatDuration(entry.averageDurationSeconds),
-          totalDuration: formatDuration(entry.totalDurationSeconds),
-          automationSuitability: entry.automationSuitability,
-          recommendation: entry.recommendedApproach,
-        })),
+      renderSnapshotSummary(snapshot);
+      renderReportTable(snapshot.workflows);
+
+      if (snapshot.emergingWorkflows.length > 0) {
+        console.log("Emerging workflows");
+        console.table(
+          snapshot.emergingWorkflows.map((entry) => ({
+            workflow: entry.workflowName,
+            frequency: entry.frequency,
+            averageDuration: formatDuration(entry.averageDurationSeconds),
+            totalDuration: formatDuration(entry.totalDurationSeconds),
+            confidence: entry.confidence,
+          })),
+        );
+      }
+    },
+  );
+
+program
+  .command("report:snapshot:list")
+  .description("List stored report snapshots")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--window <window>", "Filter by report window", parseReportWindow)
+  .option("--limit <count>", "Maximum rows to return", "20")
+  .option("--json", "Print machine-readable JSON")
+  .action(
+    (options: {
+      dataDir?: string;
+      window?: ReportWindow;
+      limit: string;
+      json?: boolean;
+    }) => {
+      const snapshots = withDatabase(options.dataDir, (database) =>
+        database.listReportSnapshots({
+          window: options.window,
+          limit: Number.parseInt(options.limit, 10),
+        }),
       );
+
+      if (options.json) {
+        console.log(JSON.stringify(snapshots, null, 2));
+        return;
+      }
+
+      renderSnapshotListTable(snapshots);
+    },
+  );
+
+program
+  .command("report:snapshot:show")
+  .description("Show one stored report snapshot")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--window <window>", "Report window", parseReportWindow, "day")
+  .option("--date <date>", "Local report date in YYYY-MM-DD format")
+  .option("--latest", "Show the latest snapshot for the selected window")
+  .option("--json", "Print machine-readable JSON")
+  .action(
+    (options: {
+      dataDir?: string;
+      window: ReportWindow;
+      date?: string;
+      latest?: boolean;
+      json?: boolean;
+    }) => {
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "local";
+      const snapshot = withDatabase(options.dataDir, (database) => {
+        if (options.latest) {
+          return database.getLatestReportSnapshot(options.window, timezone);
+        }
+
+        if (!options.date) {
+          throw new Error("--date is required unless --latest is provided");
+        }
+
+        return database.getReportSnapshotByWindowAndDate(options.window, options.date, timezone);
+      });
+
+      if (!snapshot) {
+        throw new Error("Report snapshot not found");
+      }
+
+      if (options.json) {
+        console.log(JSON.stringify(snapshot, null, 2));
+        return;
+      }
+
+      renderSnapshotSummary(snapshot);
+      renderReportTable(snapshot.workflows);
+
+      if (snapshot.emergingWorkflows.length > 0) {
+        console.log("Emerging workflows");
+        console.table(
+          snapshot.emergingWorkflows.map((entry) => ({
+            workflow: entry.workflowName,
+            frequency: entry.frequency,
+            averageDuration: formatDuration(entry.averageDurationSeconds),
+            totalDuration: formatDuration(entry.totalDurationSeconds),
+            confidence: entry.confidence,
+          })),
+        );
+      }
+    },
+  );
+
+program
+  .command("report:scheduler")
+  .description("Run a local scheduler that refreshes report snapshots")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--windows <windows>", "Comma-separated report windows", parseReportWindowList, ["day", "week"])
+  .option("--interval-seconds <seconds>", "Polling interval in seconds", "300")
+  .option("--once", "Run one scheduler cycle and exit")
+  .option("--json", "Print machine-readable JSON")
+  .action(
+    async (options: {
+      dataDir?: string;
+      windows: ReportWindow[];
+      intervalSeconds: string;
+      once?: boolean;
+      json?: boolean;
+    }) => {
+      const intervalMs = Number.parseInt(options.intervalSeconds, 10) * 1000;
+
+      if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
+        throw new Error(`Invalid interval: ${options.intervalSeconds}`);
+      }
+
+      let stopped = false;
+      const stop = () => {
+        stopped = true;
+      };
+
+      process.on("SIGINT", stop);
+      process.on("SIGTERM", stop);
+
+      do {
+        const generatedSnapshots = withDatabase(options.dataDir, (database) =>
+          runReportSchedulerCycle(database, {
+            windows: options.windows,
+          }),
+        );
+        const payload = {
+          status: "report_scheduler_cycle_completed",
+          generatedAt: new Date().toISOString(),
+          windows: options.windows,
+          snapshots: generatedSnapshots.map((snapshot) => ({
+            id: snapshot.id,
+            window: snapshot.timeWindow.window,
+            reportDate: snapshot.timeWindow.reportDate,
+            generatedAt: snapshot.generatedAt,
+            totalSessions: snapshot.totalSessions,
+            workflows: snapshot.workflows.length,
+            emergingWorkflows: snapshot.emergingWorkflows.length,
+          })),
+        };
+
+        if (options.json) {
+          console.log(JSON.stringify(payload, null, 2));
+        } else {
+          console.log(JSON.stringify(payload, null, 2));
+        }
+
+        if (options.once || stopped) {
+          break;
+        }
+
+        await sleep(intervalMs);
+      } while (!stopped);
     },
   );
 

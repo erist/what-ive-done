@@ -17,35 +17,77 @@ Implemented today:
 - sensitive metadata sanitization before persistence
 - deterministic mock workflow generator
 - JSON and NDJSON raw-event import
-- local HTTP ingest server for collectors
+- local HTTP ingest server
 - Chrome extension scaffold for browser activity metadata
 - Windows PowerShell active-window collector path
 - macOS Swift active-window collector path with permission checks and one-shot capture
-- normalization, sessionization, workflow clustering, and all-time CLI reporting
+- normalization, sessionization, workflow clustering, and all-time/daily/weekly reporting
+- persisted daily and weekly report snapshots
+- resident local agent runtime
+  - process lock
+  - heartbeat state
+  - persisted runtime state
+- agent-managed ingest server lifecycle
+- collector supervision for macOS and Windows command paths
+- agent-managed snapshot scheduler
+- control-plane commands for health, latest snapshots, collector state, and manual snapshot refresh
 - workflow rename, exclude, include, hide, and unhide feedback
 - session listing, session detail, and session deletion with reanalysis
 - LLM-safe workflow payload export
 - OpenAI Responses API adapter for summarized workflow analysis
 - macOS Keychain-backed storage for the OpenAI API key
+- macOS LaunchAgent autostart helpers and CLI commands
 
 Not implemented yet:
 
-- daily report window
-- weekly report window
-- short-horizon emerging workflow summaries
 - Windows click, file operation, and clipboard collectors
+- Windows autostart installation flow
 - desktop UI
 - workflow feedback UI
 - additional LLM providers beyond the current OpenAI adapter
 - secure credential storage on non-macOS platforms
+- report comparison views such as day-over-day or week-over-week diffs
+
+## Runtime Architecture
+
+The current runtime is split into three planes.
+
+- runtime plane
+  - resident agent
+  - local ingest server
+  - collector supervision
+  - snapshot scheduler
+- control plane
+  - CLI commands such as `agent:status`, `agent:health`, and `agent:run-once`
+- data plane
+  - raw events
+  - normalized events
+  - sessions
+  - workflow clusters
+  - report snapshots
+  - workflow feedback
+
+The resident agent is implemented under `src/agent/`.
+
+- `src/agent/runtime.ts`
+- `src/agent/lock.ts`
+- `src/agent/state.ts`
+- `src/agent/collectors.ts`
+- `src/agent/scheduler.ts`
+- `src/agent/control.ts`
+- `src/agent/autostart/`
 
 ## Report Scope
 
-Current CLI report behavior:
+Current report behavior:
 
-- `report` prints the current all-time report for the analyzed local dataset
-- `report --json` prints the same all-time report in JSON form
-- date-scoped daily and weekly reports are planned but not implemented
+- `report` prints all-time, daily, or weekly reports directly from local data
+- `report:generate` stores a snapshot for a selected report window and date
+- `report:snapshot:list` and `report:snapshot:show` read stored snapshots
+- `agent:run-once` triggers one snapshot cycle through the control plane
+- `agent:snapshot:latest` shows the latest stored snapshots for selected windows
+- `agent:run` keeps day/week snapshots fresh automatically through the resident scheduler
+- `report:scheduler` still exists as a legacy/manual fallback path
 
 ## Analysis Pipeline
 
@@ -54,7 +96,7 @@ Current CLI report behavior:
 3. Raw events are normalized into semantic actions such as `application_switch`, `page_navigation`, `button_click`, and `form_submit`.
 4. Events are grouped into sessions.
 5. Similar sessions are clustered into workflows.
-6. Reports and safe LLM summary payloads are generated from those workflow clusters.
+6. Reports, snapshots, and safe LLM summary payloads are generated from those workflow clusters.
 
 Current heuristic defaults in code:
 
@@ -112,34 +154,51 @@ npm run build
 
 ## Core Usage
 
-Initialize local storage:
+Recommended agent-first flow:
 
 ```bash
 npm run dev -- init --data-dir ./tmp/local-data
-```
-
-Seed deterministic mock events:
-
-```bash
 npm run dev -- collect:mock --data-dir ./tmp/local-data
+npm run dev -- agent:run-once --data-dir ./tmp/local-data
+npm run dev -- agent:snapshot:latest --data-dir ./tmp/local-data
 ```
 
-Run analysis:
+Run the resident agent:
 
 ```bash
+npm run dev -- agent:run --data-dir ./tmp/live-data
+```
+
+Inspect or stop it:
+
+```bash
+npm run dev -- agent:status --data-dir ./tmp/live-data
+npm run dev -- agent:health --data-dir ./tmp/live-data
+npm run dev -- agent:collectors --data-dir ./tmp/live-data
+npm run dev -- agent:stop --data-dir ./tmp/live-data
+```
+
+Manual analysis flow:
+
+```bash
+npm run dev -- init --data-dir ./tmp/local-data
+npm run dev -- collect:mock --data-dir ./tmp/local-data
 npm run dev -- analyze --data-dir ./tmp/local-data
+npm run dev -- report --data-dir ./tmp/local-data --window week --json
 ```
 
-Print the all-time report:
+Generate and inspect stored snapshots:
 
 ```bash
-npm run dev -- report --data-dir ./tmp/local-data
+npm run dev -- report:generate --data-dir ./tmp/local-data --window day --json
+npm run dev -- report:snapshot:list --data-dir ./tmp/local-data --json
+npm run dev -- report:snapshot:show --data-dir ./tmp/local-data --window week --latest --json
 ```
 
-Print JSON output:
+Legacy/manual scheduler flow:
 
 ```bash
-npm run dev -- report --data-dir ./tmp/local-data --json
+npm run dev -- report:scheduler --data-dir ./tmp/local-data --once --json
 ```
 
 One-command demo:
@@ -156,7 +215,12 @@ Import JSON or NDJSON events:
 npm run dev -- import:events ./fixtures/windows-active-window-sample.ndjson --data-dir ./tmp/import-data
 ```
 
-Start the local ingest server:
+Preferred live path:
+
+- start `agent:run`
+- point collectors or the Chrome extension to the agent-managed ingest endpoint
+
+Standalone ingest server is still available when needed:
 
 ```bash
 npm run dev -- serve --data-dir ./tmp/live-data --host 127.0.0.1 --port 4318
@@ -202,6 +266,23 @@ CLI one-shot capture on macOS:
 
 ```bash
 npm run dev -- collect:macos:once --data-dir ./tmp/macos-cli-data --json
+```
+
+## Agent Control Commands
+
+```bash
+npm run dev -- agent:health --data-dir ./tmp/live-data
+npm run dev -- agent:run-once --data-dir ./tmp/live-data
+npm run dev -- agent:snapshot:latest --data-dir ./tmp/live-data
+npm run dev -- agent:collectors --data-dir ./tmp/live-data
+```
+
+macOS autostart:
+
+```bash
+npm run dev -- agent:autostart:status --data-dir ./tmp/live-data
+npm run dev -- agent:autostart:install --data-dir ./tmp/live-data
+npm run dev -- agent:autostart:uninstall --data-dir ./tmp/live-data
 ```
 
 ## Workflow Review And LLM Commands
@@ -277,6 +358,16 @@ npm run dev -- credential:delete-openai
 | Command | Description |
 | --- | --- |
 | `doctor` | Print runtime information and default storage paths. |
+| `agent:run` | Start the resident local agent. |
+| `agent:status` | Show the current agent runtime state. |
+| `agent:stop` | Stop the resident local agent. |
+| `agent:health` | Show a health summary with latest snapshots. |
+| `agent:run-once` | Run one manual snapshot cycle without starting the long-running agent. |
+| `agent:snapshot:latest` | Show the latest stored snapshots for selected windows. |
+| `agent:collectors` | Show collector states managed by the agent. |
+| `agent:autostart:status` | Show macOS autostart status. |
+| `agent:autostart:install` | Install macOS LaunchAgent autostart. |
+| `agent:autostart:uninstall` | Remove macOS LaunchAgent autostart. |
 | `init` | Initialize local SQLite storage. |
 | `collect:mock` | Insert deterministic sample events for testing. |
 | `collect:macos:once` | Capture the current macOS frontmost app once and store it. |
@@ -286,7 +377,11 @@ npm run dev -- credential:delete-openai
 | `collector:macos:check` | Check macOS collector permission status. |
 | `collector:macos:info` | Show macOS collector usage, permissions, and file paths. |
 | `collector:windows:info` | Show Windows collector usage and file paths. |
-| `report` | Print the current all-time workflow report as a table or JSON. |
+| `report` | Print all-time, daily, or weekly workflow reports. |
+| `report:generate` | Generate and store a report snapshot. |
+| `report:snapshot:list` | List stored report snapshots. |
+| `report:snapshot:show` | Show one stored report snapshot. |
+| `report:scheduler` | Run the legacy/manual report snapshot scheduler. |
 | `workflow:list` | List workflow clusters with feedback state. |
 | `workflow:show` | Show one workflow cluster in detail. |
 | `workflow:rename` | Rename a workflow cluster. |
@@ -303,13 +398,20 @@ npm run dev -- credential:delete-openai
 | `credential:status` | Show secure credential backend status. |
 | `credential:set-openai` | Store the OpenAI API key in secure OS credential storage. |
 | `credential:delete-openai` | Delete the stored OpenAI API key from secure storage. |
-| `serve` | Run the local HTTP ingest server for collectors. |
+| `serve` | Run the standalone local HTTP ingest server. |
 | `demo` | Reset data, seed mock events, run analysis, and print a report. |
 | `reset` | Delete all locally stored events and analysis artifacts. |
 
 ## Project Structure
 
 - `src/cli.ts`: CLI entry point and command definitions
+- `src/agent/runtime.ts`: resident agent orchestration
+- `src/agent/lock.ts`: single-instance lock handling
+- `src/agent/state.ts`: persisted runtime state helpers
+- `src/agent/collectors.ts`: collector supervision and restart handling
+- `src/agent/scheduler.ts`: agent snapshot scheduler
+- `src/agent/control.ts`: control-plane helpers for health and run-once flows
+- `src/agent/autostart/`: macOS LaunchAgent helpers
 - `src/storage/database.ts`: SQLite persistence layer
 - `src/storage/schema.ts`: database schema
 - `src/privacy/sanitize.ts`: sensitive metadata filtering
@@ -323,7 +425,8 @@ npm run dev -- credential:delete-openai
 - `src/pipeline/normalize.ts`: raw event normalization
 - `src/pipeline/sessionize.ts`: session boundary logic
 - `src/pipeline/cluster.ts`: workflow clustering heuristics
-- `src/reporting/report.ts`: current all-time report formatting
+- `src/reporting/report.ts`: workflow report generation and formatting
+- `src/reporting/service.ts`: stored report and snapshot helpers
 - `src/llm/payloads.ts`: summarized LLM-safe workflow payload builder
 - `src/llm/openai.ts`: OpenAI Responses API adapter for workflow analysis
 - `src/credentials/store.ts`: secure credential storage abstraction and macOS Keychain integration
@@ -337,8 +440,9 @@ npm run dev -- credential:delete-openai
 - browser collection is for local development and proof-of-concept validation
 - the Windows and macOS native collectors currently capture only active-window changes
 - macOS window title capture depends on Accessibility permission
-- daily and weekly report windows are planned but not implemented in the CLI yet
-- short-horizon emerging workflow summaries are planned but not implemented yet
+- short-horizon emerging workflow summaries are heuristic and marked as provisional
+- Windows autostart is not implemented yet
+- the CLI still contains both agent-first and legacy/manual runtime paths
 - workflow naming remains heuristic
-- report output is CLI-only
+- report output remains CLI-first
 - secure credential storage is implemented only for macOS Keychain today

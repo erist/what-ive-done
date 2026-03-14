@@ -2,6 +2,8 @@ export type EventSource = "desktop" | "chrome_extension" | "mock";
 
 export type AutomationSuitability = "high" | "medium" | "low";
 
+export type ReportWindow = "all" | "day" | "week";
+
 export interface RawEvent {
   id: string;
   source: EventSource;
@@ -94,6 +96,12 @@ export interface WorkflowFeedback {
   createdAt: string;
 }
 
+export interface WorkflowFeedbackSummary {
+  renameTo?: string | undefined;
+  excluded?: boolean | undefined;
+  hidden?: boolean | undefined;
+}
+
 export interface ReportEntry {
   workflowClusterId: string;
   workflowName: string;
@@ -102,6 +110,49 @@ export interface ReportEntry {
   totalDurationSeconds: number;
   automationSuitability: AutomationSuitability;
   recommendedApproach: string;
+}
+
+export interface ReportTimeWindow {
+  window: ReportWindow;
+  reportDate: string;
+  timezone: string;
+  timezoneOffsetMinutes: number;
+  startTime?: string | undefined;
+  endTime?: string | undefined;
+}
+
+export interface EmergingWorkflowEntry {
+  workflowClusterId: string;
+  workflowName: string;
+  frequency: number;
+  averageDurationSeconds: number;
+  totalDurationSeconds: number;
+  representativeSteps: string[];
+  confidence: "provisional";
+}
+
+export interface WorkflowReport {
+  timeWindow: ReportTimeWindow;
+  totalSessions: number;
+  totalTrackedDurationSeconds: number;
+  workflows: ReportEntry[];
+  emergingWorkflows: EmergingWorkflowEntry[];
+}
+
+export interface ReportSnapshot extends WorkflowReport {
+  id: string;
+  generatedAt: string;
+}
+
+export interface ReportSnapshotSummary {
+  id: string;
+  window: ReportWindow;
+  reportDate: string;
+  timezone: string;
+  totalSessions: number;
+  workflowCount: number;
+  emergingWorkflowCount: number;
+  generatedAt: string;
 }
 
 export interface LLMWorkflowSummaryPayload {
