@@ -187,6 +187,12 @@ Show macOS collector usage:
 npm run dev -- collector:macos:info --json
 ```
 
+Check macOS collector permissions directly from the CLI:
+
+```bash
+npm run dev -- collector:macos:check --json
+```
+
 ### Live Browser Test with Chrome Extension
 
 1. Start the local ingest server:
@@ -236,6 +242,12 @@ swift ./collectors/macos/active-window-collector.swift --check-permissions --jso
 
 ```bash
 swift ./collectors/macos/active-window-collector.swift --once --stdout
+```
+
+If you want the main CLI to capture and store one event directly:
+
+```bash
+npm run dev -- collect:macos:once --data-dir ./tmp/macos-cli-data --json
 ```
 
 4. Write live events to NDJSON:
@@ -543,6 +555,12 @@ macOS 수집기 사용 정보:
 npm run dev -- collector:macos:info --json
 ```
 
+CLI에서 바로 macOS 권한 상태 확인:
+
+```bash
+npm run dev -- collector:macos:check --json
+```
+
 ### Chrome 확장 실시간 테스트
 
 1. 로컬 ingest 서버 실행:
@@ -592,6 +610,12 @@ swift ./collectors/macos/active-window-collector.swift --check-permissions --jso
 
 ```bash
 swift ./collectors/macos/active-window-collector.swift --once --stdout
+```
+
+메인 CLI가 직접 1회 수집하고 저장하게 하려면:
+
+```bash
+npm run dev -- collect:macos:once --data-dir ./tmp/macos-cli-data --json
 ```
 
 4. 라이브 이벤트를 NDJSON으로 저장:
@@ -1184,9 +1208,11 @@ npm run dev -- llm:payloads --data-dir ./tmp/local-data
 | `doctor` | Print runtime information and default storage paths. |
 | `init` | Initialize local SQLite storage. |
 | `collect:mock` | Insert deterministic sample events for testing. |
+| `collect:macos:once` | Capture the current macOS frontmost app once and store it. |
 | `import:events` | Import raw events from a JSON or NDJSON file. |
 | `analyze` | Normalize events, build sessions, and detect workflows. |
 | `collector:list` | List available collectors and scripts. |
+| `collector:macos:check` | Check macOS collector permission status. |
 | `collector:macos:info` | Show macOS collector usage, permissions, and file paths. |
 | `collector:windows:info` | Show Windows collector usage and file paths. |
 | `report` | Print workflow report as a table or JSON. |
