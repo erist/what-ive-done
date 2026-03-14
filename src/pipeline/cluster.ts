@@ -381,6 +381,7 @@ export function clusterSessions(sessions: Session[], options: ClusterOptions = {
         recommendedApproach: suitability.recommendedApproach,
         excluded: false,
         hidden: false,
+        userLabeled: false,
       };
     })
     .sort(

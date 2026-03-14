@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 
-export const CURRENT_SCHEMA_VERSION = 6;
+export const CURRENT_SCHEMA_VERSION = 7;
 
 export const INITIAL_SCHEMA_SQL = `
   PRAGMA journal_mode = WAL;
@@ -110,9 +110,18 @@ export const INITIAL_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS workflow_feedback (
     id TEXT PRIMARY KEY,
     workflow_cluster_id TEXT NOT NULL REFERENCES workflow_clusters(id) ON DELETE CASCADE,
+    workflow_signature TEXT NOT NULL,
     rename_to TEXT,
+    business_purpose TEXT,
     excluded INTEGER,
     hidden INTEGER,
+    repetitive INTEGER,
+    automation_candidate INTEGER,
+    automation_difficulty TEXT,
+    approved_automation_candidate INTEGER,
+    merge_into_workflow_id TEXT,
+    merge_into_workflow_signature TEXT,
+    split_after_action_name TEXT,
     created_at TEXT NOT NULL
   );
 
@@ -293,6 +302,48 @@ export function applySchemaMigrations(
       UPDATE workflow_clusters
       SET occurrence_count = COALESCE(occurrence_count, frequency)
       WHERE occurrence_count IS NULL
+    `);
+  }
+
+  if ((existingVersion ?? 0) < 7) {
+    ensureColumn(connection, "workflow_feedback", "workflow_signature", "workflow_signature TEXT");
+    ensureColumn(connection, "workflow_feedback", "business_purpose", "business_purpose TEXT");
+    ensureColumn(connection, "workflow_feedback", "repetitive", "repetitive INTEGER");
+    ensureColumn(connection, "workflow_feedback", "automation_candidate", "automation_candidate INTEGER");
+    ensureColumn(connection, "workflow_feedback", "automation_difficulty", "automation_difficulty TEXT");
+    ensureColumn(
+      connection,
+      "workflow_feedback",
+      "approved_automation_candidate",
+      "approved_automation_candidate INTEGER",
+    );
+    ensureColumn(
+      connection,
+      "workflow_feedback",
+      "merge_into_workflow_id",
+      "merge_into_workflow_id TEXT",
+    );
+    ensureColumn(
+      connection,
+      "workflow_feedback",
+      "merge_into_workflow_signature",
+      "merge_into_workflow_signature TEXT",
+    );
+    ensureColumn(
+      connection,
+      "workflow_feedback",
+      "split_after_action_name",
+      "split_after_action_name TEXT",
+    );
+
+    connection.exec(`
+      UPDATE workflow_feedback
+      SET workflow_signature = COALESCE(
+        workflow_signature,
+        (SELECT workflow_signature FROM workflow_clusters WHERE workflow_clusters.id = workflow_feedback.workflow_cluster_id),
+        workflow_cluster_id
+      )
+      WHERE workflow_signature IS NULL
     `);
   }
 }

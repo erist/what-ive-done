@@ -1,6 +1,7 @@
 export type EventSource = "desktop" | "chrome_extension" | "mock";
 
 export type AutomationSuitability = "high" | "medium" | "low";
+export type AutomationDifficulty = "high" | "medium" | "low";
 
 export type ReportWindow = "all" | "day" | "week";
 
@@ -107,6 +108,7 @@ export interface WorkflowCluster {
   id: string;
   workflowSignature: string;
   name: string;
+  businessPurpose?: string | undefined;
   sessionIds: string[];
   occurrenceCount: number;
   frequency: number;
@@ -121,21 +123,46 @@ export interface WorkflowCluster {
   recommendedApproach: string;
   excluded: boolean;
   hidden: boolean;
+  repetitive?: boolean | undefined;
+  automationCandidate?: boolean | undefined;
+  automationDifficulty?: AutomationDifficulty | undefined;
+  approvedAutomationCandidate?: boolean | undefined;
+  mergeIntoWorkflowId?: string | undefined;
+  mergeIntoWorkflowSignature?: string | undefined;
+  splitAfterActionName?: string | undefined;
+  userLabeled: boolean;
 }
 
 export interface WorkflowFeedback {
   id: string;
   workflowClusterId: string;
+  workflowSignature: string;
   renameTo?: string | undefined;
+  businessPurpose?: string | undefined;
   excluded?: boolean | undefined;
   hidden?: boolean | undefined;
+  repetitive?: boolean | undefined;
+  automationCandidate?: boolean | undefined;
+  automationDifficulty?: AutomationDifficulty | undefined;
+  approvedAutomationCandidate?: boolean | undefined;
+  mergeIntoWorkflowId?: string | undefined;
+  mergeIntoWorkflowSignature?: string | undefined;
+  splitAfterActionName?: string | undefined;
   createdAt: string;
 }
 
 export interface WorkflowFeedbackSummary {
   renameTo?: string | undefined;
+  businessPurpose?: string | undefined;
   excluded?: boolean | undefined;
   hidden?: boolean | undefined;
+  repetitive?: boolean | undefined;
+  automationCandidate?: boolean | undefined;
+  automationDifficulty?: AutomationDifficulty | undefined;
+  approvedAutomationCandidate?: boolean | undefined;
+  mergeIntoWorkflowId?: string | undefined;
+  mergeIntoWorkflowSignature?: string | undefined;
+  splitAfterActionName?: string | undefined;
 }
 
 export interface ReportEntry {

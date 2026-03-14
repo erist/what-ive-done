@@ -24,7 +24,8 @@ function applyFeedbackToCluster(
   cluster: WorkflowCluster,
   feedbackByClusterId: Map<string, WorkflowFeedbackSummary>,
 ): WorkflowCluster {
-  const feedback = feedbackByClusterId.get(cluster.id);
+  const feedback =
+    feedbackByClusterId.get(cluster.id) ?? feedbackByClusterId.get(cluster.workflowSignature);
 
   if (!feedback) {
     return cluster;
@@ -33,8 +34,28 @@ function applyFeedbackToCluster(
   return {
     ...cluster,
     name: feedback.renameTo ?? cluster.name,
+    businessPurpose: feedback.businessPurpose ?? cluster.businessPurpose,
     excluded: feedback.excluded ?? cluster.excluded,
     hidden: feedback.hidden ?? cluster.hidden,
+    repetitive: feedback.repetitive ?? cluster.repetitive,
+    automationCandidate: feedback.automationCandidate ?? cluster.automationCandidate,
+    automationDifficulty: feedback.automationDifficulty ?? cluster.automationDifficulty,
+    approvedAutomationCandidate:
+      feedback.approvedAutomationCandidate ?? cluster.approvedAutomationCandidate,
+    mergeIntoWorkflowId: feedback.mergeIntoWorkflowId ?? cluster.mergeIntoWorkflowId,
+    mergeIntoWorkflowSignature:
+      feedback.mergeIntoWorkflowSignature ?? cluster.mergeIntoWorkflowSignature,
+    splitAfterActionName: feedback.splitAfterActionName ?? cluster.splitAfterActionName,
+    userLabeled:
+      cluster.userLabeled ||
+      Boolean(
+        feedback.renameTo ??
+          feedback.businessPurpose ??
+          feedback.repetitive ??
+          feedback.automationCandidate ??
+          feedback.automationDifficulty ??
+          feedback.approvedAutomationCandidate,
+      ),
   };
 }
 
@@ -102,7 +123,9 @@ export function buildWorkflowReport(args: {
 }): WorkflowReport {
   const options = args.options ?? {};
   const feedbackByClusterId = options.feedbackByClusterId ?? new Map<string, WorkflowFeedbackSummary>();
-  const analysisResult = analyzeRawEvents(args.rawEvents);
+  const analysisResult = analyzeRawEvents(args.rawEvents, {
+    feedbackByWorkflowSignature: feedbackByClusterId,
+  });
   const clusters = analysisResult.workflowClusters.map((cluster) =>
     applyFeedbackToCluster(cluster, feedbackByClusterId),
   );

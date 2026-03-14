@@ -83,9 +83,18 @@ interface WorkflowClusterRow {
 interface WorkflowFeedbackRow {
   id: string;
   workflow_cluster_id: string;
+  workflow_signature: string;
   rename_to: string | null;
+  business_purpose: string | null;
   excluded: number | null;
   hidden: number | null;
+  repetitive: number | null;
+  automation_candidate: number | null;
+  automation_difficulty: WorkflowFeedback["automationDifficulty"] | null;
+  approved_automation_candidate: number | null;
+  merge_into_workflow_id: string | null;
+  merge_into_workflow_signature: string | null;
+  split_after_action_name: string | null;
   created_at: string;
 }
 
@@ -659,28 +668,46 @@ export class AppDatabase {
     const feedbackByClusterId = this.listWorkflowFeedbackSummary();
 
     return rows.map((row) => {
-      const feedback = feedbackByClusterId.get(row.id);
+      const feedback =
+        feedbackByClusterId.get(row.id) ??
+        feedbackByClusterId.get(row.workflow_signature ?? row.id);
 
       return {
-      id: row.id,
-      workflowSignature: row.workflow_signature ?? row.id,
-      name: feedback?.renameTo ?? row.name,
-      sessionIds: sessionIdsByClusterId.get(row.id) ?? [],
-      occurrenceCount: row.occurrence_count ?? row.frequency,
-      frequency: row.frequency,
-      averageDurationSeconds: row.average_duration_seconds,
-      totalDurationSeconds: row.total_duration_seconds,
-      representativeSequence: JSON.parse(
-        row.representative_sequence_json ?? "[]",
-      ) as WorkflowCluster["representativeSequence"],
-      representativeSteps: JSON.parse(row.representative_steps_json) as string[],
-      involvedApps: JSON.parse(row.involved_apps_json ?? "[]") as string[],
-      confidenceScore: row.confidence_score ?? 0,
-      topVariants: JSON.parse(row.top_variants_json ?? "[]") as WorkflowCluster["topVariants"],
-      automationSuitability: row.automation_suitability,
-      recommendedApproach: row.recommended_approach,
-      excluded: feedback?.excluded ?? row.excluded === 1,
-      hidden: feedback?.hidden ?? false,
+        id: row.id,
+        workflowSignature: row.workflow_signature ?? row.id,
+        name: feedback?.renameTo ?? row.name,
+        businessPurpose: feedback?.businessPurpose,
+        sessionIds: sessionIdsByClusterId.get(row.id) ?? [],
+        occurrenceCount: row.occurrence_count ?? row.frequency,
+        frequency: row.frequency,
+        averageDurationSeconds: row.average_duration_seconds,
+        totalDurationSeconds: row.total_duration_seconds,
+        representativeSequence: JSON.parse(
+          row.representative_sequence_json ?? "[]",
+        ) as WorkflowCluster["representativeSequence"],
+        representativeSteps: JSON.parse(row.representative_steps_json) as string[],
+        involvedApps: JSON.parse(row.involved_apps_json ?? "[]") as string[],
+        confidenceScore: row.confidence_score ?? 0,
+        topVariants: JSON.parse(row.top_variants_json ?? "[]") as WorkflowCluster["topVariants"],
+        automationSuitability: row.automation_suitability,
+        recommendedApproach: row.recommended_approach,
+        excluded: feedback?.excluded ?? row.excluded === 1,
+        hidden: feedback?.hidden ?? false,
+        repetitive: feedback?.repetitive,
+        automationCandidate: feedback?.automationCandidate,
+        automationDifficulty: feedback?.automationDifficulty,
+        approvedAutomationCandidate: feedback?.approvedAutomationCandidate,
+        mergeIntoWorkflowId: feedback?.mergeIntoWorkflowId,
+        mergeIntoWorkflowSignature: feedback?.mergeIntoWorkflowSignature,
+        splitAfterActionName: feedback?.splitAfterActionName,
+        userLabeled: Boolean(
+          feedback?.renameTo ??
+            feedback?.businessPurpose ??
+            feedback?.repetitive ??
+            feedback?.automationCandidate ??
+            feedback?.automationDifficulty ??
+            feedback?.approvedAutomationCandidate,
+        ),
       };
     });
   }
@@ -688,23 +715,76 @@ export class AppDatabase {
   saveWorkflowFeedback(input: {
     workflowClusterId: string;
     renameTo?: string | undefined;
+    businessPurpose?: string | undefined;
     excluded?: boolean | undefined;
     hidden?: boolean | undefined;
+    repetitive?: boolean | undefined;
+    automationCandidate?: boolean | undefined;
+    automationDifficulty?: WorkflowFeedback["automationDifficulty"] | undefined;
+    approvedAutomationCandidate?: boolean | undefined;
+    mergeIntoWorkflowId?: string | undefined;
+    splitAfterActionName?: string | undefined;
   }): WorkflowFeedback {
     if (
       input.renameTo === undefined &&
+      input.businessPurpose === undefined &&
       input.excluded === undefined &&
-      input.hidden === undefined
+      input.hidden === undefined &&
+      input.repetitive === undefined &&
+      input.automationCandidate === undefined &&
+      input.automationDifficulty === undefined &&
+      input.approvedAutomationCandidate === undefined &&
+      input.mergeIntoWorkflowId === undefined &&
+      input.splitAfterActionName === undefined
     ) {
       throw new Error("At least one workflow feedback field must be provided");
+    }
+
+    const workflowRow = this.connection
+      .prepare(`
+        SELECT id, workflow_signature
+        FROM workflow_clusters
+        WHERE id = ?
+      `)
+      .get(input.workflowClusterId) as
+      | { id: string; workflow_signature: string | null }
+      | undefined;
+
+    if (!workflowRow) {
+      throw new Error(`Workflow cluster not found: ${input.workflowClusterId}`);
+    }
+
+    const mergeTarget = input.mergeIntoWorkflowId
+      ? (this.connection
+          .prepare(`
+            SELECT id, workflow_signature
+            FROM workflow_clusters
+            WHERE id = ?
+          `)
+          .get(input.mergeIntoWorkflowId) as
+          | { id: string; workflow_signature: string | null }
+          | undefined)
+      : undefined;
+
+    if (input.mergeIntoWorkflowId && !mergeTarget) {
+      throw new Error(`Merge target workflow not found: ${input.mergeIntoWorkflowId}`);
     }
 
     const feedback: WorkflowFeedback = {
       id: randomUUID(),
       workflowClusterId: input.workflowClusterId,
+      workflowSignature: workflowRow.workflow_signature ?? workflowRow.id,
       renameTo: input.renameTo,
+      businessPurpose: input.businessPurpose,
       excluded: input.excluded,
       hidden: input.hidden,
+      repetitive: input.repetitive,
+      automationCandidate: input.automationCandidate,
+      automationDifficulty: input.automationDifficulty,
+      approvedAutomationCandidate: input.approvedAutomationCandidate,
+      mergeIntoWorkflowId: input.mergeIntoWorkflowId,
+      mergeIntoWorkflowSignature: mergeTarget?.workflow_signature ?? mergeTarget?.id,
+      splitAfterActionName: input.splitAfterActionName,
       createdAt: new Date().toISOString(),
     };
 
@@ -713,18 +793,40 @@ export class AppDatabase {
         INSERT INTO workflow_feedback (
           id,
           workflow_cluster_id,
+          workflow_signature,
           rename_to,
+          business_purpose,
           excluded,
           hidden,
+          repetitive,
+          automation_candidate,
+          automation_difficulty,
+          approved_automation_candidate,
+          merge_into_workflow_id,
+          merge_into_workflow_signature,
+          split_after_action_name,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         feedback.id,
         feedback.workflowClusterId,
+        feedback.workflowSignature,
         feedback.renameTo ?? null,
+        feedback.businessPurpose ?? null,
         feedback.excluded === undefined ? null : feedback.excluded ? 1 : 0,
         feedback.hidden === undefined ? null : feedback.hidden ? 1 : 0,
+        feedback.repetitive === undefined ? null : feedback.repetitive ? 1 : 0,
+        feedback.automationCandidate === undefined ? null : feedback.automationCandidate ? 1 : 0,
+        feedback.automationDifficulty ?? null,
+        feedback.approvedAutomationCandidate === undefined
+          ? null
+          : feedback.approvedAutomationCandidate
+            ? 1
+            : 0,
+        feedback.mergeIntoWorkflowId ?? null,
+        feedback.mergeIntoWorkflowSignature ?? null,
+        feedback.splitAfterActionName ?? null,
         feedback.createdAt,
       );
 
@@ -737,9 +839,18 @@ export class AppDatabase {
         SELECT
           id,
           workflow_cluster_id,
+          workflow_signature,
           rename_to,
+          business_purpose,
           excluded,
           hidden,
+          repetitive,
+          automation_candidate,
+          automation_difficulty,
+          approved_automation_candidate,
+          merge_into_workflow_id,
+          merge_into_workflow_signature,
+          split_after_action_name,
           created_at
         FROM workflow_feedback
         ORDER BY created_at ASC, id ASC
@@ -748,13 +859,33 @@ export class AppDatabase {
     const feedbackByClusterId = new Map<string, WorkflowFeedbackSummary>();
 
     for (const row of rows) {
-      const current = feedbackByClusterId.get(row.workflow_cluster_id) ?? {};
-
-      feedbackByClusterId.set(row.workflow_cluster_id, {
+      const current =
+        feedbackByClusterId.get(row.workflow_signature) ??
+        feedbackByClusterId.get(row.workflow_cluster_id) ??
+        {};
+      const summary: WorkflowFeedbackSummary = {
         renameTo: row.rename_to ?? current.renameTo,
+        businessPurpose: row.business_purpose ?? current.businessPurpose,
         excluded: row.excluded === null ? current.excluded : row.excluded === 1,
         hidden: row.hidden === null ? current.hidden : row.hidden === 1,
-      });
+        repetitive: row.repetitive === null ? current.repetitive : row.repetitive === 1,
+        automationCandidate:
+          row.automation_candidate === null
+            ? current.automationCandidate
+            : row.automation_candidate === 1,
+        automationDifficulty: row.automation_difficulty ?? current.automationDifficulty,
+        approvedAutomationCandidate:
+          row.approved_automation_candidate === null
+            ? current.approvedAutomationCandidate
+            : row.approved_automation_candidate === 1,
+        mergeIntoWorkflowId: row.merge_into_workflow_id ?? current.mergeIntoWorkflowId,
+        mergeIntoWorkflowSignature:
+          row.merge_into_workflow_signature ?? current.mergeIntoWorkflowSignature,
+        splitAfterActionName: row.split_after_action_name ?? current.splitAfterActionName,
+      };
+
+      feedbackByClusterId.set(row.workflow_cluster_id, summary);
+      feedbackByClusterId.set(row.workflow_signature, summary);
     }
 
     return feedbackByClusterId;
