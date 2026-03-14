@@ -221,10 +221,22 @@ List workflows:
 npm run dev -- workflow:list --data-dir ./tmp/local-data --json
 ```
 
+Show one workflow cluster in detail:
+
+```bash
+npm run dev -- workflow:show <workflow-id> --data-dir ./tmp/local-data --json
+```
+
 List sessions:
 
 ```bash
 npm run dev -- session:list --data-dir ./tmp/local-data --json
+```
+
+Show one session with ordered steps:
+
+```bash
+npm run dev -- session:show <session-id> --data-dir ./tmp/local-data --json
 ```
 
 Delete a session and rerun analysis automatically:
@@ -496,10 +508,22 @@ pwsh -File ".\collectors\windows\active-window-collector.ps1" -IngestUrl "http:/
 npm run dev -- workflow:list --data-dir ./tmp/local-data --json
 ```
 
+워크플로우 cluster 상세 보기:
+
+```bash
+npm run dev -- workflow:show <workflow-id> --data-dir ./tmp/local-data --json
+```
+
 세션 목록:
 
 ```bash
 npm run dev -- session:list --data-dir ./tmp/local-data --json
+```
+
+세션 step 상세 보기:
+
+```bash
+npm run dev -- session:show <session-id> --data-dir ./tmp/local-data --json
 ```
 
 세션 삭제 후 자동 재분석:
@@ -1028,12 +1052,14 @@ npm run dev -- llm:payloads --data-dir ./tmp/local-data
 | `collector:windows:info` | Show Windows collector usage and file paths. |
 | `report` | Print workflow report as a table or JSON. |
 | `workflow:list` | List workflow clusters with feedback state. |
+| `workflow:show` | Show one workflow cluster in detail. |
 | `workflow:rename` | Rename a workflow cluster. |
 | `workflow:exclude` | Exclude a workflow cluster from report output. |
 | `workflow:include` | Re-include an excluded workflow cluster. |
 | `workflow:hide` | Hide an incorrect workflow cluster. |
 | `workflow:unhide` | Show a hidden workflow cluster again. |
 | `session:list` | List analyzed sessions. |
+| `session:show` | Show one analyzed session with ordered steps. |
 | `session:delete` | Delete a session's source events and rerun analysis. |
 | `llm:payloads` | Print summarized workflow payloads without raw logs. |
 | `llm:analyze` | Run summarized workflow analysis through the OpenAI adapter. |
