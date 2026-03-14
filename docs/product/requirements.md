@@ -1,19 +1,27 @@
 # Product Requirements
-## What I’ve done
+## What I've Done
 
 ---
 
 # 1. Product Definition
 
-**What I’ve done** is a local workflow pattern analyzer designed for internal employees.
+**What I've Done** is a local-first workflow discovery product for internal employees.
 
-The system observes desktop and browser activity, groups actions into sessions,
-detects repetitive workflows, and produces daily, weekly, and long-horizon reports
-identifying potential automation opportunities.
+The product observes desktop and browser activity metadata, converts noisy events into
+stable workflow signals, discovers repeated work patterns, and produces reports that help
+users understand what they do often and what may be worth automating themselves.
 
-This product is **not an automation tool**.
+This product is:
 
-Automation execution will be considered only in future phases.
+- a workflow discovery tool
+- a repetitive task analysis tool
+- a builder enablement tool
+
+This product is **not**:
+
+- a surveillance tool
+- an automation execution tool
+- an auto-clicking or unsafe action runner
 
 ---
 
@@ -22,18 +30,20 @@ Automation execution will be considered only in future phases.
 Primary objectives:
 
 1. Capture workflow behavior locally.
-2. Identify repetitive tasks.
-3. Quantify time spent on workflows.
-4. Surface useful daily and weekly summaries before long-horizon patterns fully converge.
-5. Recommend automation opportunities.
+2. Normalize noisy events into stable contexts.
+3. Convert low-level events into understandable actions.
+4. Split activity into explainable task sessions.
+5. Detect repeated workflows across real usage.
+6. Let users correct workflow meaning locally.
+7. Recommend practical automation approaches without executing them.
 
 The system should help answer:
 
 - What did I spend time on today?
 - Which workflows repeated most this week?
-- What tasks are repeated most frequently?
-- Which workflows consume the most time?
-- Which workflows could be automated?
+- Which workflows consumed the most time?
+- Which workflows are likely worth automating?
+- What kind of automation could I build for them?
 
 ---
 
@@ -41,91 +51,90 @@ The system should help answer:
 
 Internal employees performing operational or repetitive PC tasks.
 
-Examples include:
+Examples:
 
-- Operations teams
-- Customer support agents
-- Administrative staff
-- Back-office operators
-- Product operations
+- operations teams
+- customer support agents
+- administrative staff
+- back-office operators
+- product operations
 
 ---
 
 # 4. MVP Scope
 
-The MVP includes the following capabilities.
+The MVP includes:
 
-## Activity Collection
-
-Capture activity metadata from:
-
-### Windows
-
-- Active application name
-- Window title
-- Application switch events
-- Mouse click metadata
-- Clipboard usage events (without content)
-- File operations metadata
-- Timestamp of interaction
-
-### macOS
-
-Initial macOS support is included in the MVP so the product can be tested and used locally
-without a separate Windows machine.
-
-The first macOS release focuses on the minimum desktop signals needed for workflow detection:
-
-- Active application name
-- Window title when available and permitted by macOS privacy settings
-- Application switch events
-- Timestamp of interaction
-- Collector metadata such as bundle identifier or process identifier when available
-
-The initial macOS collector does **not** need full parity with every Windows-specific desktop
-signal before the MVP can ship.
-
-### Chrome
-
-- URL
-- Tab title
-- Domain
-- Navigation events
-- Click metadata
-- Form submission metadata
-- Upload/download events
-- Page interaction hints (DOM metadata when available)
-
-The same Chrome extension flow should work on both Windows and macOS by sending browser
-metadata to the local ingest server.
-
----
-
-# 5. Data Exclusions
-
-The following data must never be collected:
-
-- Raw keystrokes
-- Password values
-- Email body content
-- Document content
-- Clipboard text
-- Authentication tokens
-- Session cookies
-- Full screen recordings
-- Continuous screenshots
-
-Only behavioral metadata should be collected.
-
----
-
-# 6. Local Storage
-
-All collected data must be stored locally using:
-
-SQLite
+- local metadata collection from Windows, macOS, and Chrome
+- deterministic event normalization
+- rule-based action abstraction
+- configurable session segmentation
+- explainable workflow pattern mining with near-match grouping
+- local workflow feedback persistence and reuse
+- workflow-centric reports and stored snapshots
+- practical automation hints for likely candidates
 
 No remote storage is allowed in the MVP.
+
+---
+
+# 5. Data Collection
+
+## Windows
+
+- active application name
+- window title
+- application switch events
+- mouse click metadata
+- clipboard usage events without content
+- file operation metadata
+- timestamp of interaction
+
+## macOS
+
+- active application name
+- window title when available and permitted
+- application switch events
+- timestamp of interaction
+- collector metadata such as bundle identifier or process identifier when available
+
+## Chrome
+
+- URL
+- tab title
+- domain
+- navigation events
+- click metadata
+- form submission metadata
+- upload or download events
+- page interaction hints when available
+
+The Chrome extension flow should work on both Windows and macOS by sending browser metadata
+to the local ingest server.
+
+---
+
+# 6. Privacy and Exclusions
+
+The product must store behavioral metadata only.
+
+The following must never be collected:
+
+- raw keystrokes
+- password values
+- email body content
+- document content
+- clipboard text
+- authentication tokens
+- session cookies
+- full screen recordings
+- continuous screenshots
+
+---
+
+# 7. Local Storage
+
+All collected and derived data must be stored locally in SQLite.
 
 Users must be able to:
 
@@ -134,315 +143,329 @@ Users must be able to:
 - exclude workflows from analysis
 - reset the database
 
-Suggested storage location:
-
-- OS standard application data directory
-
-Examples:
-
-Windows:
-`%APPDATA%/what-ive-done/`
-
-macOS:
-`~/Library/Application Support/what-ive-done/`
+The system must preserve raw event storage and use additive schema changes when possible.
 
 ---
 
-# 7. Event Processing Pipeline
+# 8. Event Processing Pipeline
 
-Collected events must pass through the following processing pipeline.
+Collected events must pass through the following pipeline:
 
-1. Raw Event Collection  
-2. Event Normalization  
-3. Sessionization  
-4. Workflow Clustering  
-5. LLM Interpretation  
-6. Report Generation
+1. Raw Event Collection
+2. Event Normalization
+3. Action Abstraction
+4. Session Segmentation
+5. Workflow Pattern Mining
+6. Human Feedback Reuse
+7. Report Generation
+8. Optional LLM Interpretation
+
+Each transition must expose enough internal detail for debugging when quality issues occur.
 
 ---
 
-# 8. Event Normalization
+# 9. Event Normalization
 
-Raw system events must be converted into semantic events.
+## Goal
 
-Example mapping:
+Reduce noise in raw activity events so similar work can be grouped correctly.
 
-| Raw Signal | Normalized Event |
-|-------------|------------------|
-Mouse click | button_click |
-Tab navigation | page_navigation |
-File download | file_download |
-Form submission | form_submit |
-App switch | application_switch |
+## Requirements
 
-Normalized events should include:
+Normalization must derive stable fields from raw events while keeping raw fields intact.
 
-- timestamp
-- application
+Required normalized fields:
+
+- `app_name_normalized`
+- `domain`
+- `url`
+- `path_pattern`
+- `page_type`
+- `resource_hint`
+- `title_pattern`
+
+## Baseline rules
+
+- strip query parameters by default
+- normalize numeric IDs in paths
+- normalize UUID-like strings in paths
+- normalize identifier-like values in titles
+- group similar admin pages into stable page types
+
+## Constraints
+
+- deterministic
+- rule-based by default
+- configurable and extensible
+- suitable for local execution without network dependence
+
+---
+
+# 10. Action Abstraction
+
+## Goal
+
+Convert normalized low-level events into semantic action units that humans can understand.
+
+## Inputs
+
+- normalized app name
 - domain
-- action type
-- optional metadata
+- path pattern
+- page type
+- title pattern
+- event type
+- nearby event context
 
-Example normalized event:
+## Outputs
 
-```
-{
-  "timestamp": "2026-03-14T10:12:23Z",
-  "application": "chrome",
-  "domain": "admin.internal",
-  "action": "button_click",
-  "target": "search_order"
-}
-```
+Each normalized event must produce:
+
+- `action_name`
+- `action_confidence`
+- `action_source`
+
+`action_source` must support at least:
+
+- `rule`
+- `inferred`
+- `user_labeled`
+
+## Requirements
+
+- default path must work locally with rules
+- LLM dependence is optional and must not be required
+- ambiguous cases may fall back to inferred labels with lower confidence
 
 ---
 
-# 9. Sessionization
+# 11. Session Segmentation
 
-Events must be grouped into workflow sessions.
+## Goal
 
-A session represents a single coherent work activity.
+Split flat activity streams into meaningful task sessions.
 
-Session boundaries may occur when:
+## Baseline heuristics
 
-- inactivity threshold exceeded
-- application context changes significantly
-- domain context changes significantly
+- idle-gap segmentation
+- context-shift segmentation
+- interruption reset detection
 
-Suggested default inactivity threshold:
+## Suggested defaults
 
-5 minutes
+- inactivity threshold: 120 to 180 seconds
+- stronger split when both inactivity and context change occur
+
+## Required outputs
 
 Each session must store:
 
-- session_id
-- start_time
-- end_time
-- primary_application
-- primary_domain
+- `session_id`
+- `start_time`
+- `end_time`
+- `primary_application`
+- `primary_domain`
+- `session_boundary_reason`
+- `session_boundary_details`
 - ordered list of steps
 
+Boundary reasons must be explainable.
+
 ---
 
-# 10. Workflow Detection
+# 12. Workflow Pattern Mining
 
-Sessions are analyzed to detect repetitive workflows.
+## Goal
 
-A workflow cluster is defined as a group of similar sessions.
+Detect repeated workflows across sessions, including near matches.
 
-Initial detection criteria:
+## MVP approach
 
-- workflow appears at least **3 times within 7 days**
-- step sequence similarity exceeds threshold
-- application/domain context is similar
-- minimum duration threshold (for example > 1 minute)
+The implementation may combine:
 
-These criteria define **confirmed workflow clusters** used for automation-oriented analysis.
-Shorter-horizon reports may additionally surface **emerging workflows** that have not yet met
-the confirmed-cluster threshold.
+- sequence similarity
+- n-gram style matching
+- frequent subsequence logic
 
-For each detected workflow cluster the system must produce:
+Explainability is more important than optimization for the MVP.
 
-- workflow name (auto generated)
-- frequency
+## Requirements
+
+Workflow mining must support near-match grouping, not only exact matches.
+
+Each detected workflow pattern must provide:
+
+- `workflow_id`
+- `workflow_signature`
+- representative sequence
+- occurrence count
 - average duration
 - total duration
-- representative steps
-- automation suitability score
-- recommended automation approach
+- involved apps
+- confidence score
+- top variants
+
+Confirmed patterns for automation-oriented reporting should normally appear at least
+3 times within 7 days, but short-horizon reports may surface provisional patterns.
 
 ---
 
-# 11. LLM Analysis
+# 13. Human Feedback Loop
 
-LLM usage is limited to **interpretation and summarization**.
+## Goal
 
-The LLM may be used to:
+Allow users to correct discovered workflows and improve future interpretation.
 
-- generate human-readable workflow names
-- summarize workflow descriptions
-- evaluate automation suitability
-- recommend automation approaches
-- produce readable reports
+## Required user feedback fields
 
-Only summarized workflow information may be sent to the LLM.
+For each workflow pattern, the product must allow:
 
-Example LLM payload:
+- assigning a workflow name
+- describing its business purpose
+- marking it repetitive or not
+- marking it as an automation candidate or not
+- selecting automation difficulty: `low`, `medium`, `high`
+- merging it into another workflow
+- splitting it after a selected action when clustering was wrong
+- excluding or hiding it from reporting
+- approving an automation candidate
 
-```
-{
-  "workflow_steps": [
-    "open order admin page",
-    "search order id",
-    "check shipping status",
-    "send response in Slack"
-  ],
-  "frequency": 21,
-  "average_duration_seconds": 125,
-  "applications": ["chrome", "slack"],
-  "domains": ["admin.internal"]
-}
-```
+## Persistence requirements
 
-Raw activity logs must **never** be sent to external services.
+Feedback must be stored locally and reused on later analyses.
 
----
+The system must persist:
 
-# 12. LLM Authentication
+- workflow labels
+- business purpose
+- user corrections
+- ignore rules
+- approved automation candidates
 
-The system must support two authentication methods:
-
-### BYOK (Bring Your Own Key)
-
-Users provide their own API key.
-
-### OAuth Login
-
-Users authenticate using a provider account.
-
-API keys must be stored using **OS secure credential storage**.
-
-Examples:
-
-Windows:
-- Credential Manager
-- DPAPI
-
-macOS:
-- Keychain
-
-Plaintext storage is prohibited.
+Feedback reuse should prefer workflow signatures rather than only transient cluster IDs.
 
 ---
 
-# 13. Reports
+# 14. Reporting and Visualization
 
-The application must generate local analysis reports in multiple time windows.
+## Goal
 
-Required report types for the MVP:
+Make results understandable for non-technical employees and useful for builder growth.
 
-- all-time report for the full locally stored dataset
+## Required report windows
+
+- all-time report
 - daily report for one local calendar day
 - weekly report for the latest 7 days ending on the selected local report date
 
-Daily and weekly reports must remain useful even before the system accumulates 1-2 weeks of data.
-When confirmed workflow clusters are not yet available, the report may label items as
-emerging workflows or provisional patterns instead of final automation candidates.
+## Required workflow fields in reports
 
-Required metrics per confirmed workflow:
+Each workflow report entry must include:
 
 - workflow name
+- optional business purpose
+- representative step sequence
 - frequency
+- frequency per week
 - average duration
-- total duration
-- automation suitability
-- recommended automation approach
+- estimated total time spent
+- involved tools or apps
+- automation suitability score
+- confidence score
+- labeled or unlabeled state
+- simple graph view
 
-Required summary fields for daily and weekly reports:
+## Required summary sections
 
-- report window start and end
-- total captured sessions
-- total tracked time
-- top workflows by frequency or total duration
-- emerging workflows when confidence is still low
+- top repetitive workflows
+- highest time-consuming repetitive workflows
+- quick-win automation candidates
+- workflows needing human judgment
 
-Example report entry:
-
-Workflow: Order status lookup  
-Frequency: 23  
-Average Duration: 2m 10s  
-Automation Suitability: High  
-Recommendation: Browser automation
+Short-horizon windows may show provisional emerging workflows before long-horizon patterns converge.
 
 ---
 
-# 14. Automation Suitability
+# 15. Automation Hints
 
-Automation suitability is an estimate of how easily a workflow could be automated.
+## Goal
 
-Factors may include:
+Help users move from insight to action without executing automation.
 
-- repetition frequency
-- consistency of step sequence
-- variability of input
-- browser dominance
-- number of manual steps
-- external system dependency
+## Required hint fields
 
-Output categories:
+Each likely automation candidate should provide one or more hints with:
 
-- High
-- Medium
-- Low
+- suggested approach
+- why the approach fits
+- estimated difficulty
+- prerequisites
+- expected time savings
 
----
+## Example approaches
 
-# 15. User Feedback
+- Python script
+- Playwright
+- PowerShell
+- Google Apps Script
+- Excel macro
+- n8n workflow
+- internal admin API integration
 
-Users must be able to adjust workflow results.
-
-Supported actions:
-
-- rename workflow
-- exclude workflow
-- delete session
-- hide incorrect clusters
-
-User feedback must be persisted locally.
+These are recommendations only.
+The system must not execute automation automatically.
 
 ---
 
-# 16. Security Requirements
+# 16. Configurability
 
-The system must enforce the following rules:
+The MVP must support configuration for at least:
 
-- API keys stored only in OS credential storage
-- no plaintext secrets stored in configuration files
-- sensitive data filtered before database insertion
-- only summarized workflow data allowed for external transmission
-- data deletion available to users at any time
+- normalization rules
+- session thresholds
+- clustering thresholds
+- reporting thresholds
 
----
-
-# 17. Non Goals
-
-The following features are explicitly out of scope for the MVP:
-
-- automated workflow execution
-- robotic process automation
-- auto clicking or typing
-- cloud synchronization
-- multi-user analytics
-- organization dashboards
-- mobile support
+Defaults should be safe and practical for real-world tuning.
 
 ---
 
-# 18. PoC Success Criteria
+# 17. Observability
 
-The MVP is considered successful if the following conditions are met:
+The product must expose internal debug visibility for:
 
-1. users can run the system continuously for **1–2 weeks**
-2. users can inspect a useful daily report after one working day of data collection
-3. users can inspect a useful weekly report after one week of data collection
-4. at least **5 repetitive workflows** are detected over the longer 1-2 week horizon
-5. detected workflows match real user activity
-6. time spent per workflow is measurable
-7. automation candidates are suggested
-8. no sensitive information is transmitted externally
-9. API keys are never stored in plaintext
+- raw event -> normalized event
+- normalized event -> semantic action
+- action sequence -> session
+- session -> workflow cluster
+
+The goal is to make interpretation quality debuggable when real-world accuracy problems happen.
 
 ---
 
-# 19. Future Considerations (Post-MVP)
+# 18. Success Criteria
 
-Possible future enhancements:
+The MVP is successful when:
 
-- deeper macOS desktop event coverage
-- automation script generation
-- team-level analytics
-- enterprise SSO integration
-- internal workflow knowledge base
-- automation execution engine
+1. noisy browser and admin activity can be normalized into stable contexts
+2. low-level signals are translated into human-readable action labels
+3. sessions have explainable boundaries
+4. repeated workflows can be detected across 1-2 weeks of usage
+5. users can label, merge, split, exclude, and review workflows locally
+6. reports help users recognize what they truly do often
+7. practical automation hints are suggested without executing anything
 
-These are **not part of the MVP scope**.
+---
+
+# 19. Out of Scope for Now
+
+The following are not required now:
+
+- screenshot capture
+- team-shared workflow dictionaries
+- reusable workflow templates
+- automation spec export
+- automation execution engines
+- remote sync
+
+These may be considered later if architecture permits.
