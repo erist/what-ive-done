@@ -8,6 +8,39 @@ import { AppDatabase } from "./storage/database.js";
 
 const program = new Command();
 
+function withDatabase<T>(dataDir: string | undefined, fn: (database: AppDatabase) => T): T {
+  const database = new AppDatabase(resolveAppPaths(dataDir));
+  database.initialize();
+
+  try {
+    return fn(database);
+  } finally {
+    database.close();
+  }
+}
+
+function renderReport(json = false, dataDir?: string): void {
+  const reportEntries = withDatabase(dataDir, (database) =>
+    buildReportEntries(database.listWorkflowClusters()),
+  );
+
+  if (json) {
+    console.log(JSON.stringify(reportEntries, null, 2));
+    return;
+  }
+
+  console.table(
+    reportEntries.map((entry) => ({
+      workflow: entry.workflowName,
+      frequency: entry.frequency,
+      averageDuration: formatDuration(entry.averageDurationSeconds),
+      totalDuration: formatDuration(entry.totalDurationSeconds),
+      automationSuitability: entry.automationSuitability,
+      recommendation: entry.recommendedApproach,
+    })),
+  );
+}
+
 program
   .name("what-ive-done")
   .description("Local workflow pattern analyzer CLI")
@@ -35,9 +68,7 @@ program
   .option("--data-dir <path>", "Override application data directory")
   .action((options: { dataDir?: string }) => {
     const paths = resolveAppPaths(options.dataDir);
-    const database = new AppDatabase(paths);
-    database.initialize();
-    database.close();
+    withDatabase(options.dataDir, () => undefined);
 
     console.log(
       JSON.stringify(
@@ -56,16 +87,13 @@ program
   .description("Insert deterministic mock workflow events for local testing")
   .option("--data-dir <path>", "Override application data directory")
   .action((options: { dataDir?: string }) => {
-    const database = new AppDatabase(resolveAppPaths(options.dataDir));
-    database.initialize();
-
     const mockEvents = generateMockRawEvents();
 
-    for (const event of mockEvents) {
-      database.insertRawEvent(event);
-    }
-
-    database.close();
+    withDatabase(options.dataDir, (database) => {
+      for (const event of mockEvents) {
+        database.insertRawEvent(event);
+      }
+    });
 
     console.log(
       JSON.stringify(
@@ -85,20 +113,23 @@ program
   .description("Normalize events, build sessions, and detect workflows")
   .option("--data-dir <path>", "Override application data directory")
   .action((options: { dataDir?: string }) => {
-    const database = new AppDatabase(resolveAppPaths(options.dataDir));
-    database.initialize();
+    const { analysisResult, rawEventCount } = withDatabase(options.dataDir, (database) => {
+      const rawEvents = database.getRawEventsChronological();
+      const result = analyzeRawEvents(rawEvents);
 
-    const rawEvents = database.getRawEventsChronological();
-    const analysisResult = analyzeRawEvents(rawEvents);
+      database.replaceAnalysisArtifacts(result);
 
-    database.replaceAnalysisArtifacts(analysisResult);
-    database.close();
+      return {
+        analysisResult: result,
+        rawEventCount: rawEvents.length,
+      };
+    });
 
     console.log(
       JSON.stringify(
         {
           status: "analysis_completed",
-          rawEvents: rawEvents.length,
+          rawEvents: rawEventCount,
           normalizedEvents: analysisResult.normalizedEvents.length,
           sessions: analysisResult.sessions.length,
           workflowClusters: analysisResult.workflowClusters.length,
@@ -115,26 +146,39 @@ program
   .option("--data-dir <path>", "Override application data directory")
   .option("--json", "Print machine-readable JSON")
   .action((options: { dataDir?: string; json?: boolean }) => {
-    const database = new AppDatabase(resolveAppPaths(options.dataDir));
-    database.initialize();
-    const reportEntries = buildReportEntries(database.listWorkflowClusters());
-    database.close();
+    renderReport(options.json, options.dataDir);
+  });
 
-    if (options.json) {
-      console.log(JSON.stringify(reportEntries, null, 2));
-      return;
-    }
+program
+  .command("demo")
+  .description("Reset local data, seed mock workflows, run analysis, and print a report")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--json", "Print machine-readable JSON")
+  .action((options: { dataDir?: string; json?: boolean }) => {
+    const mockEvents = generateMockRawEvents();
 
-    console.table(
-      reportEntries.map((entry) => ({
-        workflow: entry.workflowName,
-        frequency: entry.frequency,
-        averageDuration: formatDuration(entry.averageDurationSeconds),
-        totalDuration: formatDuration(entry.totalDurationSeconds),
-        automationSuitability: entry.automationSuitability,
-        recommendation: entry.recommendedApproach,
-      })),
-    );
+    const summary = withDatabase(options.dataDir, (database) => {
+      database.clearAllData();
+
+      for (const event of mockEvents) {
+        database.insertRawEvent(event);
+      }
+
+      const rawEvents = database.getRawEventsChronological();
+      const analysisResult = analyzeRawEvents(rawEvents);
+
+      database.replaceAnalysisArtifacts(analysisResult);
+
+      return {
+        rawEvents: rawEvents.length,
+        normalizedEvents: analysisResult.normalizedEvents.length,
+        sessions: analysisResult.sessions.length,
+        workflowClusters: analysisResult.workflowClusters.length,
+      };
+    });
+
+    console.log(JSON.stringify({ status: "demo_completed", ...summary }, null, 2));
+    renderReport(options.json, options.dataDir);
   });
 
 program
@@ -142,10 +186,9 @@ program
   .description("Delete all locally stored events and analysis results")
   .option("--data-dir <path>", "Override application data directory")
   .action((options: { dataDir?: string }) => {
-    const database = new AppDatabase(resolveAppPaths(options.dataDir));
-    database.initialize();
-    database.clearAllData();
-    database.close();
+    withDatabase(options.dataDir, (database) => {
+      database.clearAllData();
+    });
 
     console.log(JSON.stringify({ status: "reset_completed" }, null, 2));
   });
