@@ -2,6 +2,7 @@ import { Command } from "commander";
 
 import { resolveAppPaths } from "./app-paths.js";
 import { getAvailableCollectors, getWindowsActiveWindowCollectorInfo } from "./collectors/windows.js";
+import { resolveCredentialStore } from "./credentials/store.js";
 import { generateMockRawEvents } from "./collectors/mock.js";
 import { importEventsFromFile } from "./importers/events.js";
 import { createOpenAIWorkflowAnalyzer } from "./llm/openai.js";
@@ -107,6 +108,17 @@ function requireEnv(name: string): string {
   }
 
   return value;
+}
+
+function resolveOpenAIApiKey(): string {
+  const credentialStore = resolveCredentialStore();
+  const storedKey = credentialStore.getOpenAIKey();
+
+  if (storedKey) {
+    return storedKey;
+  }
+
+  return requireEnv("OPENAI_API_KEY");
 }
 
 program
@@ -501,7 +513,7 @@ program
         }),
       );
       const analyzer = createOpenAIWorkflowAnalyzer({
-        apiKey: requireEnv("OPENAI_API_KEY"),
+        apiKey: resolveOpenAIApiKey(),
         model: options.model,
         baseUrl: options.baseUrl,
       });
@@ -539,6 +551,66 @@ program
       );
     },
   );
+
+program
+  .command("credential:status")
+  .description("Show secure credential backend status")
+  .action(() => {
+    const credentialStore = resolveCredentialStore();
+
+    console.log(
+      JSON.stringify(
+        {
+          backend: credentialStore.backend,
+          supported: credentialStore.isSupported(),
+          hasOpenAIKey: credentialStore.hasOpenAIKey(),
+        },
+        null,
+        2,
+      ),
+    );
+  });
+
+program
+  .command("credential:set-openai")
+  .description("Store the OpenAI API key in secure OS credential storage")
+  .argument("[api-key]", "OpenAI API key. If omitted, OPENAI_API_KEY is used.")
+  .action((apiKey: string | undefined) => {
+    const credentialStore = resolveCredentialStore();
+    const resolvedApiKey = apiKey ?? requireEnv("OPENAI_API_KEY");
+
+    credentialStore.setOpenAIKey(resolvedApiKey);
+
+    console.log(
+      JSON.stringify(
+        {
+          status: "openai_key_stored",
+          backend: credentialStore.backend,
+        },
+        null,
+        2,
+      ),
+    );
+  });
+
+program
+  .command("credential:delete-openai")
+  .description("Delete the stored OpenAI API key from secure OS credential storage")
+  .action(() => {
+    const credentialStore = resolveCredentialStore();
+    credentialStore.deleteOpenAIKey();
+
+    console.log(
+      JSON.stringify(
+        {
+          status: "openai_key_deleted",
+          backend: credentialStore.backend,
+        },
+        null,
+        2,
+      ),
+    );
+  });
 
 program
   .command("llm:results")
