@@ -161,6 +161,44 @@ test("workflow feedback persists across analysis refreshes for stable cluster id
   }
 });
 
+test("normalized events persist derived normalization fields", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-normalized-events-"));
+
+  try {
+    const database = new AppDatabase({
+      dataDir: tempDir,
+      databasePath: join(tempDir, "test.sqlite"),
+    });
+    database.initialize();
+
+    database.insertRawEvent({
+      source: "chrome_extension",
+      sourceEventType: "chrome.navigation",
+      timestamp: "2026-03-14T10:12:23.000Z",
+      application: "Google Chrome",
+      url: "https://admin.example.com/product/123/edit?tab=stock",
+      windowTitle: "Admin - Product 123 Edit",
+      action: "navigation",
+      target: "edit_product",
+    });
+
+    const analysisResult = analyzeRawEvents(database.getRawEventsChronological());
+    database.replaceAnalysisArtifacts(analysisResult);
+
+    const normalizedEvents = database.listNormalizedEvents();
+
+    assert.equal(normalizedEvents.length, 1);
+    assert.equal(normalizedEvents[0]?.appNameNormalized, "chrome");
+    assert.equal(normalizedEvents[0]?.pathPattern, "/product/{id}/edit");
+    assert.equal(normalizedEvents[0]?.pageType, "product_edit");
+    assert.equal(normalizedEvents[0]?.titlePattern, "Admin - Product {id} Edit");
+
+    database.close();
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("deleting a session removes its source events and changes downstream analysis", () => {
   const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-session-delete-"));
 

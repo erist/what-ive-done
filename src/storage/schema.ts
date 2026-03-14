@@ -1,4 +1,6 @@
-export const CURRENT_SCHEMA_VERSION = 2;
+import type { DatabaseSync } from "node:sqlite";
+
+export const CURRENT_SCHEMA_VERSION = 3;
 
 export const INITIAL_SCHEMA_SQL = `
   PRAGMA journal_mode = WAL;
@@ -33,7 +35,13 @@ export const INITIAL_SCHEMA_SQL = `
     raw_event_id TEXT NOT NULL REFERENCES raw_events(id) ON DELETE CASCADE,
     timestamp TEXT NOT NULL,
     application TEXT NOT NULL,
+    app_name_normalized TEXT NOT NULL,
     domain TEXT,
+    url TEXT,
+    path_pattern TEXT,
+    page_type TEXT,
+    resource_hint TEXT,
+    title_pattern TEXT,
     action TEXT NOT NULL,
     target TEXT,
     metadata_json TEXT NOT NULL,
@@ -42,6 +50,8 @@ export const INITIAL_SCHEMA_SQL = `
 
   CREATE INDEX IF NOT EXISTS idx_normalized_events_timestamp ON normalized_events(timestamp);
   CREATE INDEX IF NOT EXISTS idx_normalized_events_raw_event_id ON normalized_events(raw_event_id);
+  CREATE INDEX IF NOT EXISTS idx_normalized_events_domain_path
+    ON normalized_events(domain, path_pattern);
 
   CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
@@ -137,3 +147,51 @@ export const INITIAL_SCHEMA_SQL = `
     updated_at TEXT NOT NULL
   );
 `;
+
+interface TableInfoRow {
+  name: string;
+}
+
+function hasColumn(connection: DatabaseSync, table: string, column: string): boolean {
+  const rows = connection.prepare(`PRAGMA table_info(${table})`).all() as unknown as TableInfoRow[];
+
+  return rows.some((row) => row.name === column);
+}
+
+function ensureColumn(
+  connection: DatabaseSync,
+  table: string,
+  column: string,
+  definition: string,
+): void {
+  if (hasColumn(connection, table, column)) {
+    return;
+  }
+
+  connection.exec(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
+}
+
+export function applySchemaMigrations(
+  connection: DatabaseSync,
+  existingVersion: number | null,
+): void {
+  if ((existingVersion ?? 0) < 3) {
+    ensureColumn(connection, "normalized_events", "app_name_normalized", "app_name_normalized TEXT");
+    ensureColumn(connection, "normalized_events", "url", "url TEXT");
+    ensureColumn(connection, "normalized_events", "path_pattern", "path_pattern TEXT");
+    ensureColumn(connection, "normalized_events", "page_type", "page_type TEXT");
+    ensureColumn(connection, "normalized_events", "resource_hint", "resource_hint TEXT");
+    ensureColumn(connection, "normalized_events", "title_pattern", "title_pattern TEXT");
+
+    connection.exec(`
+      UPDATE normalized_events
+      SET app_name_normalized = COALESCE(app_name_normalized, application)
+      WHERE app_name_normalized IS NULL
+    `);
+
+    connection.exec(`
+      CREATE INDEX IF NOT EXISTS idx_normalized_events_domain_path
+        ON normalized_events(domain, path_pattern)
+    `);
+  }
+}
