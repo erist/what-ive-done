@@ -4,6 +4,7 @@ import { resolveAppPaths } from "./app-paths.js";
 import { generateMockRawEvents } from "./collectors/mock.js";
 import { analyzeRawEvents } from "./pipeline/analyze.js";
 import { buildReportEntries, formatDuration } from "./reporting/report.js";
+import { startIngestServer } from "./server/ingest-server.js";
 import { AppDatabase } from "./storage/database.js";
 
 const program = new Command();
@@ -147,6 +148,42 @@ program
   .option("--json", "Print machine-readable JSON")
   .action((options: { dataDir?: string; json?: boolean }) => {
     renderReport(options.json, options.dataDir);
+  });
+
+program
+  .command("serve")
+  .description("Run a local HTTP ingest server for browser or desktop collectors")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--host <host>", "Host to bind", "127.0.0.1")
+  .option("--port <port>", "Port to bind", "4318")
+  .action(async (options: { dataDir?: string; host: string; port: string }) => {
+    const server = await startIngestServer({
+      dataDir: options.dataDir,
+      host: options.host,
+      port: Number.parseInt(options.port, 10),
+    });
+
+    console.log(
+      JSON.stringify(
+        {
+          status: "listening",
+          host: server.host,
+          port: server.port,
+          healthUrl: `http://${server.host}:${server.port}/health`,
+          eventsUrl: `http://${server.host}:${server.port}/events`,
+        },
+        null,
+        2,
+      ),
+    );
+
+    const stopServer = async () => {
+      await server.close();
+      process.exit(0);
+    };
+
+    process.on("SIGINT", stopServer);
+    process.on("SIGTERM", stopServer);
   });
 
 program
