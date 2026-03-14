@@ -111,3 +111,9 @@ export interface LLMWorkflowSummaryPayload {
   applications: string[];
   domains: string[];
 }
+
+export interface WorkflowSummaryPayloadRecord {
+  workflowClusterId: string;
+  workflowName: string;
+  payload: LLMWorkflowSummaryPayload;
+}

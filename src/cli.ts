@@ -86,6 +86,17 @@ function renderSessionList(json = false, dataDir?: string): void {
   );
 }
 
+function renderWorkflowSummaryPayloads(
+  dataDir: string | undefined,
+  options: { includeExcluded?: boolean | undefined; includeHidden?: boolean | undefined },
+): void {
+  const payloadRecords = withDatabase(dataDir, (database) =>
+    database.listWorkflowSummaryPayloadRecords(options),
+  );
+
+  console.log(JSON.stringify(payloadRecords, null, 2));
+}
+
 program
   .name("what-ive-done")
   .description("Local workflow pattern analyzer CLI")
@@ -429,6 +440,21 @@ program
       ),
     );
   });
+
+program
+  .command("llm:payloads")
+  .description("Print summarized workflow payloads that are safe to send to an LLM")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--include-excluded", "Include excluded workflows")
+  .option("--include-hidden", "Include hidden workflows")
+  .action(
+    (options: { dataDir?: string; includeExcluded?: boolean; includeHidden?: boolean }) => {
+      renderWorkflowSummaryPayloads(options.dataDir, {
+        includeExcluded: options.includeExcluded,
+        includeHidden: options.includeHidden,
+      });
+    },
+  );
 
 program
   .command("serve")

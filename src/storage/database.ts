@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 
 import { ensureAppPaths, resolveAppPaths, type AppPaths } from "../app-paths.js";
 import type {
+  LLMWorkflowSummaryPayload,
   NormalizedEvent,
   RawEvent,
   RawEventInput,
@@ -10,7 +11,9 @@ import type {
   SessionSummary,
   WorkflowFeedback,
   WorkflowCluster,
+  WorkflowSummaryPayloadRecord,
 } from "../domain/types.js";
+import { buildWorkflowSummaryPayload } from "../llm/payloads.js";
 import { sanitizeRawEvent } from "../privacy/sanitize.js";
 import { CURRENT_SCHEMA_VERSION, INITIAL_SCHEMA_SQL } from "./schema.js";
 
@@ -76,6 +79,12 @@ interface SessionSummaryRow {
   primary_application: string;
   primary_domain: string | null;
   step_count: number;
+}
+
+interface SessionStepContextRow {
+  session_id: string;
+  application: string;
+  domain: string | null;
 }
 
 export class AppDatabase {
@@ -595,6 +604,82 @@ export class AppDatabase {
     }
 
     return rawEventIds.length;
+  }
+
+  listWorkflowSummaryPayloadRecords(options?: {
+    includeExcluded?: boolean | undefined;
+    includeHidden?: boolean | undefined;
+  }): WorkflowSummaryPayloadRecord[] {
+    const includeExcluded = options?.includeExcluded ?? false;
+    const includeHidden = options?.includeHidden ?? false;
+    const clusters = this.listWorkflowClusters().filter(
+      (cluster) => (includeExcluded || !cluster.excluded) && (includeHidden || !cluster.hidden),
+    );
+
+    if (clusters.length === 0) {
+      return [];
+    }
+
+    const sessionIds = [...new Set(clusters.flatMap((cluster) => cluster.sessionIds))];
+    const placeholders = sessionIds.map(() => "?").join(", ");
+    const stepRows = this.connection
+      .prepare(`
+        SELECT
+          session_id,
+          application,
+          domain
+        FROM session_steps
+        WHERE session_id IN (${placeholders})
+      `)
+      .all(...sessionIds) as unknown as SessionStepContextRow[];
+    const stepContextBySessionId = new Map<
+      string,
+      { applications: string[]; domains: string[] }
+    >();
+
+    for (const row of stepRows) {
+      const current = stepContextBySessionId.get(row.session_id) ?? {
+        applications: [],
+        domains: [],
+      };
+
+      current.applications.push(row.application);
+      if (row.domain) {
+        current.domains.push(row.domain);
+      }
+
+      stepContextBySessionId.set(row.session_id, current);
+    }
+
+    return clusters.map((cluster) => {
+      const applications: string[] = [];
+      const domains: string[] = [];
+
+      for (const sessionId of cluster.sessionIds) {
+        const context = stepContextBySessionId.get(sessionId);
+
+        if (!context) {
+          continue;
+        }
+
+        applications.push(...context.applications);
+        domains.push(...context.domains);
+      }
+
+      const payload: LLMWorkflowSummaryPayload = buildWorkflowSummaryPayload({
+        representativeSteps: cluster.representativeSteps,
+        frequency: cluster.frequency,
+        averageDurationSeconds: cluster.averageDurationSeconds,
+        applications,
+        domains,
+      });
+
+      return {
+        workflowClusterId: cluster.id,
+        workflowName: cluster.name,
+        payload,
+      };
+    });
   }
 
   clearAllData(): void {

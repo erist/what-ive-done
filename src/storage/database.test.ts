@@ -156,3 +156,46 @@ test("deleting a session removes its source events and changes downstream analys
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test("LLM payload records exclude raw event details and honor workflow feedback filters", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-llm-payload-"));
+
+  try {
+    const database = new AppDatabase({
+      dataDir: tempDir,
+      databasePath: join(tempDir, "test.sqlite"),
+    });
+    database.initialize();
+
+    for (const input of toRawEventInputs()) {
+      database.insertRawEvent(input);
+    }
+
+    const analysisResult = analyzeRawEvents(database.getRawEventsChronological());
+    database.replaceAnalysisArtifacts(analysisResult);
+
+    const firstWorkflow = database.listWorkflowClusters()[0];
+
+    assert.ok(firstWorkflow);
+
+    database.saveWorkflowFeedback({
+      workflowClusterId: firstWorkflow.id,
+      excluded: true,
+    });
+
+    const payloads = database.listWorkflowSummaryPayloadRecords();
+    const includedPayloads = database.listWorkflowSummaryPayloadRecords({
+      includeExcluded: true,
+    });
+
+    assert.equal(payloads.length, 4);
+    assert.equal(includedPayloads.length, 5);
+    assert.equal(JSON.stringify(includedPayloads).includes("windowTitle"), false);
+    assert.equal(JSON.stringify(includedPayloads).includes("url"), false);
+    assert.ok(includedPayloads[0]?.payload.workflowSteps.length);
+
+    database.close();
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
