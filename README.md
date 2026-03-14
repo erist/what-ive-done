@@ -29,6 +29,7 @@ Implemented now:
 - workflow clustering
 - CLI report output
 - workflow feedback persistence for rename, exclude, include, hide, and unhide
+- session listing and deletion with automatic reanalysis
 - mock workflow generator
 - local HTTP ingest server
 - Chrome extension scaffold for browser event collection
@@ -39,7 +40,6 @@ Not implemented yet:
 
 - Windows mouse click, file operation, and clipboard collectors
 - desktop UI
-- session deletion command
 - LLM integration
 - secure credential storage
 
@@ -277,6 +277,23 @@ npm run dev -- reset --data-dir ./tmp/local-data
 
 This deletes stored raw events and generated analysis artifacts from the selected data directory.
 
+### 8. Manage Sessions
+
+List analyzed sessions:
+
+```bash
+npm run dev -- session:list --data-dir ./tmp/local-data --json
+```
+
+Delete one session and automatically rerun analysis:
+
+```bash
+npm run dev -- session:delete <session-id> --data-dir ./tmp/local-data
+```
+
+`session:delete` removes the source raw events that produced the selected session, then regenerates
+normalized events, sessions, and workflow clusters from the remaining raw data.
+
 ## Live Browser Test With Chrome Extension
 
 If you want to test with real browsing activity instead of mock data, use the local ingest server
@@ -448,6 +465,8 @@ Not yet included:
 - `workflow:include`: re-include an excluded workflow cluster
 - `workflow:hide`: hide an incorrect workflow cluster
 - `workflow:unhide`: show a hidden workflow cluster again
+- `session:list`: list analyzed sessions
+- `session:delete`: delete a session and regenerate analysis from remaining raw events
 - `serve`: run the local HTTP ingest server for live collectors
 - `collector:list`: list available collectors
 - `collector:windows:info`: print Windows collector usage details
@@ -499,7 +518,7 @@ Current key files:
 
 ## Next Planned Steps
 
-- add session deletion and incorrect session cleanup commands
+- add incorrect session cleanup and richer session editing tools
 - extend the Windows collector beyond active-window changes
 - add LLM summary payload generation and provider adapter
 - add a desktop-facing report UI
