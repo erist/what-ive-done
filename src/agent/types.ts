@@ -1,6 +1,14 @@
+import type { ReportWindow } from "../domain/types.js";
+
 export type AgentLifecycleStatus = "starting" | "running" | "stopping" | "stopped";
 
-export type AgentServiceStatus = "starting" | "running" | "stopping" | "stopped" | "failed";
+export type AgentServiceStatus =
+  | "starting"
+  | "running"
+  | "stopping"
+  | "stopped"
+  | "failed"
+  | "disabled";
 
 export type AgentCollectorStatus =
   | "starting"
@@ -37,6 +45,23 @@ export interface AgentCollectorState {
   lastError?: string | undefined;
 }
 
+export interface AgentSnapshotSchedulerRunSummary {
+  window: ReportWindow;
+  reportDate: string;
+  generatedAt: string;
+}
+
+export interface AgentSnapshotSchedulerState {
+  status: AgentServiceStatus;
+  windows: ReportWindow[];
+  intervalMs: number;
+  lastRunAt?: string | undefined;
+  lastSuccessAt?: string | undefined;
+  nextRunAt?: string | undefined;
+  lastError?: string | undefined;
+  lastGeneratedSnapshots: AgentSnapshotSchedulerRunSummary[];
+}
+
 export interface AgentRuntimeState {
   status: AgentLifecycleStatus;
   pid: number;
@@ -44,6 +69,7 @@ export interface AgentRuntimeState {
   heartbeatAt: string;
   ingestServer?: AgentIngestServerState | undefined;
   collectors: AgentCollectorState[];
+  snapshotScheduler?: AgentSnapshotSchedulerState | undefined;
   stoppedAt?: string | undefined;
   stopReason?: string | undefined;
 }
