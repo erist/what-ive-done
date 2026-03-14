@@ -253,6 +253,7 @@ export function clusterSessions(sessions: Session[], options: ClusterOptions = {
         automationSuitability: suitability.automationSuitability,
         recommendedApproach: suitability.recommendedApproach,
         excluded: false,
+        hidden: false,
       };
     })
     .sort((left, right) => right.frequency - left.frequency || right.totalDurationSeconds - left.totalDurationSeconds);

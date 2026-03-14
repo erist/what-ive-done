@@ -42,6 +42,28 @@ function renderReport(json = false, dataDir?: string): void {
   );
 }
 
+function renderWorkflowList(json = false, dataDir?: string): void {
+  const workflows = withDatabase(dataDir, (database) => database.listWorkflowClusters());
+
+  if (json) {
+    console.log(JSON.stringify(workflows, null, 2));
+    return;
+  }
+
+  console.table(
+    workflows.map((workflow) => ({
+      id: workflow.id,
+      workflow: workflow.name,
+      frequency: workflow.frequency,
+      averageDuration: formatDuration(workflow.averageDurationSeconds),
+      totalDuration: formatDuration(workflow.totalDurationSeconds),
+      excluded: workflow.excluded,
+      hidden: workflow.hidden,
+      recommendation: workflow.recommendedApproach,
+    })),
+  );
+}
+
 program
   .name("what-ive-done")
   .description("Local workflow pattern analyzer CLI")
@@ -146,8 +168,128 @@ program
   .description("Show detected workflows")
   .option("--data-dir <path>", "Override application data directory")
   .option("--json", "Print machine-readable JSON")
+  .option("--include-excluded", "Include excluded workflows")
+  .option("--include-hidden", "Include hidden workflows")
+  .action(
+    (options: {
+      dataDir?: string;
+      json?: boolean;
+      includeExcluded?: boolean;
+      includeHidden?: boolean;
+    }) => {
+      const reportEntries = withDatabase(options.dataDir, (database) =>
+        buildReportEntries(database.listWorkflowClusters(), {
+          includeExcluded: options.includeExcluded,
+          includeHidden: options.includeHidden,
+        }),
+      );
+
+      if (options.json) {
+        console.log(JSON.stringify(reportEntries, null, 2));
+        return;
+      }
+
+      console.table(
+        reportEntries.map((entry) => ({
+          workflow: entry.workflowName,
+          frequency: entry.frequency,
+          averageDuration: formatDuration(entry.averageDurationSeconds),
+          totalDuration: formatDuration(entry.totalDurationSeconds),
+          automationSuitability: entry.automationSuitability,
+          recommendation: entry.recommendedApproach,
+        })),
+      );
+    },
+  );
+
+program
+  .command("workflow:list")
+  .description("List workflow clusters including feedback state")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--json", "Print machine-readable JSON")
   .action((options: { dataDir?: string; json?: boolean }) => {
-    renderReport(options.json, options.dataDir);
+    renderWorkflowList(options.json, options.dataDir);
+  });
+
+program
+  .command("workflow:rename")
+  .description("Rename a workflow cluster")
+  .argument("<workflow-id>", "Workflow cluster id")
+  .argument("<name>", "New workflow name")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((workflowId: string, name: string, options: { dataDir?: string }) => {
+    withDatabase(options.dataDir, (database) => {
+      database.saveWorkflowFeedback({
+        workflowClusterId: workflowId,
+        renameTo: name,
+      });
+    });
+
+    console.log(JSON.stringify({ status: "workflow_renamed", workflowId, name }, null, 2));
+  });
+
+program
+  .command("workflow:exclude")
+  .description("Exclude a workflow cluster from report output")
+  .argument("<workflow-id>", "Workflow cluster id")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((workflowId: string, options: { dataDir?: string }) => {
+    withDatabase(options.dataDir, (database) => {
+      database.saveWorkflowFeedback({
+        workflowClusterId: workflowId,
+        excluded: true,
+      });
+    });
+
+    console.log(JSON.stringify({ status: "workflow_excluded", workflowId }, null, 2));
+  });
+
+program
+  .command("workflow:include")
+  .description("Include a previously excluded workflow cluster")
+  .argument("<workflow-id>", "Workflow cluster id")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((workflowId: string, options: { dataDir?: string }) => {
+    withDatabase(options.dataDir, (database) => {
+      database.saveWorkflowFeedback({
+        workflowClusterId: workflowId,
+        excluded: false,
+      });
+    });
+
+    console.log(JSON.stringify({ status: "workflow_included", workflowId }, null, 2));
+  });
+
+program
+  .command("workflow:hide")
+  .description("Hide an incorrect workflow cluster")
+  .argument("<workflow-id>", "Workflow cluster id")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((workflowId: string, options: { dataDir?: string }) => {
+    withDatabase(options.dataDir, (database) => {
+      database.saveWorkflowFeedback({
+        workflowClusterId: workflowId,
+        hidden: true,
+      });
+    });
+
+    console.log(JSON.stringify({ status: "workflow_hidden", workflowId }, null, 2));
+  });
+
+program
+  .command("workflow:unhide")
+  .description("Unhide a hidden workflow cluster")
+  .argument("<workflow-id>", "Workflow cluster id")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((workflowId: string, options: { dataDir?: string }) => {
+    withDatabase(options.dataDir, (database) => {
+      database.saveWorkflowFeedback({
+        workflowClusterId: workflowId,
+        hidden: false,
+      });
+    });
+
+    console.log(JSON.stringify({ status: "workflow_visible", workflowId }, null, 2));
   });
 
 program

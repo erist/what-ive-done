@@ -73,6 +73,7 @@ export interface WorkflowCluster {
   automationSuitability: AutomationSuitability;
   recommendedApproach: string;
   excluded: boolean;
+  hidden: boolean;
 }
 
 export interface WorkflowFeedback {

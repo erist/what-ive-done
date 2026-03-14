@@ -1,7 +1,20 @@
 import type { ReportEntry, WorkflowCluster } from "../domain/types.js";
 
-export function buildReportEntries(clusters: WorkflowCluster[]): ReportEntry[] {
-  return clusters.map((cluster) => ({
+export interface BuildReportOptions {
+  includeExcluded?: boolean | undefined;
+  includeHidden?: boolean | undefined;
+}
+
+export function buildReportEntries(
+  clusters: WorkflowCluster[],
+  options: BuildReportOptions = {},
+): ReportEntry[] {
+  const includeExcluded = options.includeExcluded ?? false;
+  const includeHidden = options.includeHidden ?? false;
+
+  return clusters
+    .filter((cluster) => (includeExcluded || !cluster.excluded) && (includeHidden || !cluster.hidden))
+    .map((cluster) => ({
     workflowClusterId: cluster.id,
     workflowName: cluster.name,
     frequency: cluster.frequency,
@@ -9,7 +22,7 @@ export function buildReportEntries(clusters: WorkflowCluster[]): ReportEntry[] {
     totalDurationSeconds: cluster.totalDurationSeconds,
     automationSuitability: cluster.automationSuitability,
     recommendedApproach: cluster.recommendedApproach,
-  }));
+    }));
 }
 
 export function formatDuration(seconds: number): string {

@@ -7,6 +7,7 @@ import type {
   RawEvent,
   RawEventInput,
   Session,
+  WorkflowFeedback,
   WorkflowCluster,
 } from "../domain/types.js";
 import { sanitizeRawEvent } from "../privacy/sanitize.js";
@@ -50,6 +51,21 @@ interface WorkflowClusterRow {
   automation_suitability: WorkflowCluster["automationSuitability"];
   recommended_approach: string;
   excluded: number;
+}
+
+interface WorkflowFeedbackRow {
+  id: string;
+  workflow_cluster_id: string;
+  rename_to: string | null;
+  excluded: number | null;
+  hidden: number | null;
+  created_at: string;
+}
+
+interface EffectiveWorkflowFeedback {
+  renameTo?: string | undefined;
+  excluded?: boolean | undefined;
+  hidden?: boolean | undefined;
 }
 
 export class AppDatabase {
@@ -226,8 +242,6 @@ export class AppDatabase {
     try {
       this.connection.exec(`
         DELETE FROM workflow_cluster_sessions;
-        DELETE FROM workflow_feedback;
-        DELETE FROM workflow_clusters;
         DELETE FROM session_steps;
         DELETE FROM sessions;
         DELETE FROM normalized_events;
@@ -322,6 +336,16 @@ export class AppDatabase {
           excluded,
           created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name,
+          frequency = excluded.frequency,
+          average_duration_seconds = excluded.average_duration_seconds,
+          total_duration_seconds = excluded.total_duration_seconds,
+          representative_steps_json = excluded.representative_steps_json,
+          automation_suitability = excluded.automation_suitability,
+          recommended_approach = excluded.recommended_approach,
+          excluded = excluded.excluded,
+          created_at = excluded.created_at
       `);
       const insertWorkflowClusterSession = this.connection.prepare(`
         INSERT INTO workflow_cluster_sessions (
@@ -343,7 +367,19 @@ export class AppDatabase {
           cluster.excluded ? 1 : 0,
           new Date().toISOString(),
         );
+      }
 
+      if (args.workflowClusters.length === 0) {
+        this.connection.exec("DELETE FROM workflow_clusters");
+      } else {
+        const placeholders = args.workflowClusters.map(() => "?").join(", ");
+
+        this.connection
+          .prepare(`DELETE FROM workflow_clusters WHERE id NOT IN (${placeholders})`)
+          .run(...args.workflowClusters.map((cluster) => cluster.id));
+      }
+
+      for (const cluster of args.workflowClusters) {
         for (const sessionId of cluster.sessionIds) {
           insertWorkflowClusterSession.run(cluster.id, sessionId);
         }
@@ -389,9 +425,14 @@ export class AppDatabase {
       ]);
     }
 
-    return rows.map((row) => ({
+    const feedbackByClusterId = this.listWorkflowFeedbackSummary();
+
+    return rows.map((row) => {
+      const feedback = feedbackByClusterId.get(row.id);
+
+      return {
       id: row.id,
-      name: row.name,
+      name: feedback?.renameTo ?? row.name,
       sessionIds: sessionIdsByClusterId.get(row.id) ?? [],
       frequency: row.frequency,
       averageDurationSeconds: row.average_duration_seconds,
@@ -399,8 +440,85 @@ export class AppDatabase {
       representativeSteps: JSON.parse(row.representative_steps_json) as string[],
       automationSuitability: row.automation_suitability,
       recommendedApproach: row.recommended_approach,
-      excluded: row.excluded === 1,
-    }));
+      excluded: feedback?.excluded ?? row.excluded === 1,
+      hidden: feedback?.hidden ?? false,
+      };
+    });
+  }
+
+  saveWorkflowFeedback(input: {
+    workflowClusterId: string;
+    renameTo?: string | undefined;
+    excluded?: boolean | undefined;
+    hidden?: boolean | undefined;
+  }): WorkflowFeedback {
+    if (
+      input.renameTo === undefined &&
+      input.excluded === undefined &&
+      input.hidden === undefined
+    ) {
+      throw new Error("At least one workflow feedback field must be provided");
+    }
+
+    const feedback: WorkflowFeedback = {
+      id: randomUUID(),
+      workflowClusterId: input.workflowClusterId,
+      renameTo: input.renameTo,
+      excluded: input.excluded,
+      hidden: input.hidden,
+      createdAt: new Date().toISOString(),
+    };
+
+    this.connection
+      .prepare(`
+        INSERT INTO workflow_feedback (
+          id,
+          workflow_cluster_id,
+          rename_to,
+          excluded,
+          hidden,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        feedback.id,
+        feedback.workflowClusterId,
+        feedback.renameTo ?? null,
+        feedback.excluded === undefined ? null : feedback.excluded ? 1 : 0,
+        feedback.hidden === undefined ? null : feedback.hidden ? 1 : 0,
+        feedback.createdAt,
+      );
+
+    return feedback;
+  }
+
+  listWorkflowFeedbackSummary(): Map<string, EffectiveWorkflowFeedback> {
+    const rows = this.connection
+      .prepare(`
+        SELECT
+          id,
+          workflow_cluster_id,
+          rename_to,
+          excluded,
+          hidden,
+          created_at
+        FROM workflow_feedback
+        ORDER BY created_at ASC, id ASC
+      `)
+      .all() as unknown as WorkflowFeedbackRow[];
+    const feedbackByClusterId = new Map<string, EffectiveWorkflowFeedback>();
+
+    for (const row of rows) {
+      const current = feedbackByClusterId.get(row.workflow_cluster_id) ?? {};
+
+      feedbackByClusterId.set(row.workflow_cluster_id, {
+        renameTo: row.rename_to ?? current.renameTo,
+        excluded: row.excluded === null ? current.excluded : row.excluded === 1,
+        hidden: row.hidden === null ? current.hidden : row.hidden === 1,
+      });
+    }
+
+    return feedbackByClusterId;
   }
 
   clearAllData(): void {
