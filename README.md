@@ -35,6 +35,7 @@ Implemented now:
 - Chrome extension scaffold for browser event collection
 - JSON and NDJSON event import
 - first Windows native collector implementation as a PowerShell active-window collector
+- summarized LLM payload export with raw-log exclusion
 
 Not implemented yet:
 
@@ -294,6 +295,36 @@ npm run dev -- session:delete <session-id> --data-dir ./tmp/local-data
 `session:delete` removes the source raw events that produced the selected session, then regenerates
 normalized events, sessions, and workflow clusters from the remaining raw data.
 
+### 9. Export LLM Summary Payloads
+
+Print only the summarized workflow payloads that are safe to send to an external LLM:
+
+```bash
+npm run dev -- llm:payloads --data-dir ./tmp/local-data
+```
+
+Include excluded workflows too:
+
+```bash
+npm run dev -- llm:payloads --data-dir ./tmp/local-data --include-excluded
+```
+
+Include hidden workflows too:
+
+```bash
+npm run dev -- llm:payloads --data-dir ./tmp/local-data --include-hidden
+```
+
+This output intentionally includes only:
+
+- representative workflow steps
+- frequency
+- average duration
+- applications
+- domains
+
+It does not include raw logs, URLs, or window titles.
+
 ## Live Browser Test With Chrome Extension
 
 If you want to test with real browsing activity instead of mock data, use the local ingest server
@@ -467,6 +498,7 @@ Not yet included:
 - `workflow:unhide`: show a hidden workflow cluster again
 - `session:list`: list analyzed sessions
 - `session:delete`: delete a session and regenerate analysis from remaining raw events
+- `llm:payloads`: export only summarized workflow payloads for external LLM use
 - `serve`: run the local HTTP ingest server for live collectors
 - `collector:list`: list available collectors
 - `collector:windows:info`: print Windows collector usage details
@@ -520,5 +552,5 @@ Current key files:
 
 - add incorrect session cleanup and richer session editing tools
 - extend the Windows collector beyond active-window changes
-- add LLM summary payload generation and provider adapter
+- add an actual LLM provider adapter on top of the summary payload export
 - add a desktop-facing report UI
