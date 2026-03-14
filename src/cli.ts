@@ -1,5 +1,6 @@
 import { Command } from "commander";
 
+import { getAgentHealthReport, listLatestAgentSnapshots, runAgentOnce } from "./agent/control.js";
 import { getAgentStatusSnapshot } from "./agent/state.js";
 import { startAgentRuntime, stopAgentRuntime } from "./agent/runtime.js";
 import { resolveAppPaths } from "./app-paths.js";
@@ -421,6 +422,50 @@ program
     const result = stopAgentRuntime(options.dataDir);
 
     console.log(JSON.stringify(result, null, 2));
+  });
+
+program
+  .command("agent:health")
+  .description("Show a concise health summary for the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    const report = getAgentHealthReport(options.dataDir);
+
+    console.log(JSON.stringify(report, null, 2));
+  });
+
+program
+  .command("agent:run-once")
+  .description("Run one manual snapshot refresh cycle without starting the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--windows <windows>", "Comma-separated snapshot windows", parseReportWindowList, ["day", "week"])
+  .action((options: { dataDir?: string; windows: ReportWindow[] }) => {
+    const result = runAgentOnce(options.dataDir, {
+      windows: options.windows,
+    });
+
+    console.log(JSON.stringify(result, null, 2));
+  });
+
+program
+  .command("agent:snapshot:latest")
+  .description("Show the latest stored snapshots for the control plane")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--windows <windows>", "Comma-separated snapshot windows", parseReportWindowList, ["day", "week"])
+  .action((options: { dataDir?: string; windows: ReportWindow[] }) => {
+    const snapshots = listLatestAgentSnapshots(options.dataDir, options.windows);
+
+    console.log(JSON.stringify(snapshots, null, 2));
+  });
+
+program
+  .command("agent:collectors")
+  .description("Show collector states managed by the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    const status = getAgentStatusSnapshot(options.dataDir);
+
+    console.log(JSON.stringify(status.state?.collectors ?? [], null, 2));
   });
 
 program
