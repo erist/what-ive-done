@@ -65,4 +65,6 @@ test("clusterSessions groups near-matching semantic action sequences", () => {
   assert.ok(clusters[0]?.representativeSequence.length);
   assert.equal(clusters[0]?.topVariants.length, 2);
   assert.ok((clusters[0]?.confidenceScore ?? 0) > 0.5);
+  assert.ok((clusters[0]?.automationHints.length ?? 0) > 0);
+  assert.ok(clusters[0]?.automationHints[0]?.expectedTimeSavings.includes("week"));
 });

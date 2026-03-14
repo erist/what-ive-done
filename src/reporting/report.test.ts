@@ -86,6 +86,8 @@ test("buildWorkflowReport produces confirmed workflows for a weekly window", () 
   assert.ok(firstWorkflow.graph.text.includes("->"));
   assert.ok(firstWorkflow.frequencyPerWeek >= 3);
   assert.ok(firstWorkflow.confidenceScore > 0);
+  assert.ok(firstWorkflow.automationHints.length > 0);
+  assert.ok(firstWorkflow.automationHints[0]?.suggestedApproach);
   assert.deepEqual(
     report.workflows.map((entry) => entry.frequency),
     [3, 3, 3, 3, 3],

@@ -1,4 +1,5 @@
 import type {
+  AutomationHint,
   AutomationSuitability,
   Session,
   SessionStep,
@@ -250,6 +251,112 @@ function representativeSteps(steps: SessionStep[]): string[] {
   return result;
 }
 
+function formatTimeSavings(seconds: number): string {
+  const roundedMinutes = Math.max(1, Math.round(seconds / 60));
+  const hours = Math.floor(roundedMinutes / 60);
+  const minutes = roundedMinutes % 60;
+
+  if (hours === 0) {
+    return `about ${minutes}m per similar week`;
+  }
+
+  if (minutes === 0) {
+    return `about ${hours}h per similar week`;
+  }
+
+  return `about ${hours}h ${minutes}m per similar week`;
+}
+
+function buildAutomationHints(args: {
+  involvedApps: string[];
+  representativeSequence: string[];
+  descriptors: SessionDescriptor[];
+  automationSuitability: AutomationSuitability;
+  recommendedApproach: string;
+}): AutomationHint[] {
+  const hints: AutomationHint[] = [];
+  const weeklySavingsSeconds =
+    average(args.descriptors.map((descriptor) => descriptor.durationSeconds)) *
+    args.descriptors.length *
+    0.6;
+  const browserOnly =
+    args.involvedApps.length > 0 &&
+    args.involvedApps.every((application) => ["chrome", "safari", "firefox"].includes(application));
+  const includesExcel = args.involvedApps.includes("excel");
+  const includesSlack = args.involvedApps.includes("slack");
+  const includesOutlook = args.involvedApps.includes("outlook");
+  const hasStructuredUpdate = args.representativeSequence.some((action) =>
+    /^(edit|update|verify|review)_/.test(action),
+  );
+
+  if (browserOnly) {
+    hints.push({
+      suggestedApproach: "Playwright",
+      whyThisFits: "The workflow is mostly browser-based and the step sequence is stable enough for scripted navigation.",
+      estimatedDifficulty: hasStructuredUpdate ? "medium" : "low",
+      prerequisites: ["Stable page selectors or URLs", "A safe test account for the target workflow"],
+      expectedTimeSavings: formatTimeSavings(weeklySavingsSeconds),
+    });
+  }
+
+  if (browserOnly && hasStructuredUpdate) {
+    hints.push({
+      suggestedApproach: "Internal admin API integration",
+      whyThisFits: "This workflow repeatedly updates structured records, which is often safer and faster through APIs than UI clicks.",
+      estimatedDifficulty: "medium",
+      prerequisites: ["Access to the internal API", "Documented request/response contracts"],
+      expectedTimeSavings: formatTimeSavings(weeklySavingsSeconds * 1.1),
+    });
+  }
+
+  if (includesExcel) {
+    hints.push({
+      suggestedApproach: "Excel macro",
+      whyThisFits: "A meaningful part of the workflow happens in spreadsheets, so a macro can remove repetitive edits and saves.",
+      estimatedDifficulty: includesSlack || browserOnly ? "medium" : "low",
+      prerequisites: ["The workbook structure should be stable", "Known input and output columns"],
+      expectedTimeSavings: formatTimeSavings(weeklySavingsSeconds * 0.8),
+    });
+  }
+
+  if (includesSlack) {
+    hints.push({
+      suggestedApproach: "n8n workflow",
+      whyThisFits: "Slack notifications and follow-up steps map well to an orchestration tool that can coordinate multiple apps.",
+      estimatedDifficulty: "medium",
+      prerequisites: ["Slack app or webhook access", "A trigger or polling source for the upstream step"],
+      expectedTimeSavings: formatTimeSavings(weeklySavingsSeconds * 0.7),
+    });
+  }
+
+  if (includesOutlook) {
+    hints.push({
+      suggestedApproach: "PowerShell",
+      whyThisFits: "Desktop email and office tooling often fit well with a small script that automates repetitive message handling.",
+      estimatedDifficulty: "medium",
+      prerequisites: ["Local execution permissions", "A documented mail or file handling flow"],
+      expectedTimeSavings: formatTimeSavings(weeklySavingsSeconds * 0.7),
+    });
+  }
+
+  if (hints.length === 0) {
+    hints.push({
+      suggestedApproach: args.recommendedApproach === "Browser automation" ? "Playwright" : "Python script",
+      whyThisFits: "The workflow is repetitive enough to justify a scripted MVP even before deeper integrations are available.",
+      estimatedDifficulty: args.automationSuitability === "high" ? "low" : "medium",
+      prerequisites: ["A reproducible input/output example", "A safe place to test the automation"],
+      expectedTimeSavings: formatTimeSavings(weeklySavingsSeconds),
+    });
+  }
+
+  return hints
+    .filter(
+      (hint, index, collection) =>
+        collection.findIndex((entry) => entry.suggestedApproach === hint.suggestedApproach) === index,
+    )
+    .slice(0, 3);
+}
+
 function buildTopVariants(descriptors: SessionDescriptor[]): WorkflowVariant[] {
   const bySequence = new Map<
     string,
@@ -362,6 +469,13 @@ export function clusterSessions(sessions: Session[], options: ClusterOptions = {
       const workflowSignature = stableId("workflow_signature", representativeSequence.join(">"));
       const suitability = determineSuitability(cluster.descriptors, average(similarities));
       const confidenceScore = computeConfidenceScore(cluster.descriptors, topVariants);
+      const automationHints = buildAutomationHints({
+        involvedApps,
+        representativeSequence,
+        descriptors: cluster.descriptors,
+        automationSuitability: suitability.automationSuitability,
+        recommendedApproach: suitability.recommendedApproach,
+      });
 
       return {
         id: stableId("workflow_cluster", workflowSignature),
@@ -378,7 +492,8 @@ export function clusterSessions(sessions: Session[], options: ClusterOptions = {
         confidenceScore,
         topVariants,
         automationSuitability: suitability.automationSuitability,
-        recommendedApproach: suitability.recommendedApproach,
+        recommendedApproach: automationHints[0]?.suggestedApproach ?? suitability.recommendedApproach,
+        automationHints,
         excluded: false,
         hidden: false,
         userLabeled: false,

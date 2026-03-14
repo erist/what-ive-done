@@ -77,6 +77,7 @@ interface WorkflowClusterRow {
   top_variants_json: string | null;
   automation_suitability: WorkflowCluster["automationSuitability"];
   recommended_approach: string;
+  automation_hints_json: string | null;
   excluded: number;
 }
 
@@ -550,9 +551,10 @@ export class AppDatabase {
           top_variants_json,
           automation_suitability,
           recommended_approach,
+          automation_hints_json,
           excluded,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           workflow_signature = excluded.workflow_signature,
           name = excluded.name,
@@ -567,6 +569,7 @@ export class AppDatabase {
           top_variants_json = excluded.top_variants_json,
           automation_suitability = excluded.automation_suitability,
           recommended_approach = excluded.recommended_approach,
+          automation_hints_json = excluded.automation_hints_json,
           excluded = excluded.excluded,
           created_at = excluded.created_at
       `);
@@ -593,6 +596,7 @@ export class AppDatabase {
           JSON.stringify(cluster.topVariants),
           cluster.automationSuitability,
           cluster.recommendedApproach,
+          JSON.stringify(cluster.automationHints),
           cluster.excluded ? 1 : 0,
           new Date().toISOString(),
         );
@@ -639,6 +643,7 @@ export class AppDatabase {
           top_variants_json,
           automation_suitability,
           recommended_approach,
+          automation_hints_json,
           excluded
         FROM workflow_clusters
         ORDER BY frequency DESC, total_duration_seconds DESC
@@ -686,6 +691,7 @@ export class AppDatabase {
         topVariants: JSON.parse(row.top_variants_json ?? "[]") as WorkflowCluster["topVariants"],
         automationSuitability: row.automation_suitability,
         recommendedApproach: row.recommended_approach,
+        automationHints: JSON.parse(row.automation_hints_json ?? "[]") as WorkflowCluster["automationHints"],
         excluded: feedback?.excluded ?? row.excluded === 1,
         hidden: feedback?.hidden ?? false,
         repetitive: feedback?.repetitive,

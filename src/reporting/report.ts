@@ -184,6 +184,7 @@ export function buildReportEntries(
     graph: buildWorkflowGraph(cluster),
     automationSuitability: cluster.automationSuitability,
     recommendedApproach: cluster.recommendedApproach,
+    automationHints: cluster.automationHints,
   }));
 }
 
