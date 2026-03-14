@@ -2,221 +2,319 @@
 
 ## 1. 목표
 
-기존의 "1-2주 데이터를 모은 뒤 반복 업무 패턴을 파악한다"는 방향은 유지한다.
-다만 그 전에도 사용자가 바로 가치를 느낄 수 있도록 daily report와 weekly report를
-MVP 산출물로 추가한다.
+MVP의 런타임 전환 목표는 CLI 중심 구조를
+**resident local agent** 중심 구조로 옮기는 것이다.
 
-이번 active plan의 핵심은 새 collector를 더 붙이는 것이 아니라, 이미 구현된 수집/분석
-파이프라인 위에 시간 구간 기반 리포팅 계층을 올리는 것이다.
+2026-03-14 기준 이 전환의 1차 구현은 이미 상당 부분 진행되었다.
+이제 문서의 초점은 "에이전트를 도입해야 한다"가 아니라,
+"도입된 에이전트를 어떻게 안정화하고 남은 플랫폼 작업을 마무리할 것인가"로 옮겨간다.
 
-- 장기 분석: 1-2주 누적 데이터를 기준으로 confirmed workflow를 찾는다.
-- 단기 리포트: 하루, 최근 7일 기준으로 업무 흐름과 시간 사용을 요약한다.
-- privacy, local-first, 민감 정보 비수집 원칙은 그대로 유지한다.
+핵심 목표는 계속 동일하다.
+
+- 수집은 사용자 세션 안에서 상주 프로세스가 맡는다.
+- 리포트 스냅샷은 에이전트가 자동 생성한다.
+- CLI는 런타임 실행기라기보다 control surface 역할을 맡는다.
+- 이후 UI는 같은 control surface 위에 붙는다.
 
 ## 2. 현재 구현 상태
 
-2026-03-14 기준으로 코드베이스에는 아래 항목이 이미 구현되어 있다.
-
 ### 2.1 구현 완료
+
+현재 코드베이스에는 아래 항목이 구현되어 있다.
 
 - 로컬 CLI 진입점과 SQLite 초기화
 - raw event import와 local ingest server
-- Windows active-window collector 안내 경로
-- macOS active-window collector, 권한 체크, one-shot capture
+- Windows/macOS active-window collector 스크립트 경로
 - raw event 정규화, 세션화, workflow clustering
-- 누적 데이터 기준의 on-demand `report`
-- workflow rename, exclude, hide, session delete 같은 feedback 기능
-- LLM-safe payload export와 OpenAI 기반 workflow analysis
+- all-time/day/week 리포트
+- daily/weekly report snapshot 저장
+- workflow feedback, session delete, LLM-safe payload export, OpenAI 분석
 - macOS Keychain 기반 OpenAI API key 저장
+- resident agent runtime 골격
+  - pid lock
+  - heartbeat 상태 기록
+  - SQLite `settings` 기반 runtime state 저장
+- agent lifecycle 안의 local ingest server 관리
+- agent collector supervision
+  - macOS/Windows collector command spec 관리
+  - 프로세스 종료 감지
+  - 재시도 상태 기록
+  - collector health 노출
+- agent 내부 snapshot scheduler
+  - day/week 스냅샷 자동 생성
+  - 마지막 실행 시각
+  - 마지막 성공 시각
+  - 다음 실행 시각
+  - 실패 상태 기록
+- control CLI 명령
+  - `agent:run`
+  - `agent:status`
+  - `agent:stop`
+  - `agent:health`
+  - `agent:run-once`
+  - `agent:snapshot:latest`
+  - `agent:collectors`
+- macOS LaunchAgent 기반 autostart helper
+  - 상태 조회
+  - plist 생성
+  - 설치
+  - 제거
 
-### 2.2 검증 상태
+### 2.2 현재 코드 구조
 
-2026-03-14에 아래 검증을 다시 실행했다.
+resident agent 전환과 관련된 주요 모듈은 아래와 같다.
 
-- `npm test`: 통과, 21개 테스트 성공
+- `src/agent/runtime.ts`
+- `src/agent/lock.ts`
+- `src/agent/state.ts`
+- `src/agent/collectors.ts`
+- `src/agent/scheduler.ts`
+- `src/agent/control.ts`
+- `src/agent/autostart/`
+
+기존 분석 및 저장 계층은 그대로 재사용하고 있다.
+
+- `src/storage/`
+- `src/pipeline/`
+- `src/reporting/`
+- `src/server/ingest-server.ts`
+
+즉, 현재 구조는 문서에 적혀 있던 "권장 신규 모듈" 단계가 아니라,
+실제 런타임 모듈이 이미 코드에 자리잡은 상태다.
+
+### 2.3 검증 상태
+
+현재 브랜치 기준으로 아래 검증이 통과한다.
+
+- `npm test`: 통과
 - `npm run typecheck`: 통과
 - `npm run build`: 통과
-- `npm run dev -- demo --data-dir ./tmp/report-check --json`: 통과
 
-즉, 현재 MVP 골격은 "수집 -> 저장 -> 분석 -> 누적 리포트"까지는 안정적으로 돌아간다.
+추가로 아래 수동 검증도 수행했다.
 
-### 2.3 새 방향과의 갭
+- `agent:run -> agent:status -> agent:stop`
+- agent가 local ingest server와 collector를 함께 띄우는 흐름
+- collector 경유 raw event 적재 확인
+- `collect:mock -> agent:run --no-collectors -> report:snapshot:list`
+- `agent:run-once -> agent:snapshot:latest -> agent:health`
+- macOS temp plist 경로 기준 `agent:autostart:install/status/uninstall`
 
-현재 리포팅 계층은 아래 제약이 있다.
+### 2.4 현재 남은 핵심 공백
 
-- `report`는 전체 누적 workflow cluster만 보여준다.
-- 날짜 구간을 지정해 raw events나 sessions를 다시 분석하는 경로가 없다.
-- daily report가 유용하려면 필요한 emerging workflow 개념이 없다.
-- weekly report를 위한 기간 메타데이터, 비교 기준, summary model이 없다.
-- report 테스트도 전부 누적 결과 중심이라 기간 기반 회귀를 막아주지 못한다.
+런타임 전환의 핵심 병목은 이제 대부분 해소되었지만,
+아래 항목은 아직 남아 있다.
 
-정리하면, 수집과 핵심 분석은 이미 있고, 부족한 것은 "시간 구간별 해석과 출력"이다.
+- Windows 로그인 자동 시작 설치 흐름은 아직 구현되지 않았다.
+- UI는 아직 붙지 않았고 control plane은 CLI에 머물러 있다.
+- `serve`, `report:scheduler` 같은 legacy/manual 명령은 여전히 남아 있다.
+- runtime observability는 아직 기본 수준이다.
+  - 로그 로테이션
+  - 더 정교한 backoff 정책
+  - crash recovery 시나리오
+  - richer diagnostics
+- collector 경로는 macOS에서 실제 smoke test가 끝났고,
+  Windows는 command wiring 기준으로 준비되어 있다.
 
 ## 3. 제품 결정 사항
 
-문서 기준으로 이번에 확정할 리포트 동작은 아래와 같다.
+현재 기준으로 확정된 방향은 아래와 같다.
 
-- all-time report: 현재와 같이 전체 로컬 데이터셋 기준
-- daily report: 로컬 타임존 기준 하루
-- weekly report: 선택한 로컬 기준일을 끝점으로 하는 최근 7일
-- short-horizon report에서는 confirmed workflow가 부족해도 emerging workflow를 보여줄 수 있음
+- 제품의 주 실행 단위는 `resident local agent`다.
+- CLI는 control plane과 수동 실행, 진단, fallback 경로를 맡는다.
+- UI는 이후 단계에서 같은 상태 모델과 제어면을 재사용한다.
+- macOS는 `LaunchAgent` 경로를 우선 구현했고,
+  Windows는 로그인 사용자 세션 자동 시작을 다음 보강 항목으로 둔다.
 
-중요한 구분:
+중요한 구분도 그대로 유지된다.
 
-- confirmed workflow: 기존 클러스터 기준을 만족한 반복 업무
-- emerging workflow: 빈도나 기간이 아직 부족하지만 단기 리포트에서 눈에 띄는 반복 패턴
-
-이 구분이 있어야 daily report가 초반 며칠 동안 비어 있지 않다.
+- runtime plane: 상주 에이전트, ingest server, collector orchestration, snapshot scheduling, health state
+- control plane: CLI, 이후 UI, 진단 및 상태 조회
+- data plane: raw events, normalized artifacts, report snapshots, feedback
 
 ## 4. 구현 원칙
 
-### 4.1 분석 엔진은 최대한 재사용
+### 4.1 기존 분석/저장 코드는 계속 재사용
 
-새로운 리포트 방향 때문에 정규화, 세션화, 클러스터링 파이프라인을 다시 쓰지 않는다.
+에이전트 전환 때문에 분석, 저장, 리포트 계산을 다시 만들지 않는다.
 
-우선 접근은 아래가 가장 작다.
+- `src/storage/`
+- `src/pipeline/`
+- `src/reporting/`
+- 기존 collector scripts
 
-1. 리포트용 기간을 계산한다.
-2. 해당 기간의 raw events만 읽는다.
-3. 기존 `analyzeRawEvents`를 기간 데이터에 다시 적용한다.
-4. 결과를 daily/weekly/all-time report model로 가공한다.
+현재도 실제 구현은 이 원칙을 그대로 따른다.
 
-이 방식이면 schema를 크게 바꾸지 않고도 새 리포트를 붙일 수 있다.
+### 4.2 하나의 resident process가 런타임 책임을 가진다
 
-### 4.2 기간 계산은 local-first로 정의
+현재 agent는 최소한 아래 책임을 가진다.
 
-기간 계산은 사용자의 로컬 타임존을 기준으로 해야 한다.
+- ingest server 시작/종료
+- collector subprocess 시작/종료/재시도
+- snapshot scheduler 실행
+- heartbeat와 health state 기록
+- CLI를 위한 상태 노출
 
-- daily: 로컬 날짜의 00:00:00 ~ 23:59:59
-- weekly: 선택일 포함 최근 7일
+### 4.3 UI는 나중, control surface는 지금
 
-테스트와 자동화 재현성을 위해 내부 함수는 명시적 time zone 또는 기준 시각 주입을 받을 수 있게 설계하는 편이 안전하다.
+이번 단계에서도 데스크톱 UI는 만들지 않았다.
+대신 CLI가 나중의 UI가 기대할 수 있는 control surface 역할을 먼저 맡고 있다.
 
-### 4.3 리포트 모델은 confirmed와 emerging을 함께 담아야 함
+예:
 
-기존 `ReportEntry`만으로는 부족하다.
+- agent run
+- agent stop
+- agent status
+- agent health
+- agent run-once
+- latest snapshots
+- collector health
+- autostart status/install/uninstall
 
-추가가 필요한 정보:
+### 4.4 사용자 세션 기반 실행을 우선한다
 
-- report window start/end
-- report timezone
-- total sessions
-- total tracked duration
-- confirmed workflows
-- emerging workflows
-- top applications or domains 같은 보조 summary
+이 제품은 active window 같은 사용자 컨텍스트를 읽는다.
+그래서 일반 시스템 daemon보다 사용자 로그인 세션에 붙는 실행 모델이 중요하다.
 
-즉, 단순한 workflow row 배열이 아니라 report envelope가 필요하다.
+- macOS: LaunchAgent 구현 완료
+- Windows: 다음 보강 항목
 
-### 4.4 초기 범위에서는 스냅샷 저장을 미룸
+## 5. 현재 아키텍처
 
-v1은 on-demand generation으로 충분하다.
+### 5.1 런타임 구조
 
-- 먼저 CLI에서 daily/weekly report를 바로 만들 수 있게 한다.
-- 실제 사용성이 확인되면 report snapshot 저장, 전주 대비 비교, scheduled generation을 후속으로 검토한다.
+현재 핵심 프로세스와 역할은 아래와 같다.
 
-## 5. 단계별 구현 계획
+1. resident agent
+2. local ingest server
+3. collector subprocesses
+4. snapshot scheduler
+5. control CLI
+6. 이후 UI client
 
-### Phase 0. 리포트 계약 확정
+현재 데이터 흐름은 아래와 같다.
 
-- `docs/product/requirements.md`에 daily/weekly report 요구를 반영한다.
-- active plan을 현 상태 기준으로 다시 작성한다.
-- daily와 weekly의 기간 정의를 코드 계약으로 고정한다.
+1. collector가 local ingest server로 raw event를 보낸다.
+2. ingest server가 local SQLite에 raw event를 저장한다.
+3. agent가 collector/ingest 상태를 추적한다.
+4. agent scheduler가 day/week report snapshot을 생성한다.
+5. CLI가 agent 상태와 latest snapshots를 조회한다.
 
-완료 기준:
+### 5.2 현재 CLI 역할
 
-- 제품 문서와 실행 계획이 현재 코드 상태와 충돌하지 않는다.
+agent 시대에 맞는 control 명령은 이미 존재한다.
 
-### Phase 1. 기간 기반 데이터 조회 추가
+- `agent:run`
+- `agent:status`
+- `agent:stop`
+- `agent:health`
+- `agent:run-once`
+- `agent:snapshot:latest`
+- `agent:collectors`
+- `agent:autostart:*`
 
-- `AppDatabase`에 기간 기준 raw event 조회 함수를 추가한다.
-- 필요하면 session summary 조회도 기간 옵션을 받을 수 있게 확장한다.
-- 보고서용 기간 계산 유틸리티를 분리한다.
+기존 명령도 아직 유지되고 있다.
 
-완료 기준:
+- `report:generate`
+- `report:snapshot:list`
+- `report:snapshot:show`
+- `report:scheduler`
+- `serve`
 
-- 특정 날짜 기준 day/week/all-time raw events를 안정적으로 뽑을 수 있다.
+즉, 현재 CLI는 완전히 agent-only로 정리된 상태는 아니고,
+agent control plane과 legacy/manual execution path가 공존하는 상태다.
 
-### Phase 2. 기간 기반 report model 추가
+## 6. 단계별 구현 상태
 
-- `src/reporting/`에 daily/weekly/all-time report builder를 추가한다.
-- 기존 `ReportEntry` 중심 출력에서 report envelope를 만드는 방향으로 확장한다.
-- confirmed workflow와 emerging workflow를 구분하는 출력 구조를 만든다.
+### Phase 0. Active Plan 전환
 
-완료 기준:
+상태: 완료
 
-- JSON 기준으로 리포트 창, 요약 수치, workflow 목록이 함께 나온다.
+- active plan이 resident agent 전환을 기준으로 유지되고 있다.
 
-### Phase 3. CLI 확장
+### Phase 1. Agent Runtime 골격 추가
 
-- 기존 `report` 명령에 `--window all|day|week` 옵션을 추가한다.
-- `--date YYYY-MM-DD`를 지원해서 특정 기준일의 daily/weekly report를 재생성할 수 있게 한다.
-- 기본값은 기존 호환성을 위해 `all`을 유지한다.
+상태: 완료
 
-완료 기준:
+- `agent:run`
+- graceful shutdown
+- pid lock
+- heartbeat
+- runtime state 저장
 
-- `report --window day`
-- `report --window week`
-- `report --window all`
-  가 모두 동작하고 JSON/table 출력이 깨지지 않는다.
+### Phase 2. Collector Orchestration 통합
 
-### Phase 4. Emerging workflow 휴리스틱 추가
+상태: 완료
 
-- confirmed cluster 기준을 완화하지 않고 short-horizon summary를 별도로 만든다.
-- 예: 같은 날 2회 반복, 짧아도 누적 시간이 큰 흐름, 동일 앱/도메인 반복 등
-- provisional label을 명시해서 confirmed와 혼동되지 않게 한다.
+- ingest server가 agent lifecycle 안으로 들어왔다.
+- collector supervision과 재시도 상태 기록이 구현되었다.
+- macOS smoke test 기준 실제 동작 확인이 끝났다.
 
-완료 기준:
+### Phase 3. Snapshot Scheduler 내장
 
-- 하루치 데이터만 있어도 비어 있지 않은 report를 낼 수 있다.
-- 장기 automation candidate와 임시 패턴이 출력에서 명확히 분리된다.
+상태: 완료
 
-### Phase 5. 테스트와 문서 보강
+- agent 내부 scheduler가 day/week snapshot을 자동 생성한다.
+- last run / last success / next run 상태를 기록한다.
 
-- 기간 계산 테스트
-- 기간 기반 analyze/report 테스트
-- CLI JSON snapshot 성격의 테스트
-- README와 quickstart를 새 리포트 기준으로 갱신
+### Phase 4. Control CLI 정리
 
-완료 기준:
+상태: 완료
 
-- 날짜 경계, time zone, emerging workflow 회귀를 테스트가 잡아준다.
+- agent status, health, latest snapshot, collector health 조회 명령이 추가되었다.
+- 수동 refresh용 `agent:run-once`가 추가되었다.
 
-## 6. 권장 구현 순서
+### Phase 5. OS 자동 시작 전략
 
-실제 작업 순서는 아래가 가장 안전하다.
+상태: 부분 완료
 
-1. 기간 정의와 DB query contract 고정
-2. report model 설계
-3. CLI 옵션 추가
-4. emerging workflow heuristic 추가
-5. 테스트 보강
-6. quickstart/README 업데이트
+- macOS LaunchAgent helper 구현 완료
+- macOS install/status/uninstall CLI 구현 완료
+- Windows 자동 시작 전략은 아직 남아 있다.
 
-이 순서가 좋은 이유는 출력 계약을 먼저 고정해야 CLI와 테스트가 흔들리지 않기 때문이다.
+## 7. 다음 실행 순서
 
-## 7. 이번 계획에서 의도적으로 미루는 항목
+이제 가장 합리적인 다음 작업 순서는 아래다.
 
-아래는 바로 붙일 수 있지만, 지금 단계에서는 우선순위를 낮춘다.
+1. Windows 자동 시작 경로 구현
+2. legacy/manual runtime 명령 정리
+   - `serve`
+   - `report:scheduler`
+   - 중복된 운영 경로 정리
+3. runtime hardening
+   - crash recovery
+   - richer health diagnostics
+   - log strategy
+   - retry/backoff tuning
+4. UI 연결
+   - agent 상태 조회
+   - latest snapshot 조회
+   - collector/health 시각화
 
-- 자동 스케줄 실행
-- 이메일이나 Slack 같은 외부 전달 채널
-- 전주 대비 diff report
-- LLM이 prose 형태로 daily/weekly report를 다시 써주는 기능
-- report snapshot 영구 저장
+## 8. 의도적으로 미루는 항목
 
-이 항목들은 daily/weekly report의 기본 사용성이 확인된 뒤에도 늦지 않다.
+아래는 아직 다음 단계 이후로 미룬다.
 
-## 8. 추천 결론
+- full desktop UI
+- tray UI
+- remote sync
+- multi-user analytics
+- cloud-managed agent
+- diff report와 recommendation feed UI
 
-현재 프로젝트는 "리포트를 만들 수 있는가" 단계는 이미 지났다.
-문제는 "리포트를 어느 시간 단위로, 어떤 해석 층까지 보여줄 것인가"다.
+## 9. 현재 결론
 
-가장 현실적인 다음 단계는 아래와 같다.
+2026-03-14 기준 이 프로젝트는 더 이상 "CLI 명령 모음" 단계에만 머물러 있지 않다.
+resident agent 전환의 핵심 축은 이미 구현되었다.
 
-- 기존 누적 report는 유지한다.
-- 같은 분석 엔진 위에 daily/weekly window를 올린다.
-- short-horizon usefulness를 위해 emerging workflow를 별도 층으로 도입한다.
-- 자동 배포나 전달보다 먼저, 로컬에서 재현 가능한 기간 기반 report를 완성한다.
+현재 상태를 한 줄로 요약하면 아래와 같다.
 
-이 방향이 가장 작은 변경으로 사용자가 하루 단위와 주간 단위 인사이트를 바로 얻도록 만든다.
+- resident local agent: 구현됨
+- collector supervision: 구현됨
+- snapshot scheduler: 구현됨
+- control CLI: 구현됨
+- macOS autostart: 구현됨
+- Windows autostart: 미구현
+- UI integration: 미구현
+
+따라서 이제의 다음 단계는 "agent를 추가한다"가 아니라,
+"구현된 agent를 운영 가능한 수준으로 다듬고 남은 플랫폼 공백을 메운다"다.
