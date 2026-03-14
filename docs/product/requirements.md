@@ -8,7 +8,8 @@
 **What I’ve done** is a local workflow pattern analyzer designed for internal employees.
 
 The system observes desktop and browser activity, groups actions into sessions,
-detects repetitive workflows, and produces reports identifying potential automation opportunities.
+detects repetitive workflows, and produces daily, weekly, and long-horizon reports
+identifying potential automation opportunities.
 
 This product is **not an automation tool**.
 
@@ -23,10 +24,13 @@ Primary objectives:
 1. Capture workflow behavior locally.
 2. Identify repetitive tasks.
 3. Quantify time spent on workflows.
-4. Recommend automation opportunities.
+4. Surface useful daily and weekly summaries before long-horizon patterns fully converge.
+5. Recommend automation opportunities.
 
 The system should help answer:
 
+- What did I spend time on today?
+- Which workflows repeated most this week?
 - What tasks are repeated most frequently?
 - Which workflows consume the most time?
 - Which workflows could be automated?
@@ -233,6 +237,10 @@ Initial detection criteria:
 - application/domain context is similar
 - minimum duration threshold (for example > 1 minute)
 
+These criteria define **confirmed workflow clusters** used for automation-oriented analysis.
+Shorter-horizon reports may additionally surface **emerging workflows** that have not yet met
+the confirmed-cluster threshold.
+
 For each detected workflow cluster the system must produce:
 
 - workflow name (auto generated)
@@ -309,9 +317,19 @@ Plaintext storage is prohibited.
 
 # 13. Reports
 
-The application must generate analysis reports.
+The application must generate local analysis reports in multiple time windows.
 
-Required metrics per workflow:
+Required report types for the MVP:
+
+- all-time report for the full locally stored dataset
+- daily report for one local calendar day
+- weekly report for the latest 7 days ending on the selected local report date
+
+Daily and weekly reports must remain useful even before the system accumulates 1-2 weeks of data.
+When confirmed workflow clusters are not yet available, the report may label items as
+emerging workflows or provisional patterns instead of final automation candidates.
+
+Required metrics per confirmed workflow:
 
 - workflow name
 - frequency
@@ -319,6 +337,14 @@ Required metrics per workflow:
 - total duration
 - automation suitability
 - recommended automation approach
+
+Required summary fields for daily and weekly reports:
+
+- report window start and end
+- total captured sessions
+- total tracked time
+- top workflows by frequency or total duration
+- emerging workflows when confidence is still low
 
 Example report entry:
 
@@ -397,12 +423,14 @@ The following features are explicitly out of scope for the MVP:
 The MVP is considered successful if the following conditions are met:
 
 1. users can run the system continuously for **1–2 weeks**
-2. at least **5 repetitive workflows** are detected
-3. detected workflows match real user activity
-4. time spent per workflow is measurable
-5. automation candidates are suggested
-6. no sensitive information is transmitted externally
-7. API keys are never stored in plaintext
+2. users can inspect a useful daily report after one working day of data collection
+3. users can inspect a useful weekly report after one week of data collection
+4. at least **5 repetitive workflows** are detected over the longer 1-2 week horizon
+5. detected workflows match real user activity
+6. time spent per workflow is measurable
+7. automation candidates are suggested
+8. no sensitive information is transmitted externally
+9. API keys are never stored in plaintext
 
 ---
 
