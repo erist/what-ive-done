@@ -17,14 +17,16 @@ This repository currently provides a TypeScript CLI that collects or imports act
 - local-only storage and analysis
 - Windows and macOS active-window collection paths
 - Chrome extension path for browser metadata ingestion
-- all-time CLI report for analyzed local data
+- all-time, daily, and weekly CLI reports for analyzed local data
+- stored daily and weekly report snapshots
+- local scheduler command for automatic snapshot refresh
 - workflow review, feedback, and session deletion
 - LLM-safe workflow summary export and OpenAI-based workflow analysis
 
 Current limitation:
 
-- `report` is all-time only today
-- daily and weekly report windows are planned but not implemented yet
+- short-horizon report entries are currently heuristic and shown as provisional emerging workflows
+- report comparison views are not implemented yet
 
 ### Quick Start
 
@@ -55,6 +57,9 @@ JSON output:
 
 ```bash
 npm run dev -- report --data-dir ./tmp/local-data --json
+npm run dev -- report --data-dir ./tmp/local-data --window day --json
+npm run dev -- report --data-dir ./tmp/local-data --window week --json
+npm run dev -- report:scheduler --data-dir ./tmp/local-data --once --json
 ```
 
 ### Common Commands
@@ -65,6 +70,8 @@ npm run dev -- collector:list --json
 npm run dev -- collector:macos:info --json
 npm run dev -- collector:windows:info --json
 npm run dev -- serve --data-dir ./tmp/live-data --host 127.0.0.1 --port 4318
+npm run dev -- report:snapshot:list --data-dir ./tmp/local-data --json
+npm run dev -- report:scheduler --data-dir ./tmp/local-data --once --json
 ```
 
 ### Privacy

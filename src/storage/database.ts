@@ -7,9 +7,12 @@ import type {
   NormalizedEvent,
   RawEvent,
   RawEventInput,
+  ReportSnapshot,
+  ReportSnapshotSummary,
   Session,
   SessionSummary,
   WorkflowFeedback,
+  WorkflowFeedbackSummary,
   WorkflowLLMAnalysis,
   WorkflowCluster,
   WorkflowSummaryPayloadRecord,
@@ -67,12 +70,6 @@ interface WorkflowFeedbackRow {
   created_at: string;
 }
 
-interface EffectiveWorkflowFeedback {
-  renameTo?: string | undefined;
-  excluded?: boolean | undefined;
-  hidden?: boolean | undefined;
-}
-
 interface SessionSummaryRow {
   id: string;
   start_time: string;
@@ -102,6 +99,21 @@ interface WorkflowLLMAnalysisRow {
   recommended_approach: string;
   rationale: string;
   created_at: string;
+}
+
+interface ReportSnapshotRow {
+  id: string;
+  window: ReportSnapshot["timeWindow"]["window"];
+  report_date: string;
+  timezone: string;
+  timezone_offset_minutes: number;
+  start_time: string | null;
+  end_time: string | null;
+  total_sessions: number;
+  total_tracked_duration_seconds: number;
+  workflows_json: string;
+  emerging_workflows_json: string;
+  generated_at: string;
 }
 
 export class AppDatabase {
@@ -250,6 +262,46 @@ export class AppDatabase {
         ORDER BY timestamp ASC
       `)
       .all() as unknown as RawEventRow[];
+
+    return rows.map((row) => ({
+      id: row.id,
+      source: row.source as RawEvent["source"],
+      sourceEventType: row.source_event_type,
+      timestamp: row.timestamp,
+      application: row.application,
+      windowTitle: row.window_title ?? undefined,
+      domain: row.domain ?? undefined,
+      url: row.url ?? undefined,
+      action: row.action,
+      target: row.target ?? undefined,
+      metadata: JSON.parse(row.metadata_json) as Record<string, unknown>,
+      sensitiveFiltered: row.sensitive_filtered === 1,
+      createdAt: row.created_at,
+    }));
+  }
+
+  getRawEventsInRange(startInclusive: string, endExclusive: string): RawEvent[] {
+    const rows = this.connection
+      .prepare(`
+        SELECT
+          id,
+          source,
+          source_event_type,
+          timestamp,
+          application,
+          window_title,
+          domain,
+          url,
+          action,
+          target,
+          metadata_json,
+          sensitive_filtered,
+          created_at
+        FROM raw_events
+        WHERE timestamp >= ? AND timestamp < ?
+        ORDER BY timestamp ASC
+      `)
+      .all(startInclusive, endExclusive) as unknown as RawEventRow[];
 
     return rows.map((row) => ({
       id: row.id,
@@ -528,7 +580,7 @@ export class AppDatabase {
     return feedback;
   }
 
-  listWorkflowFeedbackSummary(): Map<string, EffectiveWorkflowFeedback> {
+  listWorkflowFeedbackSummary(): Map<string, WorkflowFeedbackSummary> {
     const rows = this.connection
       .prepare(`
         SELECT
@@ -542,7 +594,7 @@ export class AppDatabase {
         ORDER BY created_at ASC, id ASC
       `)
       .all() as unknown as WorkflowFeedbackRow[];
-    const feedbackByClusterId = new Map<string, EffectiveWorkflowFeedback>();
+    const feedbackByClusterId = new Map<string, WorkflowFeedbackSummary>();
 
     for (const row of rows) {
       const current = feedbackByClusterId.get(row.workflow_cluster_id) ?? {};
@@ -835,8 +887,199 @@ export class AppDatabase {
     }));
   }
 
+  upsertReportSnapshot(report: Omit<ReportSnapshot, "id" | "generatedAt">): ReportSnapshot {
+    const existing = this.connection
+      .prepare(`
+        SELECT id
+        FROM report_snapshots
+        WHERE window = ? AND report_date = ? AND timezone = ?
+      `)
+      .get(
+        report.timeWindow.window,
+        report.timeWindow.reportDate,
+        report.timeWindow.timezone,
+      ) as { id: string } | undefined;
+    const snapshot: ReportSnapshot = {
+      ...report,
+      id: existing?.id ?? randomUUID(),
+      generatedAt: new Date().toISOString(),
+    };
+
+    this.connection
+      .prepare(`
+        INSERT INTO report_snapshots (
+          id,
+          window,
+          report_date,
+          timezone,
+          timezone_offset_minutes,
+          start_time,
+          end_time,
+          total_sessions,
+          total_tracked_duration_seconds,
+          workflows_json,
+          emerging_workflows_json,
+          generated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(window, report_date, timezone) DO UPDATE SET
+          timezone_offset_minutes = excluded.timezone_offset_minutes,
+          start_time = excluded.start_time,
+          end_time = excluded.end_time,
+          total_sessions = excluded.total_sessions,
+          total_tracked_duration_seconds = excluded.total_tracked_duration_seconds,
+          workflows_json = excluded.workflows_json,
+          emerging_workflows_json = excluded.emerging_workflows_json,
+          generated_at = excluded.generated_at
+      `)
+      .run(
+        snapshot.id,
+        snapshot.timeWindow.window,
+        snapshot.timeWindow.reportDate,
+        snapshot.timeWindow.timezone,
+        snapshot.timeWindow.timezoneOffsetMinutes,
+        snapshot.timeWindow.startTime ?? null,
+        snapshot.timeWindow.endTime ?? null,
+        snapshot.totalSessions,
+        snapshot.totalTrackedDurationSeconds,
+        JSON.stringify(snapshot.workflows),
+        JSON.stringify(snapshot.emergingWorkflows),
+        snapshot.generatedAt,
+      );
+
+    return snapshot;
+  }
+
+  listReportSnapshots(options: {
+    window?: ReportSnapshot["timeWindow"]["window"] | undefined;
+    timezone?: string | undefined;
+    limit?: number | undefined;
+  } = {}): ReportSnapshotSummary[] {
+    const rows = this.connection
+      .prepare(`
+        SELECT
+          id,
+          window,
+          report_date,
+          timezone,
+          timezone_offset_minutes,
+          start_time,
+          end_time,
+          total_sessions,
+          total_tracked_duration_seconds,
+          workflows_json,
+          emerging_workflows_json,
+          generated_at
+        FROM report_snapshots
+        WHERE (? IS NULL OR window = ?)
+          AND (? IS NULL OR timezone = ?)
+        ORDER BY report_date DESC, generated_at DESC, window ASC
+        LIMIT ?
+      `)
+      .all(
+        options.window ?? null,
+        options.window ?? null,
+        options.timezone ?? null,
+        options.timezone ?? null,
+        options.limit ?? 50,
+      ) as unknown as ReportSnapshotRow[];
+
+    return rows.map((row) => ({
+      id: row.id,
+      window: row.window,
+      reportDate: row.report_date,
+      timezone: row.timezone,
+      totalSessions: row.total_sessions,
+      workflowCount: (JSON.parse(row.workflows_json) as ReportSnapshot["workflows"]).length,
+      emergingWorkflowCount: (JSON.parse(
+        row.emerging_workflows_json,
+      ) as ReportSnapshot["emergingWorkflows"]).length,
+      generatedAt: row.generated_at,
+    }));
+  }
+
+  getLatestReportSnapshot(window: ReportSnapshot["timeWindow"]["window"], timezone?: string): ReportSnapshot | undefined {
+    const row = this.connection
+      .prepare(`
+        SELECT
+          id,
+          window,
+          report_date,
+          timezone,
+          timezone_offset_minutes,
+          start_time,
+          end_time,
+          total_sessions,
+          total_tracked_duration_seconds,
+          workflows_json,
+          emerging_workflows_json,
+          generated_at
+        FROM report_snapshots
+        WHERE window = ?
+          AND (? IS NULL OR timezone = ?)
+        ORDER BY report_date DESC, generated_at DESC
+        LIMIT 1
+      `)
+      .get(window, timezone ?? null, timezone ?? null) as ReportSnapshotRow | undefined;
+
+    return row ? this.toReportSnapshot(row) : undefined;
+  }
+
+  getReportSnapshotByWindowAndDate(
+    window: ReportSnapshot["timeWindow"]["window"],
+    reportDate: string,
+    timezone?: string,
+  ): ReportSnapshot | undefined {
+    const row = this.connection
+      .prepare(`
+        SELECT
+          id,
+          window,
+          report_date,
+          timezone,
+          timezone_offset_minutes,
+          start_time,
+          end_time,
+          total_sessions,
+          total_tracked_duration_seconds,
+          workflows_json,
+          emerging_workflows_json,
+          generated_at
+        FROM report_snapshots
+        WHERE window = ?
+          AND report_date = ?
+          AND (? IS NULL OR timezone = ?)
+        ORDER BY generated_at DESC
+        LIMIT 1
+      `)
+      .get(window, reportDate, timezone ?? null, timezone ?? null) as ReportSnapshotRow | undefined;
+
+    return row ? this.toReportSnapshot(row) : undefined;
+  }
+
+  private toReportSnapshot(row: ReportSnapshotRow): ReportSnapshot {
+    return {
+      id: row.id,
+      timeWindow: {
+        window: row.window,
+        reportDate: row.report_date,
+        timezone: row.timezone,
+        timezoneOffsetMinutes: row.timezone_offset_minutes,
+        startTime: row.start_time ?? undefined,
+        endTime: row.end_time ?? undefined,
+      },
+      totalSessions: row.total_sessions,
+      totalTrackedDurationSeconds: row.total_tracked_duration_seconds,
+      workflows: JSON.parse(row.workflows_json) as ReportSnapshot["workflows"],
+      emergingWorkflows: JSON.parse(
+        row.emerging_workflows_json,
+      ) as ReportSnapshot["emergingWorkflows"],
+      generatedAt: row.generated_at,
+    };
+  }
+
   clearAllData(): void {
     this.connection.exec(`
+      DELETE FROM report_snapshots;
       DELETE FROM workflow_llm_analyses;
       DELETE FROM workflow_cluster_sessions;
       DELETE FROM workflow_feedback;

@@ -42,6 +42,38 @@ npm run dev -- report --data-dir ./tmp/demo-data
 - `init`: initialize the SQLite database
 - `collect:mock`: insert mock raw events
 - `analyze`: run normalization, sessionization, and workflow clustering
-- `report`: print saved workflow report
+- `report`: print all-time, daily, or weekly workflow reports
 - `demo`: reset, seed mock data, analyze, and print a report
 - `reset`: delete locally stored data
+
+## Date-window reports
+
+Daily report:
+
+```bash
+npm run dev -- report --data-dir ./tmp/demo-data --window day --json
+```
+
+Weekly report:
+
+```bash
+npm run dev -- report --data-dir ./tmp/demo-data --window week --json
+```
+
+Generate and store a daily snapshot:
+
+```bash
+npm run dev -- report:generate --data-dir ./tmp/demo-data --window day --json
+```
+
+Run one scheduler cycle for automatic daily/weekly snapshots:
+
+```bash
+npm run dev -- report:scheduler --data-dir ./tmp/demo-data --once --json
+```
+
+List stored snapshots:
+
+```bash
+npm run dev -- report:snapshot:list --data-dir ./tmp/demo-data --json
+```
