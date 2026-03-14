@@ -4,10 +4,12 @@ import { resolveAppPaths } from "./app-paths.js";
 import { getAvailableCollectors, getWindowsActiveWindowCollectorInfo } from "./collectors/windows.js";
 import { generateMockRawEvents } from "./collectors/mock.js";
 import { importEventsFromFile } from "./importers/events.js";
+import { createOpenAIWorkflowAnalyzer } from "./llm/openai.js";
 import { analyzeRawEvents } from "./pipeline/analyze.js";
 import { buildReportEntries, formatDuration } from "./reporting/report.js";
 import { startIngestServer } from "./server/ingest-server.js";
 import { AppDatabase } from "./storage/database.js";
+import type { WorkflowLLMAnalysis } from "./domain/types.js";
 
 const program = new Command();
 
@@ -95,6 +97,16 @@ function renderWorkflowSummaryPayloads(
   );
 
   console.log(JSON.stringify(payloadRecords, null, 2));
+}
+
+function requireEnv(name: string): string {
+  const value = process.env[name];
+
+  if (!value) {
+    throw new Error(`${name} is required`);
+  }
+
+  return value;
 }
 
 program
@@ -455,6 +467,103 @@ program
       });
     },
   );
+
+program
+  .command("llm:analyze")
+  .description("Analyze summarized workflow payloads with an LLM provider")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--provider <provider>", "LLM provider", "openai")
+  .option("--model <model>", "Model name for the provider")
+  .option("--base-url <url>", "Override provider base URL")
+  .option("--include-excluded", "Include excluded workflows")
+  .option("--include-hidden", "Include hidden workflows")
+  .option("--apply-names", "Persist LLM workflow_name results as rename feedback")
+  .option("--json", "Print machine-readable JSON")
+  .action(
+    async (options: {
+      dataDir?: string;
+      provider: string;
+      model?: string;
+      baseUrl?: string;
+      includeExcluded?: boolean;
+      includeHidden?: boolean;
+      applyNames?: boolean;
+      json?: boolean;
+    }) => {
+      if (options.provider !== "openai") {
+        throw new Error(`Unsupported provider: ${options.provider}`);
+      }
+
+      const payloadRecords = withDatabase(options.dataDir, (database) =>
+        database.listWorkflowSummaryPayloadRecords({
+          includeExcluded: options.includeExcluded,
+          includeHidden: options.includeHidden,
+        }),
+      );
+      const analyzer = createOpenAIWorkflowAnalyzer({
+        apiKey: requireEnv("OPENAI_API_KEY"),
+        model: options.model,
+        baseUrl: options.baseUrl,
+      });
+      const analyses: WorkflowLLMAnalysis[] = [];
+
+      for (const record of payloadRecords) {
+        analyses.push(await analyzer.analyze(record));
+      }
+
+      withDatabase(options.dataDir, (database) => {
+        database.replaceWorkflowLLMAnalyses(analyses);
+
+        if (options.applyNames) {
+          for (const analysis of analyses) {
+            database.saveWorkflowFeedback({
+              workflowClusterId: analysis.workflowClusterId,
+              renameTo: analysis.workflowName,
+            });
+          }
+        }
+      });
+
+      if (options.json) {
+        console.log(JSON.stringify(analyses, null, 2));
+        return;
+      }
+
+      console.table(
+        analyses.map((analysis) => ({
+          workflowClusterId: analysis.workflowClusterId,
+          workflowName: analysis.workflowName,
+          suitability: analysis.automationSuitability,
+          recommendedApproach: analysis.recommendedApproach,
+        })),
+      );
+    },
+  );
+
+program
+  .command("llm:results")
+  .description("List stored LLM workflow analysis results")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--json", "Print machine-readable JSON")
+  .action((options: { dataDir?: string; json?: boolean }) => {
+    const results = withDatabase(options.dataDir, (database) => database.listWorkflowLLMAnalyses());
+
+    if (options.json) {
+      console.log(JSON.stringify(results, null, 2));
+      return;
+    }
+
+    console.table(
+      results.map((result) => ({
+        workflowClusterId: result.workflowClusterId,
+        provider: result.provider,
+        model: result.model,
+        workflowName: result.workflowName,
+        automationSuitability: result.automationSuitability,
+        recommendedApproach: result.recommendedApproach,
+      })),
+    );
+  });
 
 program
   .command("serve")

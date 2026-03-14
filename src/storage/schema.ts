@@ -100,6 +100,18 @@ export const INITIAL_SCHEMA_SQL = `
     summary_json TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS workflow_llm_analyses (
+    workflow_cluster_id TEXT PRIMARY KEY REFERENCES workflow_clusters(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    workflow_name TEXT NOT NULL,
+    workflow_summary TEXT NOT NULL,
+    automation_suitability TEXT NOT NULL,
+    recommended_approach TEXT NOT NULL,
+    rationale TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value_json TEXT NOT NULL,

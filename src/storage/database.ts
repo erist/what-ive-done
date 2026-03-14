@@ -10,6 +10,7 @@ import type {
   Session,
   SessionSummary,
   WorkflowFeedback,
+  WorkflowLLMAnalysis,
   WorkflowCluster,
   WorkflowSummaryPayloadRecord,
 } from "../domain/types.js";
@@ -85,6 +86,18 @@ interface SessionStepContextRow {
   session_id: string;
   application: string;
   domain: string | null;
+}
+
+interface WorkflowLLMAnalysisRow {
+  workflow_cluster_id: string;
+  provider: string;
+  model: string;
+  workflow_name: string;
+  workflow_summary: string;
+  automation_suitability: WorkflowLLMAnalysis["automationSuitability"];
+  recommended_approach: string;
+  rationale: string;
+  created_at: string;
 }
 
 export class AppDatabase {
@@ -682,8 +695,81 @@ export class AppDatabase {
     });
   }
 
+  replaceWorkflowLLMAnalyses(analyses: WorkflowLLMAnalysis[]): void {
+    this.connection.exec("BEGIN");
+
+    try {
+      this.connection.exec("DELETE FROM workflow_llm_analyses");
+
+      const insertAnalysis = this.connection.prepare(`
+        INSERT INTO workflow_llm_analyses (
+          workflow_cluster_id,
+          provider,
+          model,
+          workflow_name,
+          workflow_summary,
+          automation_suitability,
+          recommended_approach,
+          rationale,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      for (const analysis of analyses) {
+        insertAnalysis.run(
+          analysis.workflowClusterId,
+          analysis.provider,
+          analysis.model,
+          analysis.workflowName,
+          analysis.workflowSummary,
+          analysis.automationSuitability,
+          analysis.recommendedApproach,
+          analysis.rationale,
+          analysis.createdAt,
+        );
+      }
+
+      this.connection.exec("COMMIT");
+    } catch (error) {
+      this.connection.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  listWorkflowLLMAnalyses(): WorkflowLLMAnalysis[] {
+    const rows = this.connection
+      .prepare(`
+        SELECT
+          workflow_cluster_id,
+          provider,
+          model,
+          workflow_name,
+          workflow_summary,
+          automation_suitability,
+          recommended_approach,
+          rationale,
+          created_at
+        FROM workflow_llm_analyses
+        ORDER BY created_at DESC, workflow_cluster_id ASC
+      `)
+      .all() as unknown as WorkflowLLMAnalysisRow[];
+
+    return rows.map((row) => ({
+      workflowClusterId: row.workflow_cluster_id,
+      provider: row.provider,
+      model: row.model,
+      workflowName: row.workflow_name,
+      workflowSummary: row.workflow_summary,
+      automationSuitability: row.automation_suitability,
+      recommendedApproach: row.recommended_approach,
+      rationale: row.rationale,
+      createdAt: row.created_at,
+    }));
+  }
+
   clearAllData(): void {
     this.connection.exec(`
+      DELETE FROM workflow_llm_analyses;
       DELETE FROM workflow_cluster_sessions;
       DELETE FROM workflow_feedback;
       DELETE FROM workflow_clusters;

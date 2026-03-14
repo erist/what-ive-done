@@ -199,3 +199,56 @@ test("LLM payload records exclude raw event details and honor workflow feedback 
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test("workflow LLM analyses can be stored and surfaced through workflow names", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-llm-store-"));
+
+  try {
+    const database = new AppDatabase({
+      dataDir: tempDir,
+      databasePath: join(tempDir, "test.sqlite"),
+    });
+    database.initialize();
+
+    for (const input of toRawEventInputs()) {
+      database.insertRawEvent(input);
+    }
+
+    const analysisResult = analyzeRawEvents(database.getRawEventsChronological());
+    database.replaceAnalysisArtifacts(analysisResult);
+
+    const workflow = database.listWorkflowClusters()[0];
+
+    assert.ok(workflow);
+
+    database.replaceWorkflowLLMAnalyses([
+      {
+        workflowClusterId: workflow.id,
+        provider: "openai",
+        model: "gpt-5-mini",
+        workflowName: "AI Renamed Workflow",
+        workflowSummary: "Summarized workflow.",
+        automationSuitability: "high",
+        recommendedApproach: "Browser automation",
+        rationale: "Repeated and browser heavy.",
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    database.saveWorkflowFeedback({
+      workflowClusterId: workflow.id,
+      renameTo: "AI Renamed Workflow",
+    });
+
+    const storedAnalysis = database.listWorkflowLLMAnalyses()[0];
+    const renamedWorkflow = database
+      .listWorkflowClusters()
+      .find((cluster) => cluster.id === workflow.id);
+
+    assert.equal(storedAnalysis?.workflowName, "AI Renamed Workflow");
+    assert.equal(renamedWorkflow?.name, "AI Renamed Workflow");
+
+    database.close();
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});

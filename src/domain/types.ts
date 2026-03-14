@@ -117,3 +117,15 @@ export interface WorkflowSummaryPayloadRecord {
   workflowName: string;
   payload: LLMWorkflowSummaryPayload;
 }
+
+export interface WorkflowLLMAnalysis {
+  workflowClusterId: string;
+  provider: string;
+  model: string;
+  workflowName: string;
+  workflowSummary: string;
+  automationSuitability: AutomationSuitability;
+  recommendedApproach: string;
+  rationale: string;
+  createdAt: string;
+}
