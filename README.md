@@ -38,6 +38,7 @@ The current repository focuses on **workflow analysis and discovery**, not autom
 - session listing and deletion with automatic reanalysis
 - summarized workflow payload export that is safe to send to an LLM
 - OpenAI Responses API adapter for summarized workflow analysis
+- macOS Keychain-backed secure storage for the OpenAI API key
 
 ### What Is Not Implemented Yet
 
@@ -45,7 +46,7 @@ The current repository focuses on **workflow analysis and discovery**, not autom
 - desktop UI
 - workflow feedback UI
 - additional LLM providers beyond the current OpenAI adapter
-- secure credential storage
+- secure credential storage on non-macOS platforms
 
 ### How the Analysis Pipeline Works
 
@@ -90,7 +91,7 @@ Never collected:
 - npm `10.x` or later
 - Chrome, if you want live browser collection
 - Windows PowerShell, if you want to run the Windows active-window collector script
-- `OPENAI_API_KEY`, if you want to run `llm:analyze`
+- `OPENAI_API_KEY`, if you want to run `llm:analyze` without storing a key in secure storage
 
 Notes:
 
@@ -245,6 +246,24 @@ export OPENAI_API_KEY="your-api-key"
 npm run dev -- llm:analyze --data-dir ./tmp/local-data --json
 ```
 
+Store your OpenAI API key in macOS Keychain:
+
+```bash
+npm run dev -- credential:set-openai
+```
+
+Check secure credential status:
+
+```bash
+npm run dev -- credential:status
+```
+
+Delete the stored OpenAI API key:
+
+```bash
+npm run dev -- credential:delete-openai
+```
+
 Store the LLM-generated workflow names as local rename feedback:
 
 ```bash
@@ -264,6 +283,7 @@ npm run dev -- llm:analyze --data-dir ./tmp/local-data --base-url http://127.0.0
 ```
 
 This integration sends only summarized workflow payloads and does not send raw logs, URLs, or window titles.
+On macOS, `llm:analyze` will read the key from Keychain first and fall back to `OPENAI_API_KEY`.
 
 <a id="ko"></a>
 ## 한국어
@@ -293,6 +313,7 @@ This integration sends only summarized workflow payloads and does not send raw l
 - 세션 목록 조회 및 삭제 후 자동 재분석
 - LLM에 보내기 비교적 안전한 요약 워크플로우 payload 출력
 - OpenAI Responses API 기반 요약 워크플로우 분석 adapter
+- macOS Keychain 기반 OpenAI API 키 보안 저장
 
 ### 아직 구현되지 않은 기능
 
@@ -300,7 +321,7 @@ This integration sends only summarized workflow payloads and does not send raw l
 - 데스크톱 UI
 - 워크플로우 피드백 UI
 - 현재 OpenAI adapter 외 추가 LLM provider 연동
-- 보안 자격 증명 저장
+- macOS 외 플랫폼의 보안 자격 증명 저장
 
 ### 분석 파이프라인
 
@@ -345,7 +366,7 @@ This integration sends only summarized workflow payloads and does not send raw l
 - npm `10.x` 이상
 - 실시간 브라우저 수집을 원하면 Chrome
 - Windows active-window 수집기를 실행하려면 Windows PowerShell
-- `llm:analyze`를 실행하려면 `OPENAI_API_KEY`
+- secure storage에 키를 저장하지 않았다면 `llm:analyze` 실행에 `OPENAI_API_KEY`
 
 참고:
 
@@ -500,6 +521,24 @@ export OPENAI_API_KEY="your-api-key"
 npm run dev -- llm:analyze --data-dir ./tmp/local-data --json
 ```
 
+macOS Keychain에 OpenAI API 키 저장:
+
+```bash
+npm run dev -- credential:set-openai
+```
+
+보안 자격 증명 상태 확인:
+
+```bash
+npm run dev -- credential:status
+```
+
+저장된 OpenAI API 키 삭제:
+
+```bash
+npm run dev -- credential:delete-openai
+```
+
 LLM이 제안한 workflow 이름을 로컬 rename feedback으로 저장:
 
 ```bash
@@ -519,6 +558,7 @@ npm run dev -- llm:analyze --data-dir ./tmp/local-data --base-url http://127.0.0
 ```
 
 이 경로는 요약 payload만 전송하며 raw log, URL, window title은 보내지 않습니다.
+macOS에서는 `llm:analyze`가 Keychain의 키를 우선 사용하고, 없으면 `OPENAI_API_KEY`를 사용합니다.
 
 <a id="zh"></a>
 ## 中文
@@ -998,6 +1038,9 @@ npm run dev -- llm:payloads --data-dir ./tmp/local-data
 | `llm:payloads` | Print summarized workflow payloads without raw logs. |
 | `llm:analyze` | Run summarized workflow analysis through the OpenAI adapter. |
 | `llm:results` | List stored LLM analysis results. |
+| `credential:status` | Show secure credential backend status. |
+| `credential:set-openai` | Store the OpenAI API key in secure OS credential storage. |
+| `credential:delete-openai` | Delete the stored OpenAI API key from secure storage. |
 | `serve` | Run the local HTTP ingest server for collectors. |
 | `demo` | Reset data, seed mock events, run analysis, and print a report. |
 | `reset` | Delete all locally stored events and analysis artifacts. |
@@ -1029,6 +1072,8 @@ npm run dev -- doctor
 - `src/pipeline/cluster.ts`: workflow clustering heuristics
 - `src/reporting/report.ts`: report formatting
 - `src/llm/payloads.ts`: summarized LLM-safe workflow payload builder
+- `src/llm/openai.ts`: OpenAI Responses API adapter for workflow analysis
+- `src/credentials/store.ts`: secure credential storage abstraction and macOS Keychain integration
 - `src/server/ingest-server.ts`: local HTTP ingest server
 - `src/server/ingest.ts`: incoming collector payload coercion
 - `extension/chrome`: Chrome extension scaffold for live browser collection
@@ -1040,4 +1085,4 @@ npm run dev -- doctor
 - The Windows native collector currently captures only active-window changes.
 - Workflow naming remains heuristic.
 - Report output is CLI-only.
-- Only the OpenAI adapter is wired in today, and API keys are still environment-variable based instead of secure OS credential storage.
+- Secure credential storage is implemented only for macOS Keychain today.
