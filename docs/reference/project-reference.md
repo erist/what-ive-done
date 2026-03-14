@@ -4,7 +4,7 @@ Internal reference for the current repository state.
 
 ## Purpose
 
-**What I've Done** is a local-first workflow pattern analyzer. It captures desktop and browser activity metadata, stores that data locally in SQLite, normalizes events into semantic actions, groups them into sessions, clusters similar sessions into workflows, and produces reports that highlight automation candidates.
+**What I've Done** is a local-first workflow pattern analyzer. It captures desktop and browser activity metadata, stores that data locally in SQLite, normalizes noisy events into stable workflow context, maps them into semantic actions, segments them into sessions, clusters near-matching workflows, and produces workflow-centric reports that highlight automation candidates.
 
 The project is for workflow analysis and discovery. It does not execute automation.
 
@@ -21,10 +21,10 @@ Implemented today:
 - Chrome extension scaffold for browser activity metadata
 - Windows PowerShell active-window collector path
 - macOS Swift active-window collector path with permission checks and one-shot capture
-- normalization, sessionization, workflow clustering, and all-time/daily/weekly CLI reporting
+- normalization, semantic action abstraction, sessionization, workflow clustering, and all-time/daily/weekly CLI reporting
 - persisted daily and weekly report snapshots
 - local scheduler command for automatic snapshot refresh
-- workflow rename, exclude, include, hide, and unhide feedback
+- workflow rename, label, merge, split, exclude, include, hide, and unhide feedback
 - session listing, session detail, and session deletion with reanalysis
 - LLM-safe workflow payload export
 - OpenAI Responses API adapter for summarized workflow analysis
@@ -55,16 +55,17 @@ Current CLI report behavior:
 
 1. Raw events are collected from mock data, imported files, the local ingest server, or desktop collectors.
 2. Sensitive fields are sanitized before they are written to SQLite.
-3. Raw events are normalized into semantic actions such as `application_switch`, `page_navigation`, `button_click`, and `form_submit`.
-4. Events are grouped into sessions.
-5. Similar sessions are clustered into workflows.
-6. Reports and safe LLM summary payloads are generated from those workflow clusters.
+3. Raw events are normalized into stable context fields such as app alias, path pattern, page type, resource hint, and title pattern.
+4. Normalized events are mapped into semantic action labels with confidence and source metadata.
+5. Events are grouped into sessions with explainable boundary reasons.
+6. Similar sessions are clustered into workflows with representative sequences, variants, confidence, and automation hints.
+7. Reports and safe LLM summary payloads are generated from those workflow clusters.
 
 Current heuristic defaults in code:
 
-- session inactivity split: 5 minutes
-- context-shift split: 90 seconds with app/domain change
-- minimum workflow session duration: 60 seconds
+- session inactivity split: 150 seconds
+- context-shift split: 75 seconds with significant context change
+- minimum workflow session duration: 45 seconds
 - minimum workflow frequency: 3 similar sessions within 7 days
 
 ## Privacy Boundaries
@@ -244,10 +245,13 @@ Show one workflow:
 npm run dev -- workflow:show <workflow-id> --data-dir ./tmp/local-data --json
 ```
 
-Rename, exclude, or hide a workflow:
+Label, merge, split, exclude, or hide a workflow:
 
 ```bash
 npm run dev -- workflow:rename <workflow-id> "New workflow name" --data-dir ./tmp/local-data
+npm run dev -- workflow:label <workflow-id> --purpose "Review shipping status" --automation-candidate true --difficulty medium --data-dir ./tmp/local-data
+npm run dev -- workflow:merge <workflow-id> <target-workflow-id> --data-dir ./tmp/local-data
+npm run dev -- workflow:split <workflow-id> --after-action search_order --data-dir ./tmp/local-data
 npm run dev -- workflow:exclude <workflow-id> --data-dir ./tmp/local-data
 npm run dev -- workflow:hide <workflow-id> --data-dir ./tmp/local-data
 ```
@@ -320,6 +324,9 @@ npm run dev -- credential:delete-openai
 | `workflow:list` | List workflow clusters with feedback state. |
 | `workflow:show` | Show one workflow cluster in detail. |
 | `workflow:rename` | Rename a workflow cluster. |
+| `workflow:label` | Save workflow name, purpose, repetitive flag, and automation review fields. |
+| `workflow:merge` | Merge one workflow into another on future analyses. |
+| `workflow:split` | Split a workflow after a selected action on future analyses. |
 | `workflow:exclude` | Exclude a workflow cluster from report output. |
 | `workflow:include` | Re-include an excluded workflow cluster. |
 | `workflow:hide` | Hide an incorrect workflow cluster. |

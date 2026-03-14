@@ -2,249 +2,155 @@
 
 ## 1. 목표
 
-이제 MVP의 다음 단계는 개별 CLI 명령을 추가하는 것이 아니라,
-제품 목적에 맞는 **상주 로컬 에이전트(runtime)** 구조로 옮겨가는 것이다.
+현재 MVP의 핵심 과제는 런타임 구조 자체보다, **raw activity -> meaningful workflow**
+해석 품질을 실제 사용 환경에서 높이는 것이다.
 
-제품 목적은 사용자의 반복 업무 패턴을 장기간 관찰하고 분석하는 것이다.
-그렇다면 수집, 스냅샷 생성, 주기적 분석은 사용자가 매번 CLI를 직접 호출하지 않아도
-동작해야 한다.
+이번 활성 계획의 중심은 아래 파이프라인이다.
 
-- 수집은 사용자 세션 안에서 계속 돌아야 한다.
-- 리포트 스냅샷은 에이전트가 자동 생성해야 한다.
-- CLI와 이후 UI는 에이전트를 제어하고 상태를 조회하는 역할로 분리한다.
+1. event normalization
+2. action abstraction
+3. session segmentation
+4. workflow pattern mining
+5. human feedback reuse
+6. workflow-centric reporting
+7. automation hints
 
-## 2. 현재 구현 상태
+## 2. 2026-03-15 기준 구현 상태
 
-2026-03-14 기준 현재 코드베이스에는 아래 기반이 이미 있다.
-
-### 2.1 구현 완료
+### 2.1 완료된 기반
 
 - 로컬 CLI 진입점과 SQLite 초기화
-- raw event import와 local ingest server
 - Windows/macOS active-window collector 경로
-- raw event 정규화, 세션화, workflow clustering
-- all-time/day/week 리포트
-- daily/weekly report snapshot 저장
-- local scheduler command
+- Chrome extension ingest 경로
+- all-time/day/week report와 snapshot 저장
 - workflow feedback, session delete, LLM-safe payload export, OpenAI 분석
-- macOS Keychain 기반 OpenAI API key 저장
 
-### 2.2 검증 상태
+### 2.2 이번 단계에서 완료된 핵심 품질 개선
 
-리포트와 스냅샷 단계까지 아래 검증이 통과한 상태다.
+- 안정적인 normalized context 필드 추가
+- semantic action abstraction 추가
+- explainable session boundary reason 저장
+- near-match workflow mining과 variant/confidence 계산 추가
+- workflow signature 기반 feedback 재사용 추가
+- workflow-centric summary/report/graph 출력 추가
+- practical automation hints 추가
 
-- `npm test`: 통과
-- `npm run typecheck`: 통과
-- `npm run build`: 통과
-- `report --window day|week`: 통과
-- `report:generate`, `report:snapshot:list`, `report:snapshot:show`, `report:scheduler --once`: 통과
+### 2.3 현재 파이프라인 결과물
 
-즉, 기능적으로는 수집 -> 저장 -> 분석 -> 리포트 -> 스냅샷까지 연결되어 있다.
+현재 분석 산출물은 아래 단계를 모두 포함한다.
 
-### 2.3 현재 구조의 핵심 문제
+- raw events
+- normalized events
+- semantic actions
+- sessions with boundary reasons
+- workflow clusters with representative sequence, variants, confidence, involved apps
+- reusable workflow feedback
+- workflow-centric reports with summary sections
+- automation hints
 
-지금 구조는 여전히 CLI 중심이라 제품 목적과 맞지 않는 부분이 남아 있다.
+## 3. 현재 남아 있는 핵심 리스크
 
-- 수집기가 항상 돌아야 하는데 런타임 오너가 없다.
-- scheduler가 있어도 사용자가 그 프로세스를 직접 켜야 한다.
-- collector, snapshot generation, state monitoring이 하나의 에이전트 생명주기로 묶여 있지 않다.
-- CLI가 제어면과 런타임면을 동시에 맡고 있다.
-- 이후 UI를 붙여도 연결 대상이 되는 resident process가 아직 없다.
+이번 개선으로 기본 구조는 갖춰졌지만, 실제 운영 품질을 위해 아래 항목이 남아 있다.
 
-정리하면, 기능 레이어보다 **런타임 아키텍처 레이어**가 다음 병목이다.
+### 3.1 Rule coverage 리스크
 
-## 3. 제품 결정 사항
+- admin/product/order/refund 외 도메인 규칙이 아직 충분히 넓지 않다
+- 브라우저가 아닌 desktop-only context의 title-based normalization 품질은 더 튜닝이 필요하다
 
-다음 단계에서 확정할 방향은 아래와 같다.
+### 3.2 Feedback UX 리스크
 
-- 제품의 주 실행 단위는 `resident local agent`다.
-- CLI는 에이전트 제어, 진단, 수동 강제 실행, 디버그용으로 남긴다.
-- UI는 이후 단계에서 같은 에이전트를 제어하고 상태를 읽는 클라이언트로 붙인다.
-- macOS는 `LaunchAgent`, Windows는 로그인 사용자 세션 기반 실행 모델을 우선 검토한다.
+- 현재 feedback flow는 CLI 중심이다
+- 이후 UI가 붙으면 label/merge/split flow를 더 직관적으로 제공해야 한다
 
-중요한 구분:
+### 3.3 Debug surface 리스크
 
-- runtime plane: 상주 에이전트, collector orchestration, scheduling, health state
-- control plane: CLI, 이후 UI, 진단 및 상태 조회
-- data plane: raw events, normalized artifacts, report snapshots, feedback
+- 내부 전환 정보는 데이터 모델에 담겼지만, dedicated debug commands와 시각화는 더 보강 가능하다
 
-이 분리가 되어야 제품이 커져도 구조가 무너지지 않는다.
+## 4. 다음 단계 구현 원칙
 
-## 4. 구현 원칙
+### 4.1 품질 튜닝 우선
 
-### 4.1 기존 분석/저장 코드는 최대한 재사용
+다음 단계는 새로운 collector보다 **해석 품질 튜닝**을 우선한다.
 
-에이전트 전환 때문에 분석, 저장, 리포트 계산을 다시 만들지 않는다.
+- normalization rule 확장
+- action rule precision 조정
+- session threshold tuning
+- clustering threshold tuning
 
-- `src/storage/`
-- `src/pipeline/`
-- `src/reporting/`
-- 기존 collector scripts
+### 4.2 Feedback를 해석 루프에 계속 연결
 
-새로 만들 것은 런타임 orchestration과 상태 관리다.
+feedback는 저장만 하는 기능이 아니라 해석을 바꾸는 입력이어야 한다.
 
-### 4.2 하나의 resident process가 책임을 가진다
+- rename/purpose는 report에 반영
+- merge/split는 다음 분석에 반영
+- ignore/exclude는 reporting에 반영
+- approved candidate는 automation review 우선순위에 반영
 
-에이전트는 최소한 아래 책임을 가진다.
+### 4.3 UI는 data contract 위에 붙인다
 
-- collector process 시작/종료/상태 확인
-- 주기적 report snapshot generation
-- 실패 재시도와 진단 상태 기록
-- control CLI/UI를 위한 상태 노출
+현재 CLI가 이미 rich JSON과 report summary를 제공하므로,
+향후 UI는 이 구조를 재사용하는 방향이 가장 안전하다.
 
-### 4.3 UI는 나중, 제어 API는 지금
+## 5. 권장 후속 작업
 
-이번 단계에서는 화면을 만들지 않는다.
-대신 UI가 나중에 붙을 수 있도록 control interface를 먼저 정리한다.
+### Phase 1. Rule coverage 확장
 
-예:
-
-- agent start
-- agent stop
-- agent status
-- agent run-once
-- latest snapshots
-- collector health
-
-### 4.4 사용자 세션 기반 실행을 우선한다
-
-이 제품은 active window 같은 사용자 컨텍스트를 읽는다.
-그래서 일반 시스템 daemon보다 사용자 로그인 세션에 붙는 실행 모델이 더 중요하다.
-
-- macOS: `LaunchAgent`
-- Windows: 사용자 로그인 시 시작되는 작업
-
-## 5. 목표 아키텍처
-
-### 5.1 런타임 구조
-
-핵심 프로세스:
-
-1. resident agent
-2. collector subprocesses
-3. control CLI
-4. 이후 UI client
-
-권장 데이터 흐름:
-
-1. collector가 raw events를 local ingest 또는 직접 DB 경로로 보냄
-2. agent가 수집 상태를 추적
-3. agent가 주기적으로 report snapshots를 생성
-4. CLI/UI가 agent 상태와 latest snapshots를 조회
-
-### 5.2 코드 구조 방향
-
-권장 신규 모듈:
-
-- `src/agent/runtime.ts`
-- `src/agent/collectors.ts`
-- `src/agent/scheduler.ts`
-- `src/agent/state.ts`
-- `src/agent/autostart/`
-
-CLI는 아래처럼 얇아지는 방향이 좋다.
-
-- `agent:start`
-- `agent:run`
-- `agent:status`
-- `agent:stop`
-- `agent:run-once`
-- `report:snapshot:*`
-
-## 6. 단계별 구현 계획
-
-### Phase 0. Active Plan 전환
-
-- 현재 active plan을 resident agent 기준으로 갱신한다.
-- report window/snapshot 작업은 archive로 이동한다.
+- normalization rules를 더 많은 internal admin 경로에 적용
+- title-only desktop contexts에 대한 fallback 개선
+- app alias 사전 확장
 
 완료 기준:
 
-- 다음 구현 단계의 기준 문서가 런타임 전환 방향을 반영한다.
+- noisy titles와 URL variation이 더 적은 수의 stable page type으로 수렴한다
 
-### Phase 1. Agent Runtime 골격 추가
+### Phase 2. Dedicated debug commands
 
-- long-running `agent:run` 엔트리포인트를 추가한다.
-- graceful shutdown, pid/state 개념, 기본 heartbeat를 넣는다.
-- 수집과 스냅샷 생성을 한 프로세스 안에서 orchestration할 수 있는 뼈대를 만든다.
-
-완료 기준:
-
-- 에이전트 프로세스가 안정적으로 떠 있고 상태를 기록한다.
-
-### Phase 2. Collector Orchestration 통합
-
-- macOS/Windows collector를 agent가 시작하고 감시하게 한다.
-- collector 프로세스 종료 시 재시도나 오류 상태를 기록한다.
-- 필요한 경우 ingest server도 agent lifecycle에 포함시킨다.
+- normalized event list/detail
+- session boundary trace
+- workflow cluster trace
+- feedback application trace
 
 완료 기준:
 
-- 사용자는 collector를 별도 터미널에서 수동 실행하지 않아도 된다.
+- 품질 문제를 CLI만으로 추적할 수 있다
 
-### Phase 3. Snapshot Scheduler 내장
+### Phase 3. Feedback UI surface
 
-- 기존 `report:scheduler` 로직을 agent 내부 scheduler로 옮긴다.
-- day/week snapshot을 자동 생성한다.
-- 마지막 생성 시각과 다음 실행 상태를 보존한다.
-
-완료 기준:
-
-- agent가 떠 있으면 snapshot이 자동으로 갱신된다.
-
-### Phase 4. Control CLI 정리
-
-- agent status, latest snapshot, collector health를 보는 명령을 추가한다.
-- 수동 재실행과 진단 명령을 정리한다.
-- 기존 report/snapshot 명령은 agent 시대에 맞게 역할을 재정의한다.
+- workflow label/purpose/candidate 입력 화면
+- merge/split 보조 flow
+- labeled/unlabeled 상태 강조
 
 완료 기준:
 
-- CLI가 runtime runner가 아니라 control surface처럼 보인다.
+- 비개발자도 feedback loop를 무리 없이 사용할 수 있다
 
-### Phase 5. OS 자동 시작 전략
+### Phase 4. Runtime orchestration revisited
 
-- macOS용 LaunchAgent 설치/제거 흐름을 문서화하거나 일부 자동화한다.
-- Windows용 로그인 시 자동 시작 전략을 문서화한다.
-- 최소한 수동 설치 절차로도 항상 켜지는 환경을 만들 수 있게 한다.
+- resident agent 또는 scheduler ownership 재검토
+- collector orchestration과 snapshot refresh를 하나의 runtime으로 묶을지 재판단
 
 완료 기준:
 
-- 사용자는 재부팅 후에도 agent가 자동 시작되게 설정할 수 있다.
+- 품질 파이프라인이 충분히 안정된 뒤 런타임 투자 우선순위를 다시 평가한다
 
-## 7. 권장 구현 순서
-
-실제 작업 순서는 아래가 가장 안전하다.
-
-1. `agent:run` 런타임 뼈대
-2. collector orchestration
-3. snapshot scheduler 내장
-4. control CLI 정리
-5. OS 자동 시작 연결
-
-이 순서가 좋은 이유는 resident process 없이 autostart를 먼저 붙이면 운영 경로가 불안정해지기 때문이다.
-
-## 8. 이번 단계에서 의도적으로 미루는 항목
-
-아래는 다음 단계 이후로 미룬다.
+## 6. 의도적으로 뒤로 미루는 항목
 
 - full desktop UI
 - tray UI
 - remote sync
-- multi-user analytics
-- cloud-managed agent
-- diff report와 recommendation feed UI
+- screenshot capture
+- automation execution engine
+- code generation integration
 
-## 9. 추천 결론
+## 7. 추천 결론
 
-현재까지는 기능이 쌓였지만 런타임의 중심이 아직 CLI다.
-제품 목적을 생각하면 이제 중심을 CLI에서 resident agent로 옮겨야 한다.
+지금 이 프로젝트의 병목은 단순 기능 부족이 아니라 **workflow interpretation quality**였다.
+이번 단계로 해석 파이프라인의 기본 품질 레이어는 들어갔다.
 
-가장 현실적인 다음 단계는 아래와 같다.
+다음으로 가장 가치가 큰 일은:
 
-- report/snapshot 계산 로직은 유지한다.
-- resident local agent를 추가한다.
-- CLI는 control plane으로 축소한다.
-- UI는 그 다음 단계에서 같은 control surface를 쓰는 방향으로 붙인다.
+1. rule coverage 확장
+2. debug surface 강화
+3. feedback UX 개선
 
-이 전환이 끝나야 이 프로젝트가 “명령 모음”이 아니라 실제로 계속 동작하는 사용자용 제품에 가까워진다.
+그 다음에야 resident agent나 richer UI 투자 우선순위를 다시 잡는 것이 안전하다.
