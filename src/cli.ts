@@ -1,7 +1,9 @@
 import { Command } from "commander";
 
 import { resolveAppPaths } from "./app-paths.js";
-import { getAvailableCollectors, getWindowsActiveWindowCollectorInfo } from "./collectors/windows.js";
+import { getAvailableCollectors } from "./collectors/index.js";
+import { getMacOSActiveWindowCollectorInfo } from "./collectors/macos.js";
+import { getWindowsActiveWindowCollectorInfo } from "./collectors/windows.js";
 import { resolveCredentialStore } from "./credentials/store.js";
 import { generateMockRawEvents } from "./collectors/mock.js";
 import { importEventsFromFile } from "./importers/events.js";
@@ -338,6 +340,7 @@ program
         id: collector.id,
         name: collector.name,
         platform: collector.platform,
+        runtime: collector.runtime,
         eventTypes: collector.supportedEventTypes.join(", "),
         scriptPath: collector.scriptPath ?? "",
       })),
@@ -356,6 +359,37 @@ program
         writeNdjson: `pwsh -File "${info.scriptPath}" -OutputPath ".\\\\events.ndjson"`,
         postToIngest: `pwsh -File "${info.scriptPath}" -IngestUrl "http://127.0.0.1:4318/events"`,
         importFixture: `npm run dev -- import:events "${info.sampleFixturePath}" --data-dir ./tmp/windows-data`,
+      },
+    };
+
+    if (options.json) {
+      console.log(JSON.stringify(payload, null, 2));
+      return;
+    }
+
+    console.log(JSON.stringify(payload, null, 2));
+  });
+
+program
+  .command("collector:macos:info")
+  .description("Print usage details for the macOS active-window collector")
+  .option("--json", "Print machine-readable JSON")
+  .action((options: { json?: boolean }) => {
+    const info = getMacOSActiveWindowCollectorInfo();
+    const payload = {
+      ...info,
+      permissions: {
+        accessibilityRequiredForWindowTitles: true,
+        appSwitchFallbackWithoutAccessibility: true,
+        systemSettingsPath: "System Settings > Privacy & Security > Accessibility",
+      },
+      examples: {
+        checkPermissions: `swift "${info.scriptPath}" --check-permissions --json`,
+        captureOnceToStdout: `swift "${info.scriptPath}" --once --stdout`,
+        writeNdjson: `swift "${info.scriptPath}" --output-path "./macos-events.ndjson"`,
+        postToIngest: `swift "${info.scriptPath}" --ingest-url "http://127.0.0.1:4318/events"`,
+        compileBinary: `swiftc "${info.scriptPath}" -o "./tmp/macos-active-window-collector"`,
+        importFixture: `npm run dev -- import:events "${info.sampleFixturePath}" --data-dir ./tmp/macos-data`,
       },
     };
 

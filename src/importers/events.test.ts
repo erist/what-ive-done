@@ -7,6 +7,26 @@ import { analyzeRawEvents } from "../pipeline/analyze.js";
 import { parseImportedEvents } from "./events.js";
 import { importEventsFromFile } from "./events.js";
 
+function loadFixtureRawEvents(relativePath: string): RawEvent[] {
+  const fixturePath = fileURLToPath(new URL(relativePath, import.meta.url));
+
+  return importEventsFromFile(fixturePath).map((event, index) => ({
+    id: `fixture-${index + 1}`,
+    source: event.source,
+    sourceEventType: event.sourceEventType,
+    timestamp: event.timestamp,
+    application: event.application,
+    windowTitle: event.windowTitle,
+    domain: event.domain,
+    url: event.url,
+    action: event.action,
+    target: event.target,
+    metadata: event.metadata ?? {},
+    sensitiveFiltered: true,
+    createdAt: event.timestamp,
+  }));
+}
+
 test("parseImportedEvents parses NDJSON input", () => {
   const events = parseImportedEvents(
     `
@@ -44,24 +64,16 @@ test("parseImportedEvents parses JSON wrapper input", () => {
 });
 
 test("windows fixture import produces one workflow cluster", () => {
-  const fixturePath = fileURLToPath(
-    new URL("../../fixtures/windows-active-window-sample.ndjson", import.meta.url),
-  );
-  const rawEvents: RawEvent[] = importEventsFromFile(fixturePath).map((event, index) => ({
-    id: `fixture-${index + 1}`,
-    source: event.source,
-    sourceEventType: event.sourceEventType,
-    timestamp: event.timestamp,
-    application: event.application,
-    windowTitle: event.windowTitle,
-    domain: event.domain,
-    url: event.url,
-    action: event.action,
-    target: event.target,
-    metadata: event.metadata ?? {},
-    sensitiveFiltered: true,
-    createdAt: event.timestamp,
-  }));
+  const rawEvents = loadFixtureRawEvents("../../fixtures/windows-active-window-sample.ndjson");
+  const result = analyzeRawEvents(rawEvents);
+
+  assert.equal(result.sessions.length, 3);
+  assert.equal(result.workflowClusters.length, 1);
+  assert.equal(result.workflowClusters[0]?.frequency, 3);
+});
+
+test("macos fixture import produces one workflow cluster", () => {
+  const rawEvents = loadFixtureRawEvents("../../fixtures/macos-active-window-sample.ndjson");
   const result = analyzeRawEvents(rawEvents);
 
   assert.equal(result.sessions.length, 3);

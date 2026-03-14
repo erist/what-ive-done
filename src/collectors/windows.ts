@@ -1,24 +1,13 @@
 import { fileURLToPath } from "node:url";
 
-export interface CollectorInfo {
-  id: string;
-  name: string;
-  platform: string;
-  description: string;
-  supportedEventTypes: string[];
-  scriptPath?: string | undefined;
-  sampleFixturePath?: string | undefined;
-}
-
-export function getAvailableCollectors(): CollectorInfo[] {
-  return [getWindowsActiveWindowCollectorInfo()];
-}
+import type { CollectorInfo } from "./types.js";
 
 export function getWindowsActiveWindowCollectorInfo(): CollectorInfo {
   return {
     id: "windows-active-window",
     name: "Windows Active Window Collector",
     platform: "windows",
+    runtime: "powershell",
     description:
       "Captures active application and window title changes, then writes NDJSON or POSTs to the local ingest server.",
     supportedEventTypes: ["app.switch"],
