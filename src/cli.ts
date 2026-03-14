@@ -2,7 +2,7 @@ import { Command } from "commander";
 
 import { resolveAppPaths } from "./app-paths.js";
 import { getAvailableCollectors } from "./collectors/index.js";
-import { getMacOSActiveWindowCollectorInfo } from "./collectors/macos.js";
+import { getMacOSActiveWindowCollectorInfo, resolveMacOSCollectorRunner } from "./collectors/macos.js";
 import { getWindowsActiveWindowCollectorInfo } from "./collectors/windows.js";
 import { resolveCredentialStore } from "./credentials/store.js";
 import { generateMockRawEvents } from "./collectors/mock.js";
@@ -265,6 +265,37 @@ program
   });
 
 program
+  .command("collect:macos:once")
+  .description("Capture the current macOS frontmost application once and store it locally")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--json", "Print machine-readable JSON")
+  .option("--prompt-accessibility", "Ask macOS to show the Accessibility permission prompt first")
+  .action((options: { dataDir?: string; json?: boolean; promptAccessibility?: boolean }) => {
+    const collectorRunner = resolveMacOSCollectorRunner();
+    const event = collectorRunner.captureOnce({
+      promptAccessibility: options.promptAccessibility,
+    });
+    const paths = resolveAppPaths(options.dataDir);
+
+    withDatabase(options.dataDir, (database) => {
+      database.insertRawEvent(event);
+    });
+
+    const payload = {
+      status: "macos_event_inserted",
+      databasePath: paths.databasePath,
+      event,
+    };
+
+    if (options.json) {
+      console.log(JSON.stringify(payload, null, 2));
+      return;
+    }
+
+    console.log(JSON.stringify(payload, null, 2));
+  });
+
+program
   .command("import:events")
   .description("Import raw events from a JSON or NDJSON file")
   .argument("<file-path>", "Path to the import file")
@@ -392,6 +423,25 @@ program
         importFixture: `npm run dev -- import:events "${info.sampleFixturePath}" --data-dir ./tmp/macos-data`,
       },
     };
+
+    if (options.json) {
+      console.log(JSON.stringify(payload, null, 2));
+      return;
+    }
+
+    console.log(JSON.stringify(payload, null, 2));
+  });
+
+program
+  .command("collector:macos:check")
+  .description("Check macOS collector permission status")
+  .option("--json", "Print machine-readable JSON")
+  .option("--prompt-accessibility", "Ask macOS to show the Accessibility permission prompt")
+  .action((options: { json?: boolean; promptAccessibility?: boolean }) => {
+    const collectorRunner = resolveMacOSCollectorRunner();
+    const payload = collectorRunner.getPermissionStatus({
+      promptAccessibility: options.promptAccessibility,
+    });
 
     if (options.json) {
       console.log(JSON.stringify(payload, null, 2));
