@@ -66,6 +66,26 @@ function renderWorkflowList(json = false, dataDir?: string): void {
   );
 }
 
+function renderSessionList(json = false, dataDir?: string): void {
+  const sessions = withDatabase(dataDir, (database) => database.listSessionSummaries());
+
+  if (json) {
+    console.log(JSON.stringify(sessions, null, 2));
+    return;
+  }
+
+  console.table(
+    sessions.map((session) => ({
+      id: session.id,
+      startTime: session.startTime,
+      endTime: session.endTime,
+      primaryApplication: session.primaryApplication,
+      primaryDomain: session.primaryDomain ?? "",
+      stepCount: session.stepCount,
+    })),
+  );
+}
+
 program
   .name("what-ive-done")
   .description("Local workflow pattern analyzer CLI")
@@ -365,6 +385,49 @@ program
     });
 
     console.log(JSON.stringify({ status: "workflow_visible", workflowId }, null, 2));
+  });
+
+program
+  .command("session:list")
+  .description("List analyzed sessions")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--json", "Print machine-readable JSON")
+  .action((options: { dataDir?: string; json?: boolean }) => {
+    renderSessionList(options.json, options.dataDir);
+  });
+
+program
+  .command("session:delete")
+  .description("Delete a session by removing its source raw events and rerunning analysis")
+  .argument("<session-id>", "Session id")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((sessionId: string, options: { dataDir?: string }) => {
+    const summary = withDatabase(options.dataDir, (database) => {
+      const deletedRawEventCount = database.deleteSessionSourceEvents(sessionId);
+      const remainingRawEvents = database.getRawEventsChronological();
+      const analysisResult = analyzeRawEvents(remainingRawEvents);
+
+      database.replaceAnalysisArtifacts(analysisResult);
+
+      return {
+        deletedRawEventCount,
+        remainingRawEventCount: remainingRawEvents.length,
+        remainingSessionCount: analysisResult.sessions.length,
+        remainingWorkflowClusterCount: analysisResult.workflowClusters.length,
+      };
+    });
+
+    console.log(
+      JSON.stringify(
+        {
+          status: "session_deleted",
+          sessionId,
+          ...summary,
+        },
+        null,
+        2,
+      ),
+    );
   });
 
 program

@@ -118,3 +118,41 @@ test("workflow feedback persists across analysis refreshes for stable cluster id
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test("deleting a session removes its source events and changes downstream analysis", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-session-delete-"));
+
+  try {
+    const database = new AppDatabase({
+      dataDir: tempDir,
+      databasePath: join(tempDir, "test.sqlite"),
+    });
+    database.initialize();
+
+    for (const input of toRawEventInputs()) {
+      database.insertRawEvent(input);
+    }
+
+    let analysisResult = analyzeRawEvents(database.getRawEventsChronological());
+    database.replaceAnalysisArtifacts(analysisResult);
+
+    const sessions = database.listSessionSummaries();
+
+    assert.equal(sessions.length, 15);
+
+    const deletedRawEvents = database.deleteSessionSourceEvents(sessions[0]!.id);
+
+    assert.equal(deletedRawEvents, 4);
+
+    analysisResult = analyzeRawEvents(database.getRawEventsChronological());
+    database.replaceAnalysisArtifacts(analysisResult);
+
+    assert.equal(database.getRawEventsChronological().length, 56);
+    assert.equal(database.listSessionSummaries().length, 14);
+    assert.equal(database.listWorkflowClusters().length, 4);
+
+    database.close();
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});

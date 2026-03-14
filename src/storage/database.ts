@@ -7,6 +7,7 @@ import type {
   RawEvent,
   RawEventInput,
   Session,
+  SessionSummary,
   WorkflowFeedback,
   WorkflowCluster,
 } from "../domain/types.js";
@@ -66,6 +67,15 @@ interface EffectiveWorkflowFeedback {
   renameTo?: string | undefined;
   excluded?: boolean | undefined;
   hidden?: boolean | undefined;
+}
+
+interface SessionSummaryRow {
+  id: string;
+  start_time: string;
+  end_time: string;
+  primary_application: string;
+  primary_domain: string | null;
+  step_count: number;
 }
 
 export class AppDatabase {
@@ -519,6 +529,72 @@ export class AppDatabase {
     }
 
     return feedbackByClusterId;
+  }
+
+  listSessionSummaries(): SessionSummary[] {
+    const rows = this.connection
+      .prepare(`
+        SELECT
+          sessions.id,
+          sessions.start_time,
+          sessions.end_time,
+          sessions.primary_application,
+          sessions.primary_domain,
+          COUNT(session_steps.normalized_event_id) AS step_count
+        FROM sessions
+        LEFT JOIN session_steps
+          ON session_steps.session_id = sessions.id
+        GROUP BY
+          sessions.id,
+          sessions.start_time,
+          sessions.end_time,
+          sessions.primary_application,
+          sessions.primary_domain
+        ORDER BY sessions.start_time DESC
+      `)
+      .all() as unknown as SessionSummaryRow[];
+
+    return rows.map((row) => ({
+      id: row.id,
+      startTime: row.start_time,
+      endTime: row.end_time,
+      primaryApplication: row.primary_application,
+      primaryDomain: row.primary_domain ?? undefined,
+      stepCount: row.step_count,
+    }));
+  }
+
+  deleteSessionSourceEvents(sessionId: string): number {
+    const rawEventRows = this.connection
+      .prepare(`
+        SELECT DISTINCT normalized_events.raw_event_id
+        FROM session_steps
+        INNER JOIN normalized_events
+          ON normalized_events.id = session_steps.normalized_event_id
+        WHERE session_steps.session_id = ?
+      `)
+      .all(sessionId) as unknown as Array<{ raw_event_id: string }>;
+    const rawEventIds = rawEventRows.map((row) => row.raw_event_id);
+
+    if (rawEventIds.length === 0) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    const placeholders = rawEventIds.map(() => "?").join(", ");
+
+    this.connection.exec("BEGIN");
+
+    try {
+      this.connection
+        .prepare(`DELETE FROM raw_events WHERE id IN (${placeholders})`)
+        .run(...rawEventIds);
+      this.connection.exec("COMMIT");
+    } catch (error) {
+      this.connection.exec("ROLLBACK");
+      throw error;
+    }
+
+    return rawEventIds.length;
   }
 
   clearAllData(): void {

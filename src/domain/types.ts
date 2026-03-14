@@ -62,6 +62,15 @@ export interface Session {
   steps: SessionStep[];
 }
 
+export interface SessionSummary {
+  id: string;
+  startTime: string;
+  endTime: string;
+  primaryApplication: string;
+  primaryDomain?: string | undefined;
+  stepCount: number;
+}
+
 export interface WorkflowCluster {
   id: string;
   name: string;
