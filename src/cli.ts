@@ -358,26 +358,36 @@ program
   .description("Run the resident local agent runtime")
   .option("--data-dir <path>", "Override application data directory")
   .option("--heartbeat-interval-ms <ms>", "Heartbeat interval in milliseconds", "30000")
-  .action(async (options: { dataDir?: string; heartbeatIntervalMs: string }) => {
+  .option("--ingest-host <host>", "Host to bind the local ingest server", "127.0.0.1")
+  .option("--ingest-port <port>", "Port to bind the local ingest server", "4318")
+  .option("--collector-poll-interval-ms <ms>", "Collector polling interval in milliseconds", "1000")
+  .option("--collector-restart-delay-ms <ms>", "Collector restart delay after failures", "5000")
+  .option("--no-collectors", "Disable collector supervision inside the agent")
+  .action(
+    async (options: {
+      dataDir?: string;
+      heartbeatIntervalMs: string;
+      ingestHost: string;
+      ingestPort: string;
+      collectorPollIntervalMs: string;
+      collectorRestartDelayMs: string;
+      collectors: boolean;
+    }) => {
     const runtime = await startAgentRuntime({
       dataDir: options.dataDir,
       heartbeatIntervalMs: Number.parseInt(options.heartbeatIntervalMs, 10),
+      ingestHost: options.ingestHost,
+      ingestPort: Number.parseInt(options.ingestPort, 10),
+      collectorPollIntervalMs: Number.parseInt(options.collectorPollIntervalMs, 10),
+      collectorRestartDelayMs: Number.parseInt(options.collectorRestartDelayMs, 10),
+      enableCollectors: options.collectors,
     });
 
-    console.log(
-      JSON.stringify(
-        {
-          status: "running",
-          pid: runtime.pid,
-          startedAt: runtime.startedAt,
-        },
-        null,
-        2,
-      ),
-    );
+    console.log(JSON.stringify(getAgentStatusSnapshot(options.dataDir), null, 2));
 
     await runtime.waitForStop();
-  });
+    },
+  );
 
 program
   .command("agent:status")

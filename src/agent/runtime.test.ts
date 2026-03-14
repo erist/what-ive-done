@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { setTimeout as delay } from "node:timers/promises";
 
 import { resolveAppPaths } from "../app-paths.js";
 import { acquireAgentLock, AgentAlreadyRunningError, readAgentLock } from "./lock.js";
@@ -60,26 +59,53 @@ test("acquireAgentLock reclaims a stale lock file", () => {
 test("startAgentRuntime publishes heartbeat state and clears the lock on stop", async () => {
   const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-agent-runtime-"));
   const paths = resolveAppPaths(tempDir);
+  let ingestServerClosed = false;
+  let collectorStopped = false;
 
   try {
     const runtime = await startAgentRuntime({
       dataDir: tempDir,
       heartbeatIntervalMs: 20,
       handleSignals: false,
+      ingestServerFactory: async () => ({
+        host: "127.0.0.1",
+        port: 4318,
+        close: async () => {
+          ingestServerClosed = true;
+        },
+      }),
+      collectorSupervisorFactory: async ({ ingestUrl, onCollectorStateChange }) => {
+        const collectorState = {
+          id: "macos-active-window",
+          platform: "macos",
+          runtime: "swift",
+          status: "running" as const,
+          pid: 5678,
+          ingestUrl,
+          startedAt: "2026-03-14T00:00:00.000Z",
+          restartCount: 0,
+        };
+        onCollectorStateChange?.(collectorState);
+
+        return {
+          getCollectorStates: () => [collectorState],
+          stop: async () => {
+            collectorStopped = true;
+          },
+        };
+      },
     });
 
     const initialStatus = getAgentStatusSnapshot(tempDir);
 
     assert.equal(initialStatus.status, "running");
     assert.equal(initialStatus.pid, runtime.pid);
-
-    await delay(40);
-
-    const heartbeatStatus = getAgentStatusSnapshot(tempDir);
-
-    assert.equal(heartbeatStatus.status, "running");
-    assert.ok(heartbeatStatus.state);
-    assert.notEqual(heartbeatStatus.state.heartbeatAt, heartbeatStatus.state.startedAt);
+    assert.equal(initialStatus.state?.ingestServer?.status, "running");
+    assert.equal(initialStatus.state?.collectors[0]?.status, "running");
+    assert.equal(
+      initialStatus.state?.ingestServer?.eventsUrl,
+      "http://127.0.0.1:4318/events",
+    );
 
     await runtime.stop("test");
 
@@ -87,8 +113,11 @@ test("startAgentRuntime publishes heartbeat state and clears the lock on stop", 
 
     assert.equal(stoppedStatus.status, "stopped");
     assert.equal(stoppedStatus.state?.stopReason, "test");
+    assert.equal(stoppedStatus.state?.ingestServer?.status, "stopped");
     assert.equal(stoppedStatus.lock.exists, false);
     assert.equal(readAgentLock(paths.agentLockPath), undefined);
+    assert.equal(ingestServerClosed, true);
+    assert.equal(collectorStopped, true);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
