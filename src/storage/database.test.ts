@@ -262,6 +262,8 @@ test("session details can be loaded with ordered steps", () => {
     assert.equal(session.steps.length, 4);
     assert.equal(session.steps[0]?.order, 1);
     assert.ok(session.steps[0]?.action);
+    assert.ok(session.steps[0]?.actionName);
+    assert.ok(typeof session.steps[0]?.actionConfidence === "number");
 
     database.close();
   } finally {

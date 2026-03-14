@@ -54,6 +54,9 @@ interface NormalizedEventRow {
   resource_hint: string | null;
   title_pattern: string | null;
   action: string;
+  action_name: string | null;
+  action_confidence: number | null;
+  action_source: NormalizedEvent["actionSource"] | null;
   target: string | null;
   metadata_json: string;
   created_at: string;
@@ -94,6 +97,9 @@ interface SessionStepContextRow {
   normalized_event_id?: string;
   timestamp?: string;
   action?: string;
+  action_name?: string;
+  action_confidence?: number;
+  action_source?: NormalizedEvent["actionSource"];
   application: string;
   domain: string | null;
   target?: string | null;
@@ -348,6 +354,9 @@ export class AppDatabase {
           resource_hint,
           title_pattern,
           action,
+          action_name,
+          action_confidence,
+          action_source,
           target,
           metadata_json,
           created_at
@@ -370,6 +379,9 @@ export class AppDatabase {
       resourceHint: row.resource_hint ?? undefined,
       titlePattern: row.title_pattern ?? undefined,
       action: row.action,
+      actionName: row.action_name ?? row.action,
+      actionConfidence: row.action_confidence ?? 0,
+      actionSource: row.action_source ?? "inferred",
       target: row.target ?? undefined,
       metadata: JSON.parse(row.metadata_json) as Record<string, unknown>,
       createdAt: row.created_at,
@@ -405,10 +417,13 @@ export class AppDatabase {
           resource_hint,
           title_pattern,
           action,
+          action_name,
+          action_confidence,
+          action_source,
           target,
           metadata_json,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       for (const event of args.normalizedEvents) {
@@ -425,6 +440,9 @@ export class AppDatabase {
           event.resourceHint ?? null,
           event.titlePattern ?? null,
           event.action,
+          event.actionName,
+          event.actionConfidence,
+          event.actionSource,
           event.target ?? null,
           JSON.stringify(event.metadata),
           event.createdAt,
@@ -449,10 +467,13 @@ export class AppDatabase {
           normalized_event_id,
           timestamp,
           action,
+          action_name,
+          action_confidence,
+          action_source,
           application,
           domain,
           target
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       for (const session of args.sessions) {
@@ -472,6 +493,9 @@ export class AppDatabase {
             step.normalizedEventId,
             step.timestamp,
             step.action,
+            step.actionName,
+            step.actionConfidence,
+            step.actionSource,
             step.application,
             step.domain ?? null,
             step.target ?? null,
@@ -743,6 +767,9 @@ export class AppDatabase {
           normalized_event_id,
           timestamp,
           action,
+          action_name,
+          action_confidence,
+          action_source,
           application,
           domain,
           target
@@ -763,6 +790,9 @@ export class AppDatabase {
         normalizedEventId: row.normalized_event_id ?? "",
         timestamp: row.timestamp ?? "",
         action: row.action ?? "",
+        actionName: row.action_name ?? row.action ?? "",
+        actionConfidence: row.action_confidence ?? 0,
+        actionSource: row.action_source ?? "inferred",
         application: row.application,
         domain: row.domain ?? undefined,
         target: row.target ?? undefined,
