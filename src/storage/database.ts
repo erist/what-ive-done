@@ -64,11 +64,17 @@ interface NormalizedEventRow {
 
 interface WorkflowClusterRow {
   id: string;
+  workflow_signature: string | null;
   name: string;
+  occurrence_count: number | null;
   frequency: number;
   average_duration_seconds: number;
   total_duration_seconds: number;
+  representative_sequence_json: string | null;
   representative_steps_json: string;
+  involved_apps_json: string | null;
+  confidence_score: number | null;
+  top_variants_json: string | null;
   automation_suitability: WorkflowCluster["automationSuitability"];
   recommended_approach: string;
   excluded: number;
@@ -521,22 +527,34 @@ export class AppDatabase {
       const insertWorkflowCluster = this.connection.prepare(`
         INSERT INTO workflow_clusters (
           id,
+          workflow_signature,
           name,
+          occurrence_count,
           frequency,
           average_duration_seconds,
           total_duration_seconds,
+          representative_sequence_json,
           representative_steps_json,
+          involved_apps_json,
+          confidence_score,
+          top_variants_json,
           automation_suitability,
           recommended_approach,
           excluded,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
+          workflow_signature = excluded.workflow_signature,
           name = excluded.name,
+          occurrence_count = excluded.occurrence_count,
           frequency = excluded.frequency,
           average_duration_seconds = excluded.average_duration_seconds,
           total_duration_seconds = excluded.total_duration_seconds,
+          representative_sequence_json = excluded.representative_sequence_json,
           representative_steps_json = excluded.representative_steps_json,
+          involved_apps_json = excluded.involved_apps_json,
+          confidence_score = excluded.confidence_score,
+          top_variants_json = excluded.top_variants_json,
           automation_suitability = excluded.automation_suitability,
           recommended_approach = excluded.recommended_approach,
           excluded = excluded.excluded,
@@ -552,11 +570,17 @@ export class AppDatabase {
       for (const cluster of args.workflowClusters) {
         insertWorkflowCluster.run(
           cluster.id,
+          cluster.workflowSignature,
           cluster.name,
+          cluster.occurrenceCount,
           cluster.frequency,
           cluster.averageDurationSeconds,
           cluster.totalDurationSeconds,
+          JSON.stringify(cluster.representativeSequence),
           JSON.stringify(cluster.representativeSteps),
+          JSON.stringify(cluster.involvedApps),
+          cluster.confidenceScore,
+          JSON.stringify(cluster.topVariants),
           cluster.automationSuitability,
           cluster.recommendedApproach,
           cluster.excluded ? 1 : 0,
@@ -592,11 +616,17 @@ export class AppDatabase {
       .prepare(`
         SELECT
           id,
+          workflow_signature,
           name,
+          occurrence_count,
           frequency,
           average_duration_seconds,
           total_duration_seconds,
+          representative_sequence_json,
           representative_steps_json,
+          involved_apps_json,
+          confidence_score,
+          top_variants_json,
           automation_suitability,
           recommended_approach,
           excluded
@@ -627,12 +657,20 @@ export class AppDatabase {
 
       return {
       id: row.id,
+      workflowSignature: row.workflow_signature ?? row.id,
       name: feedback?.renameTo ?? row.name,
       sessionIds: sessionIdsByClusterId.get(row.id) ?? [],
+      occurrenceCount: row.occurrence_count ?? row.frequency,
       frequency: row.frequency,
       averageDurationSeconds: row.average_duration_seconds,
       totalDurationSeconds: row.total_duration_seconds,
+      representativeSequence: JSON.parse(
+        row.representative_sequence_json ?? "[]",
+      ) as WorkflowCluster["representativeSequence"],
       representativeSteps: JSON.parse(row.representative_steps_json) as string[],
+      involvedApps: JSON.parse(row.involved_apps_json ?? "[]") as string[],
+      confidenceScore: row.confidence_score ?? 0,
+      topVariants: JSON.parse(row.top_variants_json ?? "[]") as WorkflowCluster["topVariants"],
       automationSuitability: row.automation_suitability,
       recommendedApproach: row.recommended_approach,
       excluded: feedback?.excluded ?? row.excluded === 1,

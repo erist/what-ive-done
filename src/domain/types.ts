@@ -97,14 +97,26 @@ export interface SessionSummary {
   stepCount: number;
 }
 
+export interface WorkflowVariant {
+  sequence: string[];
+  occurrenceCount: number;
+  averageDurationSeconds: number;
+}
+
 export interface WorkflowCluster {
   id: string;
+  workflowSignature: string;
   name: string;
   sessionIds: string[];
+  occurrenceCount: number;
   frequency: number;
   averageDurationSeconds: number;
   totalDurationSeconds: number;
+  representativeSequence: string[];
   representativeSteps: string[];
+  involvedApps: string[];
+  confidenceScore: number;
+  topVariants: WorkflowVariant[];
   automationSuitability: AutomationSuitability;
   recommendedApproach: string;
   excluded: boolean;
