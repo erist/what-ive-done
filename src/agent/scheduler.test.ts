@@ -7,6 +7,15 @@ import test from "node:test";
 import type { ReportSnapshot } from "../domain/types.js";
 import { startSnapshotScheduler } from "./scheduler.js";
 
+function createEmptySummary(): ReportSnapshot["summary"] {
+  return {
+    topRepetitiveWorkflows: [],
+    highestTimeConsumingRepetitiveWorkflows: [],
+    quickWinAutomationCandidates: [],
+    workflowsNeedingHumanJudgment: [],
+  };
+}
+
 function createSnapshots(): ReportSnapshot[] {
   return [
     {
@@ -21,6 +30,7 @@ function createSnapshots(): ReportSnapshot[] {
       totalTrackedDurationSeconds: 120,
       workflows: [],
       emergingWorkflows: [],
+      summary: createEmptySummary(),
       generatedAt: "2026-03-14T00:00:00.000Z",
     },
     {
@@ -35,6 +45,7 @@ function createSnapshots(): ReportSnapshot[] {
       totalTrackedDurationSeconds: 900,
       workflows: [],
       emergingWorkflows: [],
+      summary: createEmptySummary(),
       generatedAt: "2026-03-14T00:00:01.000Z",
     },
   ];

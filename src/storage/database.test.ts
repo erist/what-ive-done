@@ -168,6 +168,7 @@ test("advanced workflow feedback fields are persisted and applied by workflow si
     const database = new AppDatabase({
       dataDir: tempDir,
       databasePath: join(tempDir, "test.sqlite"),
+      agentLockPath: join(tempDir, "agent.lock"),
     });
     database.initialize();
 
@@ -215,6 +216,7 @@ test("merge feedback is reused on the next analysis run", () => {
     const database = new AppDatabase({
       dataDir: tempDir,
       databasePath: join(tempDir, "test.sqlite"),
+      agentLockPath: join(tempDir, "agent.lock"),
     });
     database.initialize();
 
@@ -258,6 +260,7 @@ test("normalized events persist derived normalization fields", () => {
     const database = new AppDatabase({
       dataDir: tempDir,
       databasePath: join(tempDir, "test.sqlite"),
+      agentLockPath: join(tempDir, "agent.lock"),
     });
     database.initialize();
 
