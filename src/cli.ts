@@ -1,7 +1,9 @@
 import { Command } from "commander";
 
 import { resolveAppPaths } from "./app-paths.js";
+import { getAvailableCollectors, getWindowsActiveWindowCollectorInfo } from "./collectors/windows.js";
 import { generateMockRawEvents } from "./collectors/mock.js";
+import { importEventsFromFile } from "./importers/events.js";
 import { analyzeRawEvents } from "./pipeline/analyze.js";
 import { buildReportEntries, formatDuration } from "./reporting/report.js";
 import { startIngestServer } from "./server/ingest-server.js";
@@ -132,6 +134,33 @@ program
   });
 
 program
+  .command("import:events")
+  .description("Import raw events from a JSON or NDJSON file")
+  .argument("<file-path>", "Path to the import file")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((filePath: string, options: { dataDir?: string }) => {
+    const importedEvents = importEventsFromFile(filePath);
+
+    withDatabase(options.dataDir, (database) => {
+      for (const event of importedEvents) {
+        database.insertRawEvent(event);
+      }
+    });
+
+    console.log(
+      JSON.stringify(
+        {
+          status: "events_imported",
+          filePath,
+          importedEventCount: importedEvents.length,
+        },
+        null,
+        2,
+      ),
+    );
+  });
+
+program
   .command("analyze")
   .description("Normalize events, build sessions, and detect workflows")
   .option("--data-dir <path>", "Override application data directory")
@@ -161,6 +190,52 @@ program
         2,
       ),
     );
+  });
+
+program
+  .command("collector:list")
+  .description("List available collectors and assets")
+  .option("--json", "Print machine-readable JSON")
+  .action((options: { json?: boolean }) => {
+    const collectors = getAvailableCollectors();
+
+    if (options.json) {
+      console.log(JSON.stringify(collectors, null, 2));
+      return;
+    }
+
+    console.table(
+      collectors.map((collector) => ({
+        id: collector.id,
+        name: collector.name,
+        platform: collector.platform,
+        eventTypes: collector.supportedEventTypes.join(", "),
+        scriptPath: collector.scriptPath ?? "",
+      })),
+    );
+  });
+
+program
+  .command("collector:windows:info")
+  .description("Print usage details for the Windows active-window collector")
+  .option("--json", "Print machine-readable JSON")
+  .action((options: { json?: boolean }) => {
+    const info = getWindowsActiveWindowCollectorInfo();
+    const payload = {
+      ...info,
+      examples: {
+        writeNdjson: `pwsh -File "${info.scriptPath}" -OutputPath ".\\\\events.ndjson"`,
+        postToIngest: `pwsh -File "${info.scriptPath}" -IngestUrl "http://127.0.0.1:4318/events"`,
+        importFixture: `npm run dev -- import:events "${info.sampleFixturePath}" --data-dir ./tmp/windows-data`,
+      },
+    };
+
+    if (options.json) {
+      console.log(JSON.stringify(payload, null, 2));
+      return;
+    }
+
+    console.log(JSON.stringify(payload, null, 2));
   });
 
 program
