@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 
-export const CURRENT_SCHEMA_VERSION = 5;
+export const CURRENT_SCHEMA_VERSION = 6;
 
 export const INITIAL_SCHEMA_SQL = `
   PRAGMA journal_mode = WAL;
@@ -84,11 +84,17 @@ export const INITIAL_SCHEMA_SQL = `
 
   CREATE TABLE IF NOT EXISTS workflow_clusters (
     id TEXT PRIMARY KEY,
+    workflow_signature TEXT NOT NULL,
     name TEXT NOT NULL,
+    occurrence_count INTEGER NOT NULL DEFAULT 0,
     frequency INTEGER NOT NULL,
     average_duration_seconds REAL NOT NULL,
     total_duration_seconds REAL NOT NULL,
+    representative_sequence_json TEXT NOT NULL DEFAULT '[]',
     representative_steps_json TEXT NOT NULL,
+    involved_apps_json TEXT NOT NULL DEFAULT '[]',
+    confidence_score REAL NOT NULL DEFAULT 0,
+    top_variants_json TEXT NOT NULL DEFAULT '[]',
     automation_suitability TEXT NOT NULL,
     recommended_approach TEXT NOT NULL,
     excluded INTEGER NOT NULL DEFAULT 0,
@@ -247,5 +253,46 @@ export function applySchemaMigrations(
       "session_boundary_details_json",
       "session_boundary_details_json TEXT DEFAULT '{}'",
     );
+  }
+
+  if ((existingVersion ?? 0) < 6) {
+    ensureColumn(connection, "workflow_clusters", "workflow_signature", "workflow_signature TEXT");
+    ensureColumn(connection, "workflow_clusters", "occurrence_count", "occurrence_count INTEGER DEFAULT 0");
+    ensureColumn(
+      connection,
+      "workflow_clusters",
+      "representative_sequence_json",
+      "representative_sequence_json TEXT DEFAULT '[]'",
+    );
+    ensureColumn(
+      connection,
+      "workflow_clusters",
+      "involved_apps_json",
+      "involved_apps_json TEXT DEFAULT '[]'",
+    );
+    ensureColumn(
+      connection,
+      "workflow_clusters",
+      "confidence_score",
+      "confidence_score REAL DEFAULT 0",
+    );
+    ensureColumn(
+      connection,
+      "workflow_clusters",
+      "top_variants_json",
+      "top_variants_json TEXT DEFAULT '[]'",
+    );
+
+    connection.exec(`
+      UPDATE workflow_clusters
+      SET workflow_signature = COALESCE(workflow_signature, id)
+      WHERE workflow_signature IS NULL
+    `);
+
+    connection.exec(`
+      UPDATE workflow_clusters
+      SET occurrence_count = COALESCE(occurrence_count, frequency)
+      WHERE occurrence_count IS NULL
+    `);
   }
 }
