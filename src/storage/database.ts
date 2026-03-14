@@ -89,6 +89,7 @@ interface SessionSummaryRow {
   end_time: string;
   primary_application: string;
   primary_domain: string | null;
+  session_boundary_reason: Session["sessionBoundaryReason"];
   step_count: number;
 }
 
@@ -103,6 +104,16 @@ interface SessionStepContextRow {
   application: string;
   domain: string | null;
   target?: string | null;
+}
+
+interface SessionRow {
+  id: string;
+  start_time: string;
+  end_time: string;
+  primary_application: string;
+  primary_domain: string | null;
+  session_boundary_reason: Session["sessionBoundaryReason"];
+  session_boundary_details_json: string | null;
 }
 
 interface WorkflowLLMAnalysisRow {
@@ -456,8 +467,10 @@ export class AppDatabase {
           end_time,
           primary_application,
           primary_domain,
+          session_boundary_reason,
+          session_boundary_details_json,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const insertSessionStep = this.connection.prepare(`
@@ -483,6 +496,8 @@ export class AppDatabase {
           session.endTime,
           session.primaryApplication,
           session.primaryDomain ?? null,
+          session.sessionBoundaryReason,
+          JSON.stringify(session.sessionBoundaryDetails),
           new Date().toISOString(),
         );
 
@@ -710,6 +725,7 @@ export class AppDatabase {
           sessions.end_time,
           sessions.primary_application,
           sessions.primary_domain,
+          sessions.session_boundary_reason,
           COUNT(session_steps.normalized_event_id) AS step_count
         FROM sessions
         LEFT JOIN session_steps
@@ -719,7 +735,8 @@ export class AppDatabase {
           sessions.start_time,
           sessions.end_time,
           sessions.primary_application,
-          sessions.primary_domain
+          sessions.primary_domain,
+          sessions.session_boundary_reason
         ORDER BY sessions.start_time DESC
       `)
       .all() as unknown as SessionSummaryRow[];
@@ -728,9 +745,10 @@ export class AppDatabase {
       id: row.id,
       startTime: row.start_time,
       endTime: row.end_time,
-      primaryApplication: row.primary_application,
-      primaryDomain: row.primary_domain ?? undefined,
-      stepCount: row.step_count,
+          primaryApplication: row.primary_application,
+          primaryDomain: row.primary_domain ?? undefined,
+          sessionBoundaryReason: row.session_boundary_reason,
+          stepCount: row.step_count,
     }));
   }
 
@@ -742,19 +760,13 @@ export class AppDatabase {
           start_time,
           end_time,
           primary_application,
-          primary_domain
+          primary_domain,
+          session_boundary_reason,
+          session_boundary_details_json
         FROM sessions
         WHERE id = ?
       `)
-      .get(sessionId) as
-      | {
-          id: string;
-          start_time: string;
-          end_time: string;
-          primary_application: string;
-          primary_domain: string | null;
-        }
-      | undefined;
+      .get(sessionId) as SessionRow | undefined;
 
     if (!sessionRow) {
       return undefined;
@@ -785,6 +797,11 @@ export class AppDatabase {
       endTime: sessionRow.end_time,
       primaryApplication: sessionRow.primary_application,
       primaryDomain: sessionRow.primary_domain ?? undefined,
+      sessionBoundaryReason: sessionRow.session_boundary_reason,
+      sessionBoundaryDetails: JSON.parse(sessionRow.session_boundary_details_json ?? "{}") as Record<
+        string,
+        unknown
+      >,
       steps: stepRows.map((row, index) => ({
         order: index + 1,
         normalizedEventId: row.normalized_event_id ?? "",

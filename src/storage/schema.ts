@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 5;
 
 export const INITIAL_SCHEMA_SQL = `
   PRAGMA journal_mode = WAL;
@@ -62,6 +62,8 @@ export const INITIAL_SCHEMA_SQL = `
     end_time TEXT NOT NULL,
     primary_application TEXT NOT NULL,
     primary_domain TEXT,
+    session_boundary_reason TEXT NOT NULL DEFAULT 'stream_start',
+    session_boundary_details_json TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL
   );
 
@@ -230,5 +232,20 @@ export function applySchemaMigrations(
       SET action_name = COALESCE(action_name, action)
       WHERE action_name IS NULL
     `);
+  }
+
+  if ((existingVersion ?? 0) < 5) {
+    ensureColumn(
+      connection,
+      "sessions",
+      "session_boundary_reason",
+      "session_boundary_reason TEXT DEFAULT 'stream_start'",
+    );
+    ensureColumn(
+      connection,
+      "sessions",
+      "session_boundary_details_json",
+      "session_boundary_details_json TEXT DEFAULT '{}'",
+    );
   }
 }

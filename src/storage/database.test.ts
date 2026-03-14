@@ -259,6 +259,8 @@ test("session details can be loaded with ordered steps", () => {
     const session = database.getSessionById(sessionSummary!.id);
 
     assert.ok(session);
+    assert.ok(sessionSummary?.sessionBoundaryReason);
+    assert.equal(session.sessionBoundaryReason, sessionSummary?.sessionBoundaryReason);
     assert.equal(session.steps.length, 4);
     assert.equal(session.steps[0]?.order, 1);
     assert.ok(session.steps[0]?.action);

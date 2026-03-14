@@ -33,6 +33,13 @@ export interface ActionAbstractionConfig {
   rules: ActionRule[];
 }
 
+export interface SessionSegmentationConfig {
+  inactivityThresholdMs: number;
+  contextShiftThresholdMs: number;
+  interruptionResetThresholdMs: number;
+  significantContextScore: number;
+}
+
 export const DEFAULT_NORMALIZATION_CONFIG: NormalizationConfig = {
   stripQueryParameters: true,
   appAliases: {
@@ -162,4 +169,11 @@ export const DEFAULT_ACTION_ABSTRACTION_CONFIG: ActionAbstractionConfig = {
       confidence: 0.9,
     },
   ],
+};
+
+export const DEFAULT_SESSION_SEGMENTATION_CONFIG: SessionSegmentationConfig = {
+  inactivityThresholdMs: 150 * 1000,
+  contextShiftThresholdMs: 75 * 1000,
+  interruptionResetThresholdMs: 60 * 1000,
+  significantContextScore: 2,
 };

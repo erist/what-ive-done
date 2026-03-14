@@ -6,6 +6,13 @@ export type ReportWindow = "all" | "day" | "week";
 
 export type ActionSource = "rule" | "inferred" | "user_labeled";
 
+export type SessionBoundaryReason =
+  | "stream_start"
+  | "idle_gap"
+  | "context_shift"
+  | "idle_and_context_shift"
+  | "reset_after_interruption";
+
 export interface RawEvent {
   id: string;
   source: EventSource;
@@ -75,6 +82,8 @@ export interface Session {
   endTime: string;
   primaryApplication: string;
   primaryDomain?: string | undefined;
+  sessionBoundaryReason: SessionBoundaryReason;
+  sessionBoundaryDetails: Record<string, unknown>;
   steps: SessionStep[];
 }
 
@@ -84,6 +93,7 @@ export interface SessionSummary {
   endTime: string;
   primaryApplication: string;
   primaryDomain?: string | undefined;
+  sessionBoundaryReason: SessionBoundaryReason;
   stepCount: number;
 }
 
