@@ -45,12 +45,49 @@ function renderReportTable(reportEntries: ReportEntry[]): void {
     reportEntries.map((entry) => ({
       workflow: entry.workflowName,
       frequency: entry.frequency,
+      frequencyPerWeek: entry.frequencyPerWeek,
       averageDuration: formatDuration(entry.averageDurationSeconds),
       totalDuration: formatDuration(entry.totalDurationSeconds),
+      apps: entry.involvedApps.join(", "),
+      confidence: entry.confidenceScore,
+      labeled: entry.userLabeled,
       automationSuitability: entry.automationSuitability,
+      automationScore: entry.automationSuitabilityScore,
       recommendation: entry.recommendedApproach,
     })),
   );
+}
+
+function renderWorkflowSection(title: string, reportEntries: ReportEntry[]): void {
+  if (reportEntries.length === 0) {
+    return;
+  }
+
+  console.log(title);
+  renderReportTable(reportEntries);
+}
+
+function renderWorkflowGraphs(reportEntries: ReportEntry[]): void {
+  if (reportEntries.length === 0) {
+    return;
+  }
+
+  console.log("Workflow graphs");
+
+  for (const entry of reportEntries) {
+    console.log(
+      JSON.stringify(
+        {
+          workflow: entry.workflowName,
+          graph: entry.graph.text,
+          steps: entry.representativeSteps,
+          businessPurpose: entry.businessPurpose ?? null,
+        },
+        null,
+        2,
+      ),
+    );
+  }
 }
 
 function renderSnapshotListTable(snapshots: ReportSnapshotSummary[]): void {
@@ -132,7 +169,22 @@ function renderWindowedWorkflowReport(report: WorkflowReport, json = false): voi
   if (report.workflows.length === 0) {
     console.log("No confirmed workflows detected for this window.");
   } else {
+    renderWorkflowSection("Top repetitive workflows", report.summary.topRepetitiveWorkflows);
+    renderWorkflowSection(
+      "Highest time-consuming repetitive workflows",
+      report.summary.highestTimeConsumingRepetitiveWorkflows,
+    );
+    renderWorkflowSection(
+      "Quick-win automation candidates",
+      report.summary.quickWinAutomationCandidates,
+    );
+    renderWorkflowSection(
+      "Workflows needing human judgment",
+      report.summary.workflowsNeedingHumanJudgment,
+    );
+    console.log("All workflows");
     renderReportTable(report.workflows);
+    renderWorkflowGraphs(report.workflows.slice(0, 5));
   }
 
   if (report.emergingWorkflows.length > 0) {
@@ -160,18 +212,6 @@ function renderReport(
   } = {},
 ): void {
   const report = buildStoredWorkflowReport(dataDir, options);
-  const useLegacyAllTimeOutput = (options.window ?? "all") === "all" && options.date === undefined;
-
-  if (useLegacyAllTimeOutput) {
-    if (json) {
-      console.log(JSON.stringify(report.workflows, null, 2));
-      return;
-    }
-
-    renderReportTable(report.workflows);
-    return;
-  }
-
   renderWindowedWorkflowReport(report, json);
 }
 

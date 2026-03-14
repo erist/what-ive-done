@@ -155,6 +155,7 @@ interface ReportSnapshotRow {
   total_tracked_duration_seconds: number;
   workflows_json: string;
   emerging_workflows_json: string;
+  summary_json: string | null;
   generated_at: string;
 }
 
@@ -1203,8 +1204,9 @@ export class AppDatabase {
           total_tracked_duration_seconds,
           workflows_json,
           emerging_workflows_json,
+          summary_json,
           generated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(window, report_date, timezone) DO UPDATE SET
           timezone_offset_minutes = excluded.timezone_offset_minutes,
           start_time = excluded.start_time,
@@ -1213,6 +1215,7 @@ export class AppDatabase {
           total_tracked_duration_seconds = excluded.total_tracked_duration_seconds,
           workflows_json = excluded.workflows_json,
           emerging_workflows_json = excluded.emerging_workflows_json,
+          summary_json = excluded.summary_json,
           generated_at = excluded.generated_at
       `)
       .run(
@@ -1227,6 +1230,7 @@ export class AppDatabase {
         snapshot.totalTrackedDurationSeconds,
         JSON.stringify(snapshot.workflows),
         JSON.stringify(snapshot.emergingWorkflows),
+        JSON.stringify(snapshot.summary),
         snapshot.generatedAt,
       );
 
@@ -1252,6 +1256,7 @@ export class AppDatabase {
           total_tracked_duration_seconds,
           workflows_json,
           emerging_workflows_json,
+          summary_json,
           generated_at
         FROM report_snapshots
         WHERE (? IS NULL OR window = ?)
@@ -1296,6 +1301,7 @@ export class AppDatabase {
           total_tracked_duration_seconds,
           workflows_json,
           emerging_workflows_json,
+          summary_json,
           generated_at
         FROM report_snapshots
         WHERE window = ?
@@ -1327,6 +1333,7 @@ export class AppDatabase {
           total_tracked_duration_seconds,
           workflows_json,
           emerging_workflows_json,
+          summary_json,
           generated_at
         FROM report_snapshots
         WHERE window = ?
@@ -1357,6 +1364,7 @@ export class AppDatabase {
       emergingWorkflows: JSON.parse(
         row.emerging_workflows_json,
       ) as ReportSnapshot["emergingWorkflows"],
+      summary: JSON.parse(row.summary_json ?? "{}") as ReportSnapshot["summary"],
       generatedAt: row.generated_at,
     };
   }
