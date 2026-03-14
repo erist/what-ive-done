@@ -1,6 +1,7 @@
 import { DEFAULT_NORMALIZATION_CONFIG, type NormalizationConfig } from "../config/analysis.js";
 import type { NormalizedEvent, RawEvent } from "../domain/types.js";
 import { stableId } from "../domain/ids.js";
+import { abstractNormalizedEvents } from "./actions.js";
 
 const ACTION_BY_SOURCE_EVENT_TYPE: Record<string, string> = {
   "app.switch": "application_switch",
@@ -217,7 +218,7 @@ export function normalizeRawEvents(
   rawEvents: RawEvent[],
   config: NormalizationConfig = DEFAULT_NORMALIZATION_CONFIG,
 ): NormalizedEvent[] {
-  return [...rawEvents]
+  const baseEvents = [...rawEvents]
     .sort((left, right) => left.timestamp.localeCompare(right.timestamp))
     .map((rawEvent) => {
       const parsedUrl = tryParseUrl(rawEvent);
@@ -265,4 +266,6 @@ export function normalizeRawEvents(
         createdAt: new Date().toISOString(),
       };
     });
+
+  return abstractNormalizedEvents(baseEvents);
 }

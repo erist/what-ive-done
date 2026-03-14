@@ -4,6 +4,8 @@ export type AutomationSuitability = "high" | "medium" | "low";
 
 export type ReportWindow = "all" | "day" | "week";
 
+export type ActionSource = "rule" | "inferred" | "user_labeled";
+
 export interface RawEvent {
   id: string;
   source: EventSource;
@@ -46,6 +48,9 @@ export interface NormalizedEvent {
   resourceHint?: string | undefined;
   titlePattern?: string | undefined;
   action: string;
+  actionName: string;
+  actionConfidence: number;
+  actionSource: ActionSource;
   target?: string | undefined;
   metadata: Record<string, unknown>;
   createdAt: string;
@@ -56,6 +61,9 @@ export interface SessionStep {
   normalizedEventId: string;
   timestamp: string;
   action: string;
+  actionName: string;
+  actionConfidence: number;
+  actionSource: ActionSource;
   application: string;
   domain?: string | undefined;
   target?: string | undefined;

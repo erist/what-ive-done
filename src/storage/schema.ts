@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 export const INITIAL_SCHEMA_SQL = `
   PRAGMA journal_mode = WAL;
@@ -43,6 +43,9 @@ export const INITIAL_SCHEMA_SQL = `
     resource_hint TEXT,
     title_pattern TEXT,
     action TEXT NOT NULL,
+    action_name TEXT NOT NULL,
+    action_confidence REAL NOT NULL DEFAULT 0,
+    action_source TEXT NOT NULL DEFAULT 'inferred',
     target TEXT,
     metadata_json TEXT NOT NULL,
     created_at TEXT NOT NULL
@@ -68,6 +71,9 @@ export const INITIAL_SCHEMA_SQL = `
     normalized_event_id TEXT NOT NULL REFERENCES normalized_events(id) ON DELETE CASCADE,
     timestamp TEXT NOT NULL,
     action TEXT NOT NULL,
+    action_name TEXT NOT NULL,
+    action_confidence REAL NOT NULL DEFAULT 0,
+    action_source TEXT NOT NULL DEFAULT 'inferred',
     application TEXT NOT NULL,
     domain TEXT,
     target TEXT,
@@ -192,6 +198,37 @@ export function applySchemaMigrations(
     connection.exec(`
       CREATE INDEX IF NOT EXISTS idx_normalized_events_domain_path
         ON normalized_events(domain, path_pattern)
+    `);
+  }
+
+  if ((existingVersion ?? 0) < 4) {
+    ensureColumn(connection, "normalized_events", "action_name", "action_name TEXT");
+    ensureColumn(connection, "normalized_events", "action_confidence", "action_confidence REAL DEFAULT 0");
+    ensureColumn(
+      connection,
+      "normalized_events",
+      "action_source",
+      "action_source TEXT DEFAULT 'inferred'",
+    );
+    ensureColumn(connection, "session_steps", "action_name", "action_name TEXT");
+    ensureColumn(connection, "session_steps", "action_confidence", "action_confidence REAL DEFAULT 0");
+    ensureColumn(
+      connection,
+      "session_steps",
+      "action_source",
+      "action_source TEXT DEFAULT 'inferred'",
+    );
+
+    connection.exec(`
+      UPDATE normalized_events
+      SET action_name = COALESCE(action_name, action)
+      WHERE action_name IS NULL
+    `);
+
+    connection.exec(`
+      UPDATE session_steps
+      SET action_name = COALESCE(action_name, action)
+      WHERE action_name IS NULL
     `);
   }
 }
