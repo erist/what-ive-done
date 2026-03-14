@@ -38,7 +38,13 @@ export interface NormalizedEvent {
   rawEventId: string;
   timestamp: string;
   application: string;
+  appNameNormalized: string;
   domain?: string | undefined;
+  url?: string | undefined;
+  pathPattern?: string | undefined;
+  pageType?: string | undefined;
+  resourceHint?: string | undefined;
+  titlePattern?: string | undefined;
   action: string;
   target?: string | undefined;
   metadata: Record<string, unknown>;

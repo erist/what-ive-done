@@ -19,7 +19,11 @@ import type {
 } from "../domain/types.js";
 import { buildWorkflowSummaryPayload } from "../llm/payloads.js";
 import { sanitizeRawEvent } from "../privacy/sanitize.js";
-import { CURRENT_SCHEMA_VERSION, INITIAL_SCHEMA_SQL } from "./schema.js";
+import {
+  applySchemaMigrations,
+  CURRENT_SCHEMA_VERSION,
+  INITIAL_SCHEMA_SQL,
+} from "./schema.js";
 
 interface RawEventRow {
   id: string;
@@ -42,7 +46,13 @@ interface NormalizedEventRow {
   raw_event_id: string;
   timestamp: string;
   application: string;
+  app_name_normalized: string | null;
   domain: string | null;
+  url: string | null;
+  path_pattern: string | null;
+  page_type: string | null;
+  resource_hint: string | null;
+  title_pattern: string | null;
   action: string;
   target: string | null;
   metadata_json: string;
@@ -132,6 +142,8 @@ export class AppDatabase {
     const existingVersion = this.connection
       .prepare("SELECT MAX(version) AS version FROM schema_migrations")
       .get() as { version: number | null };
+
+    applySchemaMigrations(this.connection, existingVersion.version);
 
     if (existingVersion.version === CURRENT_SCHEMA_VERSION) {
       return;
@@ -320,6 +332,50 @@ export class AppDatabase {
     }));
   }
 
+  listNormalizedEvents(limit = 50): NormalizedEvent[] {
+    const rows = this.connection
+      .prepare(`
+        SELECT
+          id,
+          raw_event_id,
+          timestamp,
+          application,
+          app_name_normalized,
+          domain,
+          url,
+          path_pattern,
+          page_type,
+          resource_hint,
+          title_pattern,
+          action,
+          target,
+          metadata_json,
+          created_at
+        FROM normalized_events
+        ORDER BY timestamp DESC
+        LIMIT ?
+      `)
+      .all(limit) as unknown as NormalizedEventRow[];
+
+    return rows.map((row) => ({
+      id: row.id,
+      rawEventId: row.raw_event_id,
+      timestamp: row.timestamp,
+      application: row.application,
+      appNameNormalized: row.app_name_normalized ?? row.application,
+      domain: row.domain ?? undefined,
+      url: row.url ?? undefined,
+      pathPattern: row.path_pattern ?? undefined,
+      pageType: row.page_type ?? undefined,
+      resourceHint: row.resource_hint ?? undefined,
+      titlePattern: row.title_pattern ?? undefined,
+      action: row.action,
+      target: row.target ?? undefined,
+      metadata: JSON.parse(row.metadata_json) as Record<string, unknown>,
+      createdAt: row.created_at,
+    }));
+  }
+
   replaceAnalysisArtifacts(args: {
     normalizedEvents: NormalizedEvent[];
     sessions: Session[];
@@ -341,12 +397,18 @@ export class AppDatabase {
           raw_event_id,
           timestamp,
           application,
+          app_name_normalized,
           domain,
+          url,
+          path_pattern,
+          page_type,
+          resource_hint,
+          title_pattern,
           action,
           target,
           metadata_json,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       for (const event of args.normalizedEvents) {
@@ -355,7 +417,13 @@ export class AppDatabase {
           event.rawEventId,
           event.timestamp,
           event.application,
+          event.appNameNormalized,
           event.domain ?? null,
+          event.url ?? null,
+          event.pathPattern ?? null,
+          event.pageType ?? null,
+          event.resourceHint ?? null,
+          event.titlePattern ?? null,
           event.action,
           event.target ?? null,
           JSON.stringify(event.metadata),
