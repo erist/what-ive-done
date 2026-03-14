@@ -1,5 +1,11 @@
 import { Command } from "commander";
 
+import { getAgentHealthReport, listLatestAgentSnapshots, runAgentOnce } from "./agent/control.js";
+import {
+  getAgentAutostartStatus,
+  installAgentAutostart,
+  uninstallAgentAutostart,
+} from "./agent/autostart/index.js";
 import { getAgentStatusSnapshot } from "./agent/state.js";
 import { startAgentRuntime, stopAgentRuntime } from "./agent/runtime.js";
 import { resolveAppPaths } from "./app-paths.js";
@@ -358,26 +364,50 @@ program
   .description("Run the resident local agent runtime")
   .option("--data-dir <path>", "Override application data directory")
   .option("--heartbeat-interval-ms <ms>", "Heartbeat interval in milliseconds", "30000")
-  .action(async (options: { dataDir?: string; heartbeatIntervalMs: string }) => {
+  .option("--ingest-host <host>", "Host to bind the local ingest server", "127.0.0.1")
+  .option("--ingest-port <port>", "Port to bind the local ingest server", "4318")
+  .option("--collector-poll-interval-ms <ms>", "Collector polling interval in milliseconds", "1000")
+  .option("--collector-restart-delay-ms <ms>", "Collector restart delay after failures", "5000")
+  .option(
+    "--snapshot-windows <windows>",
+    "Comma-separated snapshot windows",
+    parseReportWindowList,
+    ["day", "week"],
+  )
+  .option("--snapshot-interval-seconds <seconds>", "Snapshot scheduler interval in seconds", "300")
+  .option("--no-collectors", "Disable collector supervision inside the agent")
+  .option("--no-snapshot-scheduler", "Disable snapshot scheduling inside the agent")
+  .action(
+    async (options: {
+      dataDir?: string;
+      heartbeatIntervalMs: string;
+      ingestHost: string;
+      ingestPort: string;
+      collectorPollIntervalMs: string;
+      collectorRestartDelayMs: string;
+      snapshotWindows: ReportWindow[];
+      snapshotIntervalSeconds: string;
+      collectors: boolean;
+      snapshotScheduler: boolean;
+    }) => {
     const runtime = await startAgentRuntime({
       dataDir: options.dataDir,
       heartbeatIntervalMs: Number.parseInt(options.heartbeatIntervalMs, 10),
+      ingestHost: options.ingestHost,
+      ingestPort: Number.parseInt(options.ingestPort, 10),
+      collectorPollIntervalMs: Number.parseInt(options.collectorPollIntervalMs, 10),
+      collectorRestartDelayMs: Number.parseInt(options.collectorRestartDelayMs, 10),
+      enableCollectors: options.collectors,
+      snapshotWindows: options.snapshotWindows,
+      snapshotIntervalMs: Number.parseInt(options.snapshotIntervalSeconds, 10) * 1000,
+      enableSnapshotScheduler: options.snapshotScheduler,
     });
 
-    console.log(
-      JSON.stringify(
-        {
-          status: "running",
-          pid: runtime.pid,
-          startedAt: runtime.startedAt,
-        },
-        null,
-        2,
-      ),
-    );
+    console.log(JSON.stringify(getAgentStatusSnapshot(options.dataDir), null, 2));
 
     await runtime.waitForStop();
-  });
+    },
+  );
 
 program
   .command("agent:status")
@@ -397,6 +427,96 @@ program
     const result = stopAgentRuntime(options.dataDir);
 
     console.log(JSON.stringify(result, null, 2));
+  });
+
+program
+  .command("agent:health")
+  .description("Show a concise health summary for the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    const report = getAgentHealthReport(options.dataDir);
+
+    console.log(JSON.stringify(report, null, 2));
+  });
+
+program
+  .command("agent:run-once")
+  .description("Run one manual snapshot refresh cycle without starting the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--windows <windows>", "Comma-separated snapshot windows", parseReportWindowList, ["day", "week"])
+  .action((options: { dataDir?: string; windows: ReportWindow[] }) => {
+    const result = runAgentOnce(options.dataDir, {
+      windows: options.windows,
+    });
+
+    console.log(JSON.stringify(result, null, 2));
+  });
+
+program
+  .command("agent:snapshot:latest")
+  .description("Show the latest stored snapshots for the control plane")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--windows <windows>", "Comma-separated snapshot windows", parseReportWindowList, ["day", "week"])
+  .action((options: { dataDir?: string; windows: ReportWindow[] }) => {
+    const snapshots = listLatestAgentSnapshots(options.dataDir, options.windows);
+
+    console.log(JSON.stringify(snapshots, null, 2));
+  });
+
+program
+  .command("agent:collectors")
+  .description("Show collector states managed by the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    const status = getAgentStatusSnapshot(options.dataDir);
+
+    console.log(JSON.stringify(status.state?.collectors ?? [], null, 2));
+  });
+
+program
+  .command("agent:autostart:status")
+  .description("Show OS autostart status for the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--plist-path <path>", "Override the LaunchAgent plist path")
+  .action((options: { dataDir?: string; plistPath?: string }) => {
+    const status = getAgentAutostartStatus({
+      dataDir: options.dataDir,
+      plistPath: options.plistPath,
+    });
+
+    console.log(JSON.stringify(status, null, 2));
+  });
+
+program
+  .command("agent:autostart:install")
+  .description("Install OS autostart for the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--plist-path <path>", "Override the LaunchAgent plist path")
+  .option("--no-load", "Write the LaunchAgent file without loading it")
+  .action((options: { dataDir?: string; plistPath?: string; load: boolean }) => {
+    const status = installAgentAutostart({
+      dataDir: options.dataDir,
+      plistPath: options.plistPath,
+      load: options.load,
+    });
+
+    console.log(JSON.stringify(status, null, 2));
+  });
+
+program
+  .command("agent:autostart:uninstall")
+  .description("Remove OS autostart for the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--plist-path <path>", "Override the LaunchAgent plist path")
+  .option("--no-unload", "Remove the LaunchAgent file without unloading it first")
+  .action((options: { dataDir?: string; plistPath?: string; unload: boolean }) => {
+    const status = uninstallAgentAutostart({
+      dataDir: options.dataDir,
+      plistPath: options.plistPath,
+      unload: options.unload,
+    });
+
+    console.log(JSON.stringify(status, null, 2));
   });
 
 program
