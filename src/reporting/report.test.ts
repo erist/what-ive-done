@@ -48,6 +48,7 @@ test("buildWorkflowReport produces emerging workflows for a single local day", (
   assert.equal(report.totalTrackedDurationSeconds, 750);
   assert.equal(report.workflows.length, 0);
   assert.equal(report.emergingWorkflows.length, 5);
+  assert.equal(report.summary.topRepetitiveWorkflows.length, 0);
   assert.deepEqual(
     report.emergingWorkflows.map((entry) => entry.frequency),
     [1, 1, 1, 1, 1],
@@ -78,6 +79,13 @@ test("buildWorkflowReport produces confirmed workflows for a weekly window", () 
   assert.equal(report.totalTrackedDurationSeconds, 2250);
   assert.equal(report.workflows.length, 5);
   assert.equal(report.emergingWorkflows.length, 0);
+  assert.ok(report.summary.topRepetitiveWorkflows.length > 0);
+  const firstWorkflow = report.workflows[0];
+
+  assert.ok(firstWorkflow);
+  assert.ok(firstWorkflow.graph.text.includes("->"));
+  assert.ok(firstWorkflow.frequencyPerWeek >= 3);
+  assert.ok(firstWorkflow.confidenceScore > 0);
   assert.deepEqual(
     report.workflows.map((entry) => entry.frequency),
     [3, 3, 3, 3, 3],

@@ -165,12 +165,28 @@ export interface WorkflowFeedbackSummary {
   splitAfterActionName?: string | undefined;
 }
 
+export interface WorkflowGraph {
+  nodes: string[];
+  edges: Array<{ from: string; to: string; weight: number }>;
+  text: string;
+}
+
 export interface ReportEntry {
   workflowClusterId: string;
   workflowName: string;
+  businessPurpose?: string | undefined;
   frequency: number;
+  frequencyPerWeek: number;
   averageDurationSeconds: number;
   totalDurationSeconds: number;
+  estimatedTotalTimeSpentSeconds: number;
+  representativeSequence: string[];
+  representativeSteps: string[];
+  involvedApps: string[];
+  automationSuitabilityScore: number;
+  confidenceScore: number;
+  userLabeled: boolean;
+  graph: WorkflowGraph;
   automationSuitability: AutomationSuitability;
   recommendedApproach: string;
 }
@@ -200,6 +216,12 @@ export interface WorkflowReport {
   totalTrackedDurationSeconds: number;
   workflows: ReportEntry[];
   emergingWorkflows: EmergingWorkflowEntry[];
+  summary: {
+    topRepetitiveWorkflows: ReportEntry[];
+    highestTimeConsumingRepetitiveWorkflows: ReportEntry[];
+    quickWinAutomationCandidates: ReportEntry[];
+    workflowsNeedingHumanJudgment: ReportEntry[];
+  };
 }
 
 export interface ReportSnapshot extends WorkflowReport {

@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 
-export const CURRENT_SCHEMA_VERSION = 7;
+export const CURRENT_SCHEMA_VERSION = 8;
 
 export const INITIAL_SCHEMA_SQL = `
   PRAGMA journal_mode = WAL;
@@ -157,6 +157,7 @@ export const INITIAL_SCHEMA_SQL = `
     total_tracked_duration_seconds REAL NOT NULL,
     workflows_json TEXT NOT NULL,
     emerging_workflows_json TEXT NOT NULL,
+    summary_json TEXT NOT NULL DEFAULT '{}',
     generated_at TEXT NOT NULL,
     UNIQUE(window, report_date, timezone)
   );
@@ -345,5 +346,14 @@ export function applySchemaMigrations(
       )
       WHERE workflow_signature IS NULL
     `);
+  }
+
+  if ((existingVersion ?? 0) < 8) {
+    ensureColumn(
+      connection,
+      "report_snapshots",
+      "summary_json",
+      "summary_json TEXT DEFAULT '{}'",
+    );
   }
 }
