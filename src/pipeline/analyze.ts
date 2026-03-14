@@ -12,6 +12,8 @@ export interface AnalysisResult {
 export interface AnalyzeOptions {
   inactivityThresholdMs?: number;
   contextShiftThresholdMs?: number;
+  interruptionResetThresholdMs?: number;
+  significantContextScore?: number;
   similarityThreshold?: number;
   minSessionDurationSeconds?: number;
   minimumWorkflowFrequency?: number;
@@ -25,6 +27,12 @@ export function analyzeRawEvents(rawEvents: RawEvent[], options: AnalyzeOptions 
       : {}),
     ...(options.contextShiftThresholdMs !== undefined
       ? { contextShiftThresholdMs: options.contextShiftThresholdMs }
+      : {}),
+    ...(options.interruptionResetThresholdMs !== undefined
+      ? { interruptionResetThresholdMs: options.interruptionResetThresholdMs }
+      : {}),
+    ...(options.significantContextScore !== undefined
+      ? { significantContextScore: options.significantContextScore }
       : {}),
   };
   const clusterOptions = {
