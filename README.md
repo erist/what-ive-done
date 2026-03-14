@@ -21,7 +21,7 @@ This repository currently provides a TypeScript CLI that collects or imports act
 - stored daily and weekly report snapshots
 - local scheduler command for automatic snapshot refresh
 - workflow review, feedback, and session deletion
-- LLM-safe workflow summary export and OpenAI-based workflow analysis
+- LLM-safe workflow summary export and provider-based workflow analysis for ChatGPT, Gemini, and Claude
 
 Current limitation:
 
@@ -74,6 +74,24 @@ npm run dev -- report:snapshot:list --data-dir ./tmp/local-data --json
 npm run dev -- report:scheduler --data-dir ./tmp/local-data --once --json
 ```
 
+### LLM Configuration
+
+```bash
+npm run dev -- llm:providers --json
+npm run dev -- llm:config:set --data-dir ./tmp/local-data --provider gemini --auth api-key --model gemini-2.5-flash
+npm run dev -- credential:set gemini
+npm run dev -- llm:analyze --data-dir ./tmp/local-data --json
+```
+
+Gemini OAuth login:
+
+```bash
+export GOOGLE_CLIENT_ID="your-client-id"
+export GOOGLE_CLIENT_SECRET="your-client-secret"
+export GOOGLE_CLOUD_PROJECT="your-project-id"
+npm run dev -- auth:login gemini --data-dir ./tmp/local-data
+```
+
 ### Privacy
 
 The project stores behavioral metadata only. It must not collect raw keystrokes, passwords, email or document content, clipboard text, authentication tokens, cookies, continuous screenshots, or screen recordings.
@@ -92,7 +110,7 @@ The project stores behavioral metadata only. It must not collect raw keystrokes,
 - Chrome for live browser collection
 - Windows PowerShell for the Windows active-window collector
 - Xcode or Xcode Command Line Tools with Swift for the macOS active-window collector
-- `OPENAI_API_KEY` for `llm:analyze` if no key is stored in secure storage
+- provider API key env vars such as `OPENAI_API_KEY`, `GEMINI_API_KEY`/`GOOGLE_API_KEY`, or `ANTHROPIC_API_KEY` when no key is stored in secure storage
 
 <a id="ko"></a>
 ## 한국어
@@ -108,7 +126,7 @@ The project stores behavioral metadata only. It must not collect raw keystrokes,
 - 브라우저 메타데이터 수집용 Chrome extension 경로
 - 분석된 로컬 데이터 기준 all-time CLI 리포트
 - 워크플로우 검토, 피드백, 세션 삭제
-- LLM-safe 워크플로우 요약 export와 OpenAI 기반 분석
+- LLM-safe 워크플로우 요약 export와 ChatGPT, Gemini, Claude 기반 분석
 
 현재 제한 사항:
 
@@ -156,6 +174,24 @@ npm run dev -- collector:windows:info --json
 npm run dev -- serve --data-dir ./tmp/live-data --host 127.0.0.1 --port 4318
 ```
 
+### LLM 설정
+
+```bash
+npm run dev -- llm:providers --json
+npm run dev -- llm:config:set --data-dir ./tmp/local-data --provider claude --auth api-key --model claude-sonnet-4-5
+npm run dev -- credential:set claude
+npm run dev -- llm:analyze --data-dir ./tmp/local-data --json
+```
+
+Gemini OAuth 로그인:
+
+```bash
+export GOOGLE_CLIENT_ID="your-client-id"
+export GOOGLE_CLIENT_SECRET="your-client-secret"
+export GOOGLE_CLOUD_PROJECT="your-project-id"
+npm run dev -- auth:login gemini --data-dir ./tmp/local-data
+```
+
 ### 개인정보
 
 이 프로젝트는 행동 메타데이터만 저장합니다. 실제 키 입력, 비밀번호, 이메일/문서 본문, 클립보드 텍스트, 인증 토큰, 쿠키, 연속 스크린샷, 화면 녹화는 수집하면 안 됩니다.
@@ -174,4 +210,4 @@ npm run dev -- serve --data-dir ./tmp/live-data --host 127.0.0.1 --port 4318
 - 실시간 브라우저 수집용 Chrome
 - Windows active-window collector 실행용 Windows PowerShell
 - macOS active-window collector 실행용 Xcode 또는 Xcode Command Line Tools의 Swift
-- secure storage에 키가 없을 때 `llm:analyze`용 `OPENAI_API_KEY`
+- secure storage에 키가 없을 때 `OPENAI_API_KEY`, `GEMINI_API_KEY`/`GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`

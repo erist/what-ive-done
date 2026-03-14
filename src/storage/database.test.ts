@@ -326,3 +326,34 @@ test("workflow LLM analyses can be stored and surfaced through workflow names", 
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test("settings can be stored and loaded as JSON values", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-settings-"));
+
+  try {
+    const database = new AppDatabase({
+      dataDir: tempDir,
+      databasePath: join(tempDir, "test.sqlite"),
+    });
+    database.initialize();
+
+    database.setSetting("llm.config", {
+      provider: "gemini",
+      authMethod: "oauth2",
+      model: "gemini-2.5-flash",
+    });
+
+    assert.deepEqual(database.getSetting("llm.config"), {
+      provider: "gemini",
+      authMethod: "oauth2",
+      model: "gemini-2.5-flash",
+    });
+
+    database.deleteSetting("llm.config");
+    assert.equal(database.getSetting("llm.config"), undefined);
+
+    database.close();
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
