@@ -1,6 +1,11 @@
 import { Command } from "commander";
 
 import { getAgentHealthReport, listLatestAgentSnapshots, runAgentOnce } from "./agent/control.js";
+import {
+  getAgentAutostartStatus,
+  installAgentAutostart,
+  uninstallAgentAutostart,
+} from "./agent/autostart/index.js";
 import { getAgentStatusSnapshot } from "./agent/state.js";
 import { startAgentRuntime, stopAgentRuntime } from "./agent/runtime.js";
 import { resolveAppPaths } from "./app-paths.js";
@@ -466,6 +471,52 @@ program
     const status = getAgentStatusSnapshot(options.dataDir);
 
     console.log(JSON.stringify(status.state?.collectors ?? [], null, 2));
+  });
+
+program
+  .command("agent:autostart:status")
+  .description("Show OS autostart status for the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--plist-path <path>", "Override the LaunchAgent plist path")
+  .action((options: { dataDir?: string; plistPath?: string }) => {
+    const status = getAgentAutostartStatus({
+      dataDir: options.dataDir,
+      plistPath: options.plistPath,
+    });
+
+    console.log(JSON.stringify(status, null, 2));
+  });
+
+program
+  .command("agent:autostart:install")
+  .description("Install OS autostart for the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--plist-path <path>", "Override the LaunchAgent plist path")
+  .option("--no-load", "Write the LaunchAgent file without loading it")
+  .action((options: { dataDir?: string; plistPath?: string; load: boolean }) => {
+    const status = installAgentAutostart({
+      dataDir: options.dataDir,
+      plistPath: options.plistPath,
+      load: options.load,
+    });
+
+    console.log(JSON.stringify(status, null, 2));
+  });
+
+program
+  .command("agent:autostart:uninstall")
+  .description("Remove OS autostart for the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--plist-path <path>", "Override the LaunchAgent plist path")
+  .option("--no-unload", "Remove the LaunchAgent file without unloading it first")
+  .action((options: { dataDir?: string; plistPath?: string; unload: boolean }) => {
+    const status = uninstallAgentAutostart({
+      dataDir: options.dataDir,
+      plistPath: options.plistPath,
+      unload: options.unload,
+    });
+
+    console.log(JSON.stringify(status, null, 2));
   });
 
 program
