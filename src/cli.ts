@@ -1,5 +1,7 @@
 import { Command } from "commander";
 
+import { getAgentStatusSnapshot } from "./agent/state.js";
+import { startAgentRuntime, stopAgentRuntime } from "./agent/runtime.js";
 import { resolveAppPaths } from "./app-paths.js";
 import { getAvailableCollectors } from "./collectors/index.js";
 import { getMacOSActiveWindowCollectorInfo, resolveMacOSCollectorRunner } from "./collectors/macos.js";
@@ -345,7 +347,54 @@ program
       arch: process.arch,
       dataDir: paths.dataDir,
       databasePath: paths.databasePath,
+      agentLockPath: paths.agentLockPath,
     };
+
+    console.log(JSON.stringify(result, null, 2));
+  });
+
+program
+  .command("agent:run")
+  .description("Run the resident local agent runtime")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--heartbeat-interval-ms <ms>", "Heartbeat interval in milliseconds", "30000")
+  .action(async (options: { dataDir?: string; heartbeatIntervalMs: string }) => {
+    const runtime = await startAgentRuntime({
+      dataDir: options.dataDir,
+      heartbeatIntervalMs: Number.parseInt(options.heartbeatIntervalMs, 10),
+    });
+
+    console.log(
+      JSON.stringify(
+        {
+          status: "running",
+          pid: runtime.pid,
+          startedAt: runtime.startedAt,
+        },
+        null,
+        2,
+      ),
+    );
+
+    await runtime.waitForStop();
+  });
+
+program
+  .command("agent:status")
+  .description("Show resident agent runtime status")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    const status = getAgentStatusSnapshot(options.dataDir);
+
+    console.log(JSON.stringify(status, null, 2));
+  });
+
+program
+  .command("agent:stop")
+  .description("Stop the resident agent runtime if it is running")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    const result = stopAgentRuntime(options.dataDir);
 
     console.log(JSON.stringify(result, null, 2));
   });
