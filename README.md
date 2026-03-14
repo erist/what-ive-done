@@ -28,16 +28,18 @@ Implemented now:
 - sessionization
 - workflow clustering
 - CLI report output
+- workflow feedback persistence for rename, exclude, include, hide, and unhide
 - mock workflow generator
 - local HTTP ingest server
 - Chrome extension scaffold for browser event collection
-- workflow feedback persistence for rename and exclude/hide
+- JSON and NDJSON event import
+- first Windows native collector implementation as a PowerShell active-window collector
 
 Not implemented yet:
 
-- Windows native collector
+- Windows mouse click, file operation, and clipboard collectors
 - desktop UI
-- workflow feedback UI
+- session deletion command
 - LLM integration
 - secure credential storage
 
@@ -83,6 +85,7 @@ To run the current CLI locally:
 - Node.js `22.x` or later
 - npm `10.x` or later
 - Chrome, if you want to test real browser collection
+- Windows PowerShell, only if you want to run the Windows native collector script
 
 Notes:
 
@@ -176,13 +179,19 @@ npm run dev -- init --data-dir ./tmp/local-data
 
 This creates the application data directory and SQLite database.
 
-### 3. Seed Mock Events
+### 3. Add Event Data
+
+Mock workflow data:
 
 ```bash
 npm run dev -- collect:mock --data-dir ./tmp/local-data
 ```
 
-This inserts deterministic sample workflows for testing analysis without any live collectors.
+Import raw events from a JSON or NDJSON file:
+
+```bash
+npm run dev -- import:events ./fixtures/windows-active-window-sample.ndjson --data-dir ./tmp/local-data
+```
 
 ### 4. Run Analysis
 
@@ -350,11 +359,87 @@ npm run dev -- report --data-dir ./tmp/live-data --json
 npm run dev -- reset --data-dir ./tmp/live-data
 ```
 
+## Windows Collector Test
+
+The first Windows native collector is a PowerShell script that records active application and window title changes.
+
+List available collectors:
+
+```bash
+npm run dev -- collector:list --json
+```
+
+Print Windows collector details:
+
+```bash
+npm run dev -- collector:windows:info --json
+```
+
+This prints:
+
+- collector id
+- supported event types
+- PowerShell script path
+- sample fixture path
+- example commands
+
+### Test The Windows Flow On Any Platform
+
+You can validate the Windows ingestion path without being on Windows by importing the provided fixture:
+
+```bash
+npm run dev -- reset --data-dir ./tmp/windows-data
+npm run dev -- import:events ./fixtures/windows-active-window-sample.ndjson --data-dir ./tmp/windows-data
+npm run dev -- analyze --data-dir ./tmp/windows-data
+npm run dev -- report --data-dir ./tmp/windows-data --json
+```
+
+Expected high-level result:
+
+- `12` raw events imported
+- `3` sessions
+- `1` workflow cluster
+
+### Run The Collector On Windows
+
+On a Windows machine with PowerShell:
+
+Write NDJSON to disk:
+
+```powershell
+pwsh -File ".\collectors\windows\active-window-collector.ps1" -OutputPath ".\events.ndjson"
+```
+
+Send events directly to the local ingest server:
+
+```powershell
+pwsh -File ".\collectors\windows\active-window-collector.ps1" -IngestUrl "http://127.0.0.1:4318/events"
+```
+
+If you write to disk first, import the result into the CLI:
+
+```bash
+npm run dev -- import:events .\events.ndjson --data-dir ./tmp/windows-data
+```
+
+Current Windows collector scope:
+
+- active application change
+- window title change
+- process metadata only
+
+Not yet included:
+
+- click metadata
+- clipboard usage
+- file operation tracking
+
 ## Current CLI Commands
 
 - `doctor`: print runtime information and default paths
 - `init`: initialize SQLite storage
 - `collect:mock`: seed deterministic sample workflow events
+- `import:events`: import raw events from JSON or NDJSON
 - `analyze`: normalize events, build sessions, and detect workflows
 - `report`: print saved workflow clusters as table or JSON
 - `workflow:list`: show workflow clusters with feedback state
@@ -364,8 +449,19 @@ npm run dev -- reset --data-dir ./tmp/live-data
 - `workflow:hide`: hide an incorrect workflow cluster
 - `workflow:unhide`: show a hidden workflow cluster again
 - `serve`: run the local HTTP ingest server for live collectors
+- `collector:list`: list available collectors
+- `collector:windows:info`: print Windows collector usage details
 - `demo`: reset, seed mock data, analyze, and print a report
 - `reset`: remove locally stored events and analysis artifacts
+
+## Collector Files
+
+Windows collector assets live in:
+
+- [`active-window-collector.ps1`](/Users/yhchun/Workspace/Projects/ax/what-ive-done/collectors/windows/active-window-collector.ps1)
+- [`windows-active-window-sample.ndjson`](/Users/yhchun/Workspace/Projects/ax/what-ive-done/fixtures/windows-active-window-sample.ndjson)
+- [`src/collectors/windows.ts`](/Users/yhchun/Workspace/Projects/ax/what-ive-done/src/collectors/windows.ts)
+- [`src/importers/events.ts`](/Users/yhchun/Workspace/Projects/ax/what-ive-done/src/importers/events.ts)
 
 ## Chrome Extension Files
 
@@ -384,24 +480,26 @@ Current key files:
 - [`src/cli.ts`](/Users/yhchun/Workspace/Projects/ax/what-ive-done/src/cli.ts): CLI entry point
 - [`src/storage/database.ts`](/Users/yhchun/Workspace/Projects/ax/what-ive-done/src/storage/database.ts): SQLite access layer
 - [`src/privacy/sanitize.ts`](/Users/yhchun/Workspace/Projects/ax/what-ive-done/src/privacy/sanitize.ts): sensitive metadata filtering
+- [`src/importers/events.ts`](/Users/yhchun/Workspace/Projects/ax/what-ive-done/src/importers/events.ts): JSON and NDJSON import support
 - [`src/pipeline/normalize.ts`](/Users/yhchun/Workspace/Projects/ax/what-ive-done/src/pipeline/normalize.ts): raw to normalized events
 - [`src/pipeline/sessionize.ts`](/Users/yhchun/Workspace/Projects/ax/what-ive-done/src/pipeline/sessionize.ts): session grouping
 - [`src/pipeline/cluster.ts`](/Users/yhchun/Workspace/Projects/ax/what-ive-done/src/pipeline/cluster.ts): workflow detection
 - [`src/server/ingest-server.ts`](/Users/yhchun/Workspace/Projects/ax/what-ive-done/src/server/ingest-server.ts): local collector ingest server
 - [`src/collectors/mock.ts`](/Users/yhchun/Workspace/Projects/ax/what-ive-done/src/collectors/mock.ts): deterministic test data
+- [`src/collectors/windows.ts`](/Users/yhchun/Workspace/Projects/ax/what-ive-done/src/collectors/windows.ts): Windows collector metadata and asset paths
 
 ## Known Limitations
 
 - Chrome extension events are currently sent to a local HTTP endpoint without authentication.
 - Browser collection is for local development and PoC validation only.
-- Native Windows activity collection has not been added yet.
+- The Windows collector currently captures only active-window changes.
 - Workflow naming is currently heuristic only.
 - Report output is CLI-based, not a desktop UI.
 - LLM interpretation is not connected yet.
 
 ## Next Planned Steps
 
-- add Windows collector interface and first native collector implementation
-- persist workflow feedback such as rename and exclude
+- add session deletion and incorrect session cleanup commands
+- extend the Windows collector beyond active-window changes
 - add LLM summary payload generation and provider adapter
 - add a desktop-facing report UI
