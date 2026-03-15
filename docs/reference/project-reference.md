@@ -31,8 +31,9 @@ Implemented today:
 - session listing, session detail, and session deletion with reanalysis
 - practical automation hints in workflow reports
 - LLM-safe workflow payload export
-- OpenAI Responses API adapter for summarized workflow analysis
-- macOS Keychain-backed storage for the OpenAI API key
+- OpenAI, Gemini, and Claude adapters for summarized workflow analysis
+- saved default LLM provider/model/auth configuration
+- macOS Keychain-backed storage for provider API keys and Gemini OAuth credentials
 - macOS LaunchAgent autostart helpers and CLI commands
 
 Not implemented yet:
@@ -41,7 +42,6 @@ Not implemented yet:
 - Windows autostart installation flow
 - desktop UI
 - workflow feedback UI
-- additional LLM providers beyond the current OpenAI adapter
 - secure credential storage on non-macOS platforms
 - report comparison views such as day-over-day or week-over-week diffs
 
@@ -135,7 +135,7 @@ Requirements:
 - Chrome for live browser collection
 - Windows PowerShell for the Windows active-window collector
 - Xcode or Xcode Command Line Tools with Swift for the macOS active-window collector
-- `OPENAI_API_KEY` for `llm:analyze` when no key is stored in secure storage
+- provider API key env vars such as `OPENAI_API_KEY`, `GEMINI_API_KEY`/`GOOGLE_API_KEY`, and `ANTHROPIC_API_KEY` when no key is stored in secure storage
 
 Install:
 
@@ -246,10 +246,12 @@ Print LLM-safe payloads:
 npm run dev -- llm:payloads --data-dir ./tmp/local-data
 ```
 
-Run OpenAI workflow analysis:
+Configure a default provider and run workflow analysis:
 
 ```bash
-export OPENAI_API_KEY="your-api-key"
+npm run dev -- llm:providers --json
+npm run dev -- llm:config:set --data-dir ./tmp/local-data --provider gemini --auth api-key --model gemini-2.5-flash
+export GEMINI_API_KEY="your-api-key"
 npm run dev -- llm:analyze --data-dir ./tmp/local-data --json
 ```
 
@@ -269,8 +271,20 @@ Secure credential commands:
 
 ```bash
 npm run dev -- credential:status
-npm run dev -- credential:set-openai
-npm run dev -- credential:delete-openai
+npm run dev -- credential:set openai
+npm run dev -- credential:set gemini
+npm run dev -- credential:set claude
+npm run dev -- credential:delete gemini
+```
+
+Gemini OAuth login:
+
+```bash
+export GOOGLE_CLIENT_ID="your-client-id"
+export GOOGLE_CLIENT_SECRET="your-client-secret"
+export GOOGLE_CLOUD_PROJECT="your-project-id"
+npm run dev -- auth:login gemini --data-dir ./tmp/local-data
+npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 ```
 
 ## CLI Command Reference
@@ -316,11 +330,64 @@ npm run dev -- credential:delete-openai
 | `session:show` | Show one analyzed session with ordered steps. |
 | `session:delete` | Delete a session's source events and rerun analysis. |
 | `llm:payloads` | Print summarized workflow payloads without raw logs. |
-| `llm:analyze` | Run summarized workflow analysis through the OpenAI adapter. |
+| `llm:providers` | List supported ChatGPT, Gemini, and Claude providers with auth methods. |
+| `llm:config:show` | Show the saved default LLM provider/model/auth configuration. |
+| `llm:config:set` | Update the saved default LLM provider/model/auth configuration. |
+| `llm:analyze` | Run summarized workflow analysis through the configured provider or CLI override. |
 | `llm:results` | List stored LLM analysis results. |
 | `credential:status` | Show secure credential backend status. |
+| `credential:set` | Store a provider API key in secure OS credential storage. |
+| `credential:delete` | Delete a stored provider API key from secure storage. |
 | `credential:set-openai` | Store the OpenAI API key in secure OS credential storage. |
 | `credential:delete-openai` | Delete the stored OpenAI API key from secure storage. |
-| `serve` | Run the standalone local HTTP ingest server. |
+| `auth:login` | Run Gemini OAuth login and store the resulting credentials securely. |
+| `auth:logout` | Delete stored Gemini OAuth credentials. |
+| `serve` | Run the standalone local HTTP ingest server for collectors. |
 | `demo` | Reset data, seed mock events, run analysis, and print a report. |
 | `reset` | Delete all locally stored events and analysis artifacts. |
+
+## Project Structure
+
+- `src/cli.ts`: CLI entry point and command definitions
+- `src/agent/`: resident runtime, control plane, collector supervision, scheduler, and autostart helpers
+- `src/storage/database.ts`: SQLite persistence layer
+- `src/storage/schema.ts`: database schema
+- `src/privacy/sanitize.ts`: sensitive metadata filtering
+- `src/importers/events.ts`: JSON and NDJSON event import
+- `src/collectors/mock.ts`: deterministic mock event generator
+- `src/collectors/index.ts`: shared collector registry
+- `src/collectors/macos.ts`: macOS collector metadata and script lookup
+- `src/collectors/windows.ts`: Windows collector metadata and script lookup
+- `collectors/macos/active-window-collector.swift`: macOS active-window collector script
+- `collectors/windows/active-window-collector.ps1`: Windows active-window collector script
+- `src/pipeline/normalize.ts`: raw event normalization
+- `src/pipeline/actions.ts`: semantic action abstraction rules
+- `src/pipeline/sessionize.ts`: session boundary logic
+- `src/pipeline/cluster.ts`: workflow clustering heuristics
+- `src/pipeline/analyze.ts`: end-to-end workflow analysis orchestration
+- `src/reporting/report.ts`: workflow-centric report formatting
+- `src/reporting/service.ts`: report generation and snapshot helpers
+- `src/llm/payloads.ts`: summarized LLM-safe workflow payload builder
+- `src/llm/openai.ts`: OpenAI Responses API adapter for workflow analysis
+- `src/llm/gemini.ts`: Gemini generateContent adapter for workflow analysis
+- `src/llm/claude.ts`: Anthropic Messages adapter for workflow analysis
+- `src/llm/config.ts`: persisted provider/model/auth configuration helpers
+- `src/auth/google-oauth.ts`: Gemini OAuth login and token refresh flow
+- `src/credentials/store.ts`: secure credential storage abstraction and macOS Keychain integration
+- `src/credentials/llm.ts`: provider API key and OAuth credential helpers
+- `src/server/ingest-server.ts`: local HTTP ingest server
+- `src/server/ingest.ts`: incoming collector payload coercion
+- `extension/chrome`: Chrome extension scaffold for live browser collection
+
+## Known Limitations
+
+- browser ingestion currently uses a local HTTP endpoint without authentication
+- browser collection is for local development and proof-of-concept validation
+- the Windows and macOS native collectors currently capture only active-window changes
+- macOS window title capture depends on Accessibility permission
+- short-horizon emerging workflow summaries are heuristic and marked as provisional
+- automatic snapshot refresh requires the resident agent or legacy scheduler process to be running
+- workflow naming remains heuristic
+- report output is CLI-only
+- secure credential storage is implemented only for macOS Keychain today
+- OpenAI and Claude direct API usage currently use API keys; Gemini supports API keys or OAuth2 login

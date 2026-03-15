@@ -198,6 +198,46 @@ export class AppDatabase {
     this.connection.close();
   }
 
+  getSetting<T>(key: string): T | undefined {
+    const row = this.connection
+      .prepare(`
+        SELECT value_json
+        FROM settings
+        WHERE key = ?
+      `)
+      .get(key) as SettingRow | undefined;
+
+    if (!row) {
+      return undefined;
+    }
+
+    return JSON.parse(row.value_json) as T;
+  }
+
+  setSetting(key: string, value: unknown): void {
+    this.connection
+      .prepare(`
+        INSERT INTO settings (
+          key,
+          value_json,
+          updated_at
+        ) VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET
+          value_json = excluded.value_json,
+          updated_at = excluded.updated_at
+      `)
+      .run(key, JSON.stringify(value), new Date().toISOString());
+  }
+
+  deleteSetting(key: string): void {
+    this.connection
+      .prepare(`
+        DELETE FROM settings
+        WHERE key = ?
+      `)
+      .run(key);
+  }
+
   insertRawEvent(input: RawEventInput): RawEvent {
     const sanitized = sanitizeRawEvent(input);
     const record: RawEvent = {
@@ -1182,41 +1222,6 @@ export class AppDatabase {
       rationale: row.rationale,
       createdAt: row.created_at,
     }));
-  }
-
-  getSetting<T>(key: string): T | undefined {
-    const row = this.connection
-      .prepare(`
-        SELECT key, value_json, updated_at
-        FROM settings
-        WHERE key = ?
-      `)
-      .get(key) as SettingRow | undefined;
-
-    if (!row) {
-      return undefined;
-    }
-
-    return JSON.parse(row.value_json) as T;
-  }
-
-  setSetting(key: string, value: unknown): void {
-    this.connection
-      .prepare(`
-        INSERT INTO settings (
-          key,
-          value_json,
-          updated_at
-        ) VALUES (?, ?, ?)
-        ON CONFLICT(key) DO UPDATE SET
-          value_json = excluded.value_json,
-          updated_at = excluded.updated_at
-      `)
-      .run(key, JSON.stringify(value), new Date().toISOString());
-  }
-
-  deleteSetting(key: string): void {
-    this.connection.prepare("DELETE FROM settings WHERE key = ?").run(key);
   }
 
   upsertReportSnapshot(report: Omit<ReportSnapshot, "id" | "generatedAt">): ReportSnapshot {

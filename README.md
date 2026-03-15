@@ -26,7 +26,8 @@ This repository provides a TypeScript CLI plus a resident local agent. Together 
 - stored daily and weekly report snapshots
 - workflow review, label, merge, split, exclude, hide, and session deletion
 - practical automation hints for likely automation candidates
-- LLM-safe workflow summary export and OpenAI-based workflow analysis
+- LLM-safe workflow summary export and configurable provider-based workflow analysis for ChatGPT, Gemini, and Claude
+- saved default LLM provider/model/auth configuration
 - macOS LaunchAgent autostart helpers
 
 Current limitations:
@@ -114,6 +115,24 @@ npm run dev -- serve --data-dir ./tmp/live-data --host 127.0.0.1 --port 4318
 npm run dev -- report:scheduler --data-dir ./tmp/live-data --once --json
 ```
 
+### LLM Configuration
+
+```bash
+npm run dev -- llm:providers --json
+npm run dev -- llm:config:set --data-dir ./tmp/local-data --provider gemini --auth api-key --model gemini-2.5-flash
+npm run dev -- credential:set gemini
+npm run dev -- llm:analyze --data-dir ./tmp/local-data --json
+```
+
+Gemini OAuth login:
+
+```bash
+export GOOGLE_CLIENT_ID="your-client-id"
+export GOOGLE_CLIENT_SECRET="your-client-secret"
+export GOOGLE_CLOUD_PROJECT="your-project-id"
+npm run dev -- auth:login gemini --data-dir ./tmp/local-data
+```
+
 ### Privacy
 
 The project stores behavioral metadata only. It must not collect raw keystrokes, passwords, email or document content, clipboard text, authentication tokens, cookies, continuous screenshots, or screen recordings.
@@ -132,7 +151,7 @@ The project stores behavioral metadata only. It must not collect raw keystrokes,
 - Chrome for live browser collection
 - Windows PowerShell for the Windows active-window collector
 - Xcode or Xcode Command Line Tools with Swift for the macOS active-window collector
-- `OPENAI_API_KEY` for `llm:analyze` if no key is stored in secure storage
+- provider API key env vars such as `OPENAI_API_KEY`, `GEMINI_API_KEY`/`GOOGLE_API_KEY`, or `ANTHROPIC_API_KEY` when no key is stored in secure storage
 
 <a id="ko"></a>
 ## 한국어
@@ -155,7 +174,8 @@ The project stores behavioral metadata only. It must not collect raw keystrokes,
 - daily/weekly report snapshot 저장
 - 워크플로우 검토, label, merge, split, exclude, hide, 세션 삭제
 - likely automation candidate를 위한 practical automation hint 제안
-- LLM-safe 워크플로우 요약 export와 OpenAI 기반 분석
+- LLM-safe 워크플로우 요약 export와 ChatGPT, Gemini, Claude 기반 구성형 분석
+- 기본 LLM provider/model/auth 설정 저장
 - macOS LaunchAgent autostart helper
 
 현재 제한 사항:
@@ -243,6 +263,24 @@ npm run dev -- serve --data-dir ./tmp/live-data --host 127.0.0.1 --port 4318
 npm run dev -- report:scheduler --data-dir ./tmp/live-data --once --json
 ```
 
+### LLM 설정
+
+```bash
+npm run dev -- llm:providers --json
+npm run dev -- llm:config:set --data-dir ./tmp/local-data --provider gemini --auth api-key --model gemini-2.5-flash
+npm run dev -- credential:set gemini
+npm run dev -- llm:analyze --data-dir ./tmp/local-data --json
+```
+
+Gemini OAuth 로그인:
+
+```bash
+export GOOGLE_CLIENT_ID="your-client-id"
+export GOOGLE_CLIENT_SECRET="your-client-secret"
+export GOOGLE_CLOUD_PROJECT="your-project-id"
+npm run dev -- auth:login gemini --data-dir ./tmp/local-data
+```
+
 ### 개인정보
 
 이 프로젝트는 행동 메타데이터만 저장합니다. 실제 키 입력, 비밀번호, 이메일/문서 본문, 클립보드 텍스트, 인증 토큰, 쿠키, 연속 스크린샷, 화면 녹화는 수집하면 안 됩니다.
@@ -261,4 +299,4 @@ npm run dev -- report:scheduler --data-dir ./tmp/live-data --once --json
 - 실시간 브라우저 수집용 Chrome
 - Windows active-window collector 실행용 Windows PowerShell
 - macOS active-window collector 실행용 Xcode 또는 Xcode Command Line Tools의 Swift
-- secure storage에 키가 없을 때 `llm:analyze`용 `OPENAI_API_KEY`
+- secure storage에 키가 없을 때 `OPENAI_API_KEY`, `GEMINI_API_KEY`/`GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`

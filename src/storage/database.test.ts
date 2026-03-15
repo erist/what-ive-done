@@ -449,12 +449,24 @@ test("workflow LLM analyses can be stored and surfaced through workflow names", 
   }
 });
 
-test("settings can be stored, updated, and deleted", () => {
+test("settings can be stored, updated, and deleted as JSON values", () => {
   const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-settings-"));
 
   try {
     const database = createTestDatabase(tempDir);
     database.initialize();
+
+    database.setSetting("llm.config", {
+      provider: "gemini",
+      authMethod: "oauth2",
+      model: "gemini-2.5-flash",
+    });
+
+    assert.deepEqual(database.getSetting("llm.config"), {
+      provider: "gemini",
+      authMethod: "oauth2",
+      model: "gemini-2.5-flash",
+    });
 
     database.setSetting("agent.runtime", {
       status: "running",
@@ -477,8 +489,9 @@ test("settings can be stored, updated, and deleted", () => {
     });
 
     database.deleteSetting("agent.runtime");
-
+    database.deleteSetting("llm.config");
     assert.equal(database.getSetting("agent.runtime"), undefined);
+    assert.equal(database.getSetting("llm.config"), undefined);
 
     database.close();
   } finally {
