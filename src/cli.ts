@@ -1,5 +1,13 @@
 import { Command } from "commander";
 
+import { getAgentHealthReport, listLatestAgentSnapshots, runAgentOnce } from "./agent/control.js";
+import {
+  getAgentAutostartStatus,
+  installAgentAutostart,
+  uninstallAgentAutostart,
+} from "./agent/autostart/index.js";
+import { getAgentStatusSnapshot } from "./agent/state.js";
+import { startAgentRuntime, stopAgentRuntime } from "./agent/runtime.js";
 import { resolveAppPaths } from "./app-paths.js";
 import { openSystemBrowser } from "./auth/browser.js";
 import {
@@ -76,12 +84,50 @@ function renderReportTable(reportEntries: ReportEntry[]): void {
     reportEntries.map((entry) => ({
       workflow: entry.workflowName,
       frequency: entry.frequency,
+      frequencyPerWeek: entry.frequencyPerWeek,
       averageDuration: formatDuration(entry.averageDurationSeconds),
       totalDuration: formatDuration(entry.totalDurationSeconds),
+      apps: entry.involvedApps.join(", "),
+      confidence: entry.confidenceScore,
+      labeled: entry.userLabeled,
       automationSuitability: entry.automationSuitability,
+      automationScore: entry.automationSuitabilityScore,
       recommendation: entry.recommendedApproach,
     })),
   );
+}
+
+function renderWorkflowSection(title: string, reportEntries: ReportEntry[]): void {
+  if (reportEntries.length === 0) {
+    return;
+  }
+
+  console.log(title);
+  renderReportTable(reportEntries);
+}
+
+function renderWorkflowGraphs(reportEntries: ReportEntry[]): void {
+  if (reportEntries.length === 0) {
+    return;
+  }
+
+  console.log("Workflow graphs");
+
+  for (const entry of reportEntries) {
+    console.log(
+      JSON.stringify(
+        {
+          workflow: entry.workflowName,
+          graph: entry.graph.text,
+          steps: entry.representativeSteps,
+          businessPurpose: entry.businessPurpose ?? null,
+          firstAutomationHint: entry.automationHints[0] ?? null,
+        },
+        null,
+        2,
+      ),
+    );
+  }
 }
 
 function renderSnapshotListTable(snapshots: ReportSnapshotSummary[]): void {
@@ -163,7 +209,22 @@ function renderWindowedWorkflowReport(report: WorkflowReport, json = false): voi
   if (report.workflows.length === 0) {
     console.log("No confirmed workflows detected for this window.");
   } else {
+    renderWorkflowSection("Top repetitive workflows", report.summary.topRepetitiveWorkflows);
+    renderWorkflowSection(
+      "Highest time-consuming repetitive workflows",
+      report.summary.highestTimeConsumingRepetitiveWorkflows,
+    );
+    renderWorkflowSection(
+      "Quick-win automation candidates",
+      report.summary.quickWinAutomationCandidates,
+    );
+    renderWorkflowSection(
+      "Workflows needing human judgment",
+      report.summary.workflowsNeedingHumanJudgment,
+    );
+    console.log("All workflows");
     renderReportTable(report.workflows);
+    renderWorkflowGraphs(report.workflows.slice(0, 5));
   }
 
   if (report.emergingWorkflows.length > 0) {
@@ -191,18 +252,6 @@ function renderReport(
   } = {},
 ): void {
   const report = buildStoredWorkflowReport(dataDir, options);
-  const useLegacyAllTimeOutput = (options.window ?? "all") === "all" && options.date === undefined;
-
-  if (useLegacyAllTimeOutput) {
-    if (json) {
-      console.log(JSON.stringify(report.workflows, null, 2));
-      return;
-    }
-
-    renderReportTable(report.workflows);
-    return;
-  }
-
   renderWindowedWorkflowReport(report, json);
 }
 
@@ -210,6 +259,20 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function parseBooleanOption(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+
+  if (["true", "yes", "y", "1"].includes(normalized)) {
+    return true;
+  }
+
+  if (["false", "no", "n", "0"].includes(normalized)) {
+    return false;
+  }
+
+  throw new Error(`Expected a boolean value, received: ${value}`);
 }
 
 function renderWorkflowList(json = false, dataDir?: string): void {
@@ -511,9 +574,170 @@ program
       arch: process.arch,
       dataDir: paths.dataDir,
       databasePath: paths.databasePath,
+      agentLockPath: paths.agentLockPath,
     };
 
     console.log(JSON.stringify(result, null, 2));
+  });
+
+program
+  .command("agent:run")
+  .description("Run the resident local agent runtime")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--heartbeat-interval-ms <ms>", "Heartbeat interval in milliseconds", "30000")
+  .option("--ingest-host <host>", "Host to bind the local ingest server", "127.0.0.1")
+  .option("--ingest-port <port>", "Port to bind the local ingest server", "4318")
+  .option("--collector-poll-interval-ms <ms>", "Collector polling interval in milliseconds", "1000")
+  .option("--collector-restart-delay-ms <ms>", "Collector restart delay after failures", "5000")
+  .option(
+    "--snapshot-windows <windows>",
+    "Comma-separated snapshot windows",
+    parseReportWindowList,
+    ["day", "week"],
+  )
+  .option("--snapshot-interval-seconds <seconds>", "Snapshot scheduler interval in seconds", "300")
+  .option("--no-collectors", "Disable collector supervision inside the agent")
+  .option("--no-snapshot-scheduler", "Disable snapshot scheduling inside the agent")
+  .action(
+    async (options: {
+      dataDir?: string;
+      heartbeatIntervalMs: string;
+      ingestHost: string;
+      ingestPort: string;
+      collectorPollIntervalMs: string;
+      collectorRestartDelayMs: string;
+      snapshotWindows: ReportWindow[];
+      snapshotIntervalSeconds: string;
+      collectors: boolean;
+      snapshotScheduler: boolean;
+    }) => {
+    const runtime = await startAgentRuntime({
+      dataDir: options.dataDir,
+      heartbeatIntervalMs: Number.parseInt(options.heartbeatIntervalMs, 10),
+      ingestHost: options.ingestHost,
+      ingestPort: Number.parseInt(options.ingestPort, 10),
+      collectorPollIntervalMs: Number.parseInt(options.collectorPollIntervalMs, 10),
+      collectorRestartDelayMs: Number.parseInt(options.collectorRestartDelayMs, 10),
+      enableCollectors: options.collectors,
+      snapshotWindows: options.snapshotWindows,
+      snapshotIntervalMs: Number.parseInt(options.snapshotIntervalSeconds, 10) * 1000,
+      enableSnapshotScheduler: options.snapshotScheduler,
+    });
+
+    console.log(JSON.stringify(getAgentStatusSnapshot(options.dataDir), null, 2));
+
+    await runtime.waitForStop();
+    },
+  );
+
+program
+  .command("agent:status")
+  .description("Show resident agent runtime status")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    const status = getAgentStatusSnapshot(options.dataDir);
+
+    console.log(JSON.stringify(status, null, 2));
+  });
+
+program
+  .command("agent:stop")
+  .description("Stop the resident agent runtime if it is running")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    const result = stopAgentRuntime(options.dataDir);
+
+    console.log(JSON.stringify(result, null, 2));
+  });
+
+program
+  .command("agent:health")
+  .description("Show a concise health summary for the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    const report = getAgentHealthReport(options.dataDir);
+
+    console.log(JSON.stringify(report, null, 2));
+  });
+
+program
+  .command("agent:run-once")
+  .description("Run one manual snapshot refresh cycle without starting the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--windows <windows>", "Comma-separated snapshot windows", parseReportWindowList, ["day", "week"])
+  .action((options: { dataDir?: string; windows: ReportWindow[] }) => {
+    const result = runAgentOnce(options.dataDir, {
+      windows: options.windows,
+    });
+
+    console.log(JSON.stringify(result, null, 2));
+  });
+
+program
+  .command("agent:snapshot:latest")
+  .description("Show the latest stored snapshots for the control plane")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--windows <windows>", "Comma-separated snapshot windows", parseReportWindowList, ["day", "week"])
+  .action((options: { dataDir?: string; windows: ReportWindow[] }) => {
+    const snapshots = listLatestAgentSnapshots(options.dataDir, options.windows);
+
+    console.log(JSON.stringify(snapshots, null, 2));
+  });
+
+program
+  .command("agent:collectors")
+  .description("Show collector states managed by the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    const status = getAgentStatusSnapshot(options.dataDir);
+
+    console.log(JSON.stringify(status.state?.collectors ?? [], null, 2));
+  });
+
+program
+  .command("agent:autostart:status")
+  .description("Show OS autostart status for the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--plist-path <path>", "Override the LaunchAgent plist path")
+  .action((options: { dataDir?: string; plistPath?: string }) => {
+    const status = getAgentAutostartStatus({
+      dataDir: options.dataDir,
+      plistPath: options.plistPath,
+    });
+
+    console.log(JSON.stringify(status, null, 2));
+  });
+
+program
+  .command("agent:autostart:install")
+  .description("Install OS autostart for the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--plist-path <path>", "Override the LaunchAgent plist path")
+  .option("--no-load", "Write the LaunchAgent file without loading it")
+  .action((options: { dataDir?: string; plistPath?: string; load: boolean }) => {
+    const status = installAgentAutostart({
+      dataDir: options.dataDir,
+      plistPath: options.plistPath,
+      load: options.load,
+    });
+
+    console.log(JSON.stringify(status, null, 2));
+  });
+
+program
+  .command("agent:autostart:uninstall")
+  .description("Remove OS autostart for the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--plist-path <path>", "Override the LaunchAgent plist path")
+  .option("--no-unload", "Remove the LaunchAgent file without unloading it first")
+  .action((options: { dataDir?: string; plistPath?: string; unload: boolean }) => {
+    const status = uninstallAgentAutostart({
+      dataDir: options.dataDir,
+      plistPath: options.plistPath,
+      unload: options.unload,
+    });
+
+    console.log(JSON.stringify(status, null, 2));
   });
 
 program
@@ -627,7 +851,9 @@ program
   .action((options: { dataDir?: string }) => {
     const { analysisResult, rawEventCount } = withDatabase(options.dataDir, (database) => {
       const rawEvents = database.getRawEventsChronological();
-      const result = analyzeRawEvents(rawEvents);
+      const result = analyzeRawEvents(rawEvents, {
+        feedbackByWorkflowSignature: database.listWorkflowFeedbackSummary(),
+      });
 
       database.replaceAnalysisArtifacts(result);
 
@@ -1015,6 +1241,124 @@ program
   });
 
 program
+  .command("workflow:label")
+  .description("Store rich workflow feedback for naming, business purpose, and automation review")
+  .argument("<workflow-id>", "Workflow cluster id")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--name <name>", "Workflow display name")
+  .option("--purpose <purpose>", "Business purpose for this workflow")
+  .option("--repetitive <true|false>", "Mark whether the workflow is repetitive", parseBooleanOption)
+  .option(
+    "--automation-candidate <true|false>",
+    "Mark whether the workflow is an automation candidate",
+    parseBooleanOption,
+  )
+  .option("--difficulty <difficulty>", "Automation difficulty (low, medium, high)")
+  .option(
+    "--approve-candidate <true|false>",
+    "Mark whether the automation candidate is approved",
+    parseBooleanOption,
+  )
+  .action(
+    (
+      workflowId: string,
+      options: {
+        dataDir?: string;
+        name?: string;
+        purpose?: string;
+        repetitive?: boolean;
+        automationCandidate?: boolean;
+        difficulty?: "low" | "medium" | "high";
+        approveCandidate?: boolean;
+      },
+    ) => {
+      withDatabase(options.dataDir, (database) => {
+        database.saveWorkflowFeedback({
+          workflowClusterId: workflowId,
+          renameTo: options.name,
+          businessPurpose: options.purpose,
+          repetitive: options.repetitive,
+          automationCandidate: options.automationCandidate,
+          automationDifficulty: options.difficulty,
+          approvedAutomationCandidate: options.approveCandidate,
+        });
+      });
+
+      console.log(
+        JSON.stringify(
+          {
+            status: "workflow_labeled",
+            workflowId,
+            name: options.name ?? null,
+            purpose: options.purpose ?? null,
+            repetitive: options.repetitive ?? null,
+            automationCandidate: options.automationCandidate ?? null,
+            difficulty: options.difficulty ?? null,
+            approvedAutomationCandidate: options.approveCandidate ?? null,
+          },
+          null,
+          2,
+        ),
+      );
+    },
+  );
+
+program
+  .command("workflow:merge")
+  .description("Merge one workflow cluster into another on future analyses")
+  .argument("<workflow-id>", "Workflow cluster id to merge")
+  .argument("<target-workflow-id>", "Workflow cluster id to merge into")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((workflowId: string, targetWorkflowId: string, options: { dataDir?: string }) => {
+    withDatabase(options.dataDir, (database) => {
+      database.saveWorkflowFeedback({
+        workflowClusterId: workflowId,
+        mergeIntoWorkflowId: targetWorkflowId,
+      });
+    });
+
+    console.log(
+      JSON.stringify(
+        { status: "workflow_merge_saved", workflowId, targetWorkflowId },
+        null,
+        2,
+      ),
+    );
+  });
+
+program
+  .command("workflow:split")
+  .description("Split a workflow cluster on future analyses after a selected action")
+  .argument("<workflow-id>", "Workflow cluster id")
+  .requiredOption("--after-action <action-name>", "Action name after which the workflow should split")
+  .option("--data-dir <path>", "Override application data directory")
+  .action(
+    (
+      workflowId: string,
+      options: { dataDir?: string; afterAction: string },
+    ) => {
+      withDatabase(options.dataDir, (database) => {
+        database.saveWorkflowFeedback({
+          workflowClusterId: workflowId,
+          splitAfterActionName: options.afterAction,
+        });
+      });
+
+      console.log(
+        JSON.stringify(
+          {
+            status: "workflow_split_saved",
+            workflowId,
+            splitAfterActionName: options.afterAction,
+          },
+          null,
+          2,
+        ),
+      );
+    },
+  );
+
+program
   .command("workflow:exclude")
   .description("Exclude a workflow cluster from report output")
   .argument("<workflow-id>", "Workflow cluster id")
@@ -1106,7 +1450,9 @@ program
     const summary = withDatabase(options.dataDir, (database) => {
       const deletedRawEventCount = database.deleteSessionSourceEvents(sessionId);
       const remainingRawEvents = database.getRawEventsChronological();
-      const analysisResult = analyzeRawEvents(remainingRawEvents);
+      const analysisResult = analyzeRawEvents(remainingRawEvents, {
+        feedbackByWorkflowSignature: database.listWorkflowFeedbackSummary(),
+      });
 
       database.replaceAnalysisArtifacts(analysisResult);
 
@@ -1646,7 +1992,9 @@ program
       }
 
       const rawEvents = database.getRawEventsChronological();
-      const analysisResult = analyzeRawEvents(rawEvents);
+      const analysisResult = analyzeRawEvents(rawEvents, {
+        feedbackByWorkflowSignature: database.listWorkflowFeedbackSummary(),
+      });
 
       database.replaceAnalysisArtifacts(analysisResult);
 

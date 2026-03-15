@@ -58,6 +58,7 @@ test("startIngestServer stores posted events", async () => {
     const database = new AppDatabase({
       dataDir: tempDir,
       databasePath: join(tempDir, "what-ive-done.sqlite"),
+      agentLockPath: join(tempDir, "agent.lock"),
     });
     database.initialize();
     const events = database.listRawEvents();

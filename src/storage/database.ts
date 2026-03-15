@@ -19,7 +19,11 @@ import type {
 } from "../domain/types.js";
 import { buildWorkflowSummaryPayload } from "../llm/payloads.js";
 import { sanitizeRawEvent } from "../privacy/sanitize.js";
-import { CURRENT_SCHEMA_VERSION, INITIAL_SCHEMA_SQL } from "./schema.js";
+import {
+  applySchemaMigrations,
+  CURRENT_SCHEMA_VERSION,
+  INITIAL_SCHEMA_SQL,
+} from "./schema.js";
 
 interface RawEventRow {
   id: string;
@@ -42,8 +46,17 @@ interface NormalizedEventRow {
   raw_event_id: string;
   timestamp: string;
   application: string;
+  app_name_normalized: string | null;
   domain: string | null;
+  url: string | null;
+  path_pattern: string | null;
+  page_type: string | null;
+  resource_hint: string | null;
+  title_pattern: string | null;
   action: string;
+  action_name: string | null;
+  action_confidence: number | null;
+  action_source: NormalizedEvent["actionSource"] | null;
   target: string | null;
   metadata_json: string;
   created_at: string;
@@ -51,22 +64,38 @@ interface NormalizedEventRow {
 
 interface WorkflowClusterRow {
   id: string;
+  workflow_signature: string | null;
   name: string;
+  occurrence_count: number | null;
   frequency: number;
   average_duration_seconds: number;
   total_duration_seconds: number;
+  representative_sequence_json: string | null;
   representative_steps_json: string;
+  involved_apps_json: string | null;
+  confidence_score: number | null;
+  top_variants_json: string | null;
   automation_suitability: WorkflowCluster["automationSuitability"];
   recommended_approach: string;
+  automation_hints_json: string | null;
   excluded: number;
 }
 
 interface WorkflowFeedbackRow {
   id: string;
   workflow_cluster_id: string;
+  workflow_signature: string;
   rename_to: string | null;
+  business_purpose: string | null;
   excluded: number | null;
   hidden: number | null;
+  repetitive: number | null;
+  automation_candidate: number | null;
+  automation_difficulty: WorkflowFeedback["automationDifficulty"] | null;
+  approved_automation_candidate: number | null;
+  merge_into_workflow_id: string | null;
+  merge_into_workflow_signature: string | null;
+  split_after_action_name: string | null;
   created_at: string;
 }
 
@@ -76,6 +105,7 @@ interface SessionSummaryRow {
   end_time: string;
   primary_application: string;
   primary_domain: string | null;
+  session_boundary_reason: Session["sessionBoundaryReason"];
   step_count: number;
 }
 
@@ -84,9 +114,22 @@ interface SessionStepContextRow {
   normalized_event_id?: string;
   timestamp?: string;
   action?: string;
+  action_name?: string;
+  action_confidence?: number;
+  action_source?: NormalizedEvent["actionSource"];
   application: string;
   domain: string | null;
   target?: string | null;
+}
+
+interface SessionRow {
+  id: string;
+  start_time: string;
+  end_time: string;
+  primary_application: string;
+  primary_domain: string | null;
+  session_boundary_reason: Session["sessionBoundaryReason"];
+  session_boundary_details_json: string | null;
 }
 
 interface WorkflowLLMAnalysisRow {
@@ -101,6 +144,12 @@ interface WorkflowLLMAnalysisRow {
   created_at: string;
 }
 
+interface SettingRow {
+  key: string;
+  value_json: string;
+  updated_at: string;
+}
+
 interface ReportSnapshotRow {
   id: string;
   window: ReportSnapshot["timeWindow"]["window"];
@@ -113,11 +162,8 @@ interface ReportSnapshotRow {
   total_tracked_duration_seconds: number;
   workflows_json: string;
   emerging_workflows_json: string;
+  summary_json: string | null;
   generated_at: string;
-}
-
-interface SettingRow {
-  value_json: string;
 }
 
 export class AppDatabase {
@@ -136,6 +182,8 @@ export class AppDatabase {
     const existingVersion = this.connection
       .prepare("SELECT MAX(version) AS version FROM schema_migrations")
       .get() as { version: number | null };
+
+    applySchemaMigrations(this.connection, existingVersion.version);
 
     if (existingVersion.version === CURRENT_SCHEMA_VERSION) {
       return;
@@ -364,6 +412,56 @@ export class AppDatabase {
     }));
   }
 
+  listNormalizedEvents(limit = 50): NormalizedEvent[] {
+    const rows = this.connection
+      .prepare(`
+        SELECT
+          id,
+          raw_event_id,
+          timestamp,
+          application,
+          app_name_normalized,
+          domain,
+          url,
+          path_pattern,
+          page_type,
+          resource_hint,
+          title_pattern,
+          action,
+          action_name,
+          action_confidence,
+          action_source,
+          target,
+          metadata_json,
+          created_at
+        FROM normalized_events
+        ORDER BY timestamp DESC
+        LIMIT ?
+      `)
+      .all(limit) as unknown as NormalizedEventRow[];
+
+    return rows.map((row) => ({
+      id: row.id,
+      rawEventId: row.raw_event_id,
+      timestamp: row.timestamp,
+      application: row.application,
+      appNameNormalized: row.app_name_normalized ?? row.application,
+      domain: row.domain ?? undefined,
+      url: row.url ?? undefined,
+      pathPattern: row.path_pattern ?? undefined,
+      pageType: row.page_type ?? undefined,
+      resourceHint: row.resource_hint ?? undefined,
+      titlePattern: row.title_pattern ?? undefined,
+      action: row.action,
+      actionName: row.action_name ?? row.action,
+      actionConfidence: row.action_confidence ?? 0,
+      actionSource: row.action_source ?? "inferred",
+      target: row.target ?? undefined,
+      metadata: JSON.parse(row.metadata_json) as Record<string, unknown>,
+      createdAt: row.created_at,
+    }));
+  }
+
   replaceAnalysisArtifacts(args: {
     normalizedEvents: NormalizedEvent[];
     sessions: Session[];
@@ -385,12 +483,21 @@ export class AppDatabase {
           raw_event_id,
           timestamp,
           application,
+          app_name_normalized,
           domain,
+          url,
+          path_pattern,
+          page_type,
+          resource_hint,
+          title_pattern,
           action,
+          action_name,
+          action_confidence,
+          action_source,
           target,
           metadata_json,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       for (const event of args.normalizedEvents) {
@@ -399,8 +506,17 @@ export class AppDatabase {
           event.rawEventId,
           event.timestamp,
           event.application,
+          event.appNameNormalized,
           event.domain ?? null,
+          event.url ?? null,
+          event.pathPattern ?? null,
+          event.pageType ?? null,
+          event.resourceHint ?? null,
+          event.titlePattern ?? null,
           event.action,
+          event.actionName,
+          event.actionConfidence,
+          event.actionSource,
           event.target ?? null,
           JSON.stringify(event.metadata),
           event.createdAt,
@@ -414,8 +530,10 @@ export class AppDatabase {
           end_time,
           primary_application,
           primary_domain,
+          session_boundary_reason,
+          session_boundary_details_json,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const insertSessionStep = this.connection.prepare(`
@@ -425,10 +543,13 @@ export class AppDatabase {
           normalized_event_id,
           timestamp,
           action,
+          action_name,
+          action_confidence,
+          action_source,
           application,
           domain,
           target
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       for (const session of args.sessions) {
@@ -438,6 +559,8 @@ export class AppDatabase {
           session.endTime,
           session.primaryApplication,
           session.primaryDomain ?? null,
+          session.sessionBoundaryReason,
+          JSON.stringify(session.sessionBoundaryDetails),
           new Date().toISOString(),
         );
 
@@ -448,6 +571,9 @@ export class AppDatabase {
             step.normalizedEventId,
             step.timestamp,
             step.action,
+            step.actionName,
+            step.actionConfidence,
+            step.actionSource,
             step.application,
             step.domain ?? null,
             step.target ?? null,
@@ -458,24 +584,38 @@ export class AppDatabase {
       const insertWorkflowCluster = this.connection.prepare(`
         INSERT INTO workflow_clusters (
           id,
+          workflow_signature,
           name,
+          occurrence_count,
           frequency,
           average_duration_seconds,
           total_duration_seconds,
+          representative_sequence_json,
           representative_steps_json,
+          involved_apps_json,
+          confidence_score,
+          top_variants_json,
           automation_suitability,
           recommended_approach,
+          automation_hints_json,
           excluded,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
+          workflow_signature = excluded.workflow_signature,
           name = excluded.name,
+          occurrence_count = excluded.occurrence_count,
           frequency = excluded.frequency,
           average_duration_seconds = excluded.average_duration_seconds,
           total_duration_seconds = excluded.total_duration_seconds,
+          representative_sequence_json = excluded.representative_sequence_json,
           representative_steps_json = excluded.representative_steps_json,
+          involved_apps_json = excluded.involved_apps_json,
+          confidence_score = excluded.confidence_score,
+          top_variants_json = excluded.top_variants_json,
           automation_suitability = excluded.automation_suitability,
           recommended_approach = excluded.recommended_approach,
+          automation_hints_json = excluded.automation_hints_json,
           excluded = excluded.excluded,
           created_at = excluded.created_at
       `);
@@ -489,13 +629,20 @@ export class AppDatabase {
       for (const cluster of args.workflowClusters) {
         insertWorkflowCluster.run(
           cluster.id,
+          cluster.workflowSignature,
           cluster.name,
+          cluster.occurrenceCount,
           cluster.frequency,
           cluster.averageDurationSeconds,
           cluster.totalDurationSeconds,
+          JSON.stringify(cluster.representativeSequence),
           JSON.stringify(cluster.representativeSteps),
+          JSON.stringify(cluster.involvedApps),
+          cluster.confidenceScore,
+          JSON.stringify(cluster.topVariants),
           cluster.automationSuitability,
           cluster.recommendedApproach,
+          JSON.stringify(cluster.automationHints),
           cluster.excluded ? 1 : 0,
           new Date().toISOString(),
         );
@@ -529,13 +676,20 @@ export class AppDatabase {
       .prepare(`
         SELECT
           id,
+          workflow_signature,
           name,
+          occurrence_count,
           frequency,
           average_duration_seconds,
           total_duration_seconds,
+          representative_sequence_json,
           representative_steps_json,
+          involved_apps_json,
+          confidence_score,
+          top_variants_json,
           automation_suitability,
           recommended_approach,
+          automation_hints_json,
           excluded
         FROM workflow_clusters
         ORDER BY frequency DESC, total_duration_seconds DESC
@@ -560,20 +714,47 @@ export class AppDatabase {
     const feedbackByClusterId = this.listWorkflowFeedbackSummary();
 
     return rows.map((row) => {
-      const feedback = feedbackByClusterId.get(row.id);
+      const feedback =
+        feedbackByClusterId.get(row.id) ??
+        feedbackByClusterId.get(row.workflow_signature ?? row.id);
 
       return {
-      id: row.id,
-      name: feedback?.renameTo ?? row.name,
-      sessionIds: sessionIdsByClusterId.get(row.id) ?? [],
-      frequency: row.frequency,
-      averageDurationSeconds: row.average_duration_seconds,
-      totalDurationSeconds: row.total_duration_seconds,
-      representativeSteps: JSON.parse(row.representative_steps_json) as string[],
-      automationSuitability: row.automation_suitability,
-      recommendedApproach: row.recommended_approach,
-      excluded: feedback?.excluded ?? row.excluded === 1,
-      hidden: feedback?.hidden ?? false,
+        id: row.id,
+        workflowSignature: row.workflow_signature ?? row.id,
+        name: feedback?.renameTo ?? row.name,
+        businessPurpose: feedback?.businessPurpose,
+        sessionIds: sessionIdsByClusterId.get(row.id) ?? [],
+        occurrenceCount: row.occurrence_count ?? row.frequency,
+        frequency: row.frequency,
+        averageDurationSeconds: row.average_duration_seconds,
+        totalDurationSeconds: row.total_duration_seconds,
+        representativeSequence: JSON.parse(
+          row.representative_sequence_json ?? "[]",
+        ) as WorkflowCluster["representativeSequence"],
+        representativeSteps: JSON.parse(row.representative_steps_json) as string[],
+        involvedApps: JSON.parse(row.involved_apps_json ?? "[]") as string[],
+        confidenceScore: row.confidence_score ?? 0,
+        topVariants: JSON.parse(row.top_variants_json ?? "[]") as WorkflowCluster["topVariants"],
+        automationSuitability: row.automation_suitability,
+        recommendedApproach: row.recommended_approach,
+        automationHints: JSON.parse(row.automation_hints_json ?? "[]") as WorkflowCluster["automationHints"],
+        excluded: feedback?.excluded ?? row.excluded === 1,
+        hidden: feedback?.hidden ?? false,
+        repetitive: feedback?.repetitive,
+        automationCandidate: feedback?.automationCandidate,
+        automationDifficulty: feedback?.automationDifficulty,
+        approvedAutomationCandidate: feedback?.approvedAutomationCandidate,
+        mergeIntoWorkflowId: feedback?.mergeIntoWorkflowId,
+        mergeIntoWorkflowSignature: feedback?.mergeIntoWorkflowSignature,
+        splitAfterActionName: feedback?.splitAfterActionName,
+        userLabeled: Boolean(
+          feedback?.renameTo ??
+            feedback?.businessPurpose ??
+            feedback?.repetitive ??
+            feedback?.automationCandidate ??
+            feedback?.automationDifficulty ??
+            feedback?.approvedAutomationCandidate,
+        ),
       };
     });
   }
@@ -581,23 +762,76 @@ export class AppDatabase {
   saveWorkflowFeedback(input: {
     workflowClusterId: string;
     renameTo?: string | undefined;
+    businessPurpose?: string | undefined;
     excluded?: boolean | undefined;
     hidden?: boolean | undefined;
+    repetitive?: boolean | undefined;
+    automationCandidate?: boolean | undefined;
+    automationDifficulty?: WorkflowFeedback["automationDifficulty"] | undefined;
+    approvedAutomationCandidate?: boolean | undefined;
+    mergeIntoWorkflowId?: string | undefined;
+    splitAfterActionName?: string | undefined;
   }): WorkflowFeedback {
     if (
       input.renameTo === undefined &&
+      input.businessPurpose === undefined &&
       input.excluded === undefined &&
-      input.hidden === undefined
+      input.hidden === undefined &&
+      input.repetitive === undefined &&
+      input.automationCandidate === undefined &&
+      input.automationDifficulty === undefined &&
+      input.approvedAutomationCandidate === undefined &&
+      input.mergeIntoWorkflowId === undefined &&
+      input.splitAfterActionName === undefined
     ) {
       throw new Error("At least one workflow feedback field must be provided");
+    }
+
+    const workflowRow = this.connection
+      .prepare(`
+        SELECT id, workflow_signature
+        FROM workflow_clusters
+        WHERE id = ?
+      `)
+      .get(input.workflowClusterId) as
+      | { id: string; workflow_signature: string | null }
+      | undefined;
+
+    if (!workflowRow) {
+      throw new Error(`Workflow cluster not found: ${input.workflowClusterId}`);
+    }
+
+    const mergeTarget = input.mergeIntoWorkflowId
+      ? (this.connection
+          .prepare(`
+            SELECT id, workflow_signature
+            FROM workflow_clusters
+            WHERE id = ?
+          `)
+          .get(input.mergeIntoWorkflowId) as
+          | { id: string; workflow_signature: string | null }
+          | undefined)
+      : undefined;
+
+    if (input.mergeIntoWorkflowId && !mergeTarget) {
+      throw new Error(`Merge target workflow not found: ${input.mergeIntoWorkflowId}`);
     }
 
     const feedback: WorkflowFeedback = {
       id: randomUUID(),
       workflowClusterId: input.workflowClusterId,
+      workflowSignature: workflowRow.workflow_signature ?? workflowRow.id,
       renameTo: input.renameTo,
+      businessPurpose: input.businessPurpose,
       excluded: input.excluded,
       hidden: input.hidden,
+      repetitive: input.repetitive,
+      automationCandidate: input.automationCandidate,
+      automationDifficulty: input.automationDifficulty,
+      approvedAutomationCandidate: input.approvedAutomationCandidate,
+      mergeIntoWorkflowId: input.mergeIntoWorkflowId,
+      mergeIntoWorkflowSignature: mergeTarget?.workflow_signature ?? mergeTarget?.id,
+      splitAfterActionName: input.splitAfterActionName,
       createdAt: new Date().toISOString(),
     };
 
@@ -606,18 +840,40 @@ export class AppDatabase {
         INSERT INTO workflow_feedback (
           id,
           workflow_cluster_id,
+          workflow_signature,
           rename_to,
+          business_purpose,
           excluded,
           hidden,
+          repetitive,
+          automation_candidate,
+          automation_difficulty,
+          approved_automation_candidate,
+          merge_into_workflow_id,
+          merge_into_workflow_signature,
+          split_after_action_name,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         feedback.id,
         feedback.workflowClusterId,
+        feedback.workflowSignature,
         feedback.renameTo ?? null,
+        feedback.businessPurpose ?? null,
         feedback.excluded === undefined ? null : feedback.excluded ? 1 : 0,
         feedback.hidden === undefined ? null : feedback.hidden ? 1 : 0,
+        feedback.repetitive === undefined ? null : feedback.repetitive ? 1 : 0,
+        feedback.automationCandidate === undefined ? null : feedback.automationCandidate ? 1 : 0,
+        feedback.automationDifficulty ?? null,
+        feedback.approvedAutomationCandidate === undefined
+          ? null
+          : feedback.approvedAutomationCandidate
+            ? 1
+            : 0,
+        feedback.mergeIntoWorkflowId ?? null,
+        feedback.mergeIntoWorkflowSignature ?? null,
+        feedback.splitAfterActionName ?? null,
         feedback.createdAt,
       );
 
@@ -630,9 +886,18 @@ export class AppDatabase {
         SELECT
           id,
           workflow_cluster_id,
+          workflow_signature,
           rename_to,
+          business_purpose,
           excluded,
           hidden,
+          repetitive,
+          automation_candidate,
+          automation_difficulty,
+          approved_automation_candidate,
+          merge_into_workflow_id,
+          merge_into_workflow_signature,
+          split_after_action_name,
           created_at
         FROM workflow_feedback
         ORDER BY created_at ASC, id ASC
@@ -641,13 +906,33 @@ export class AppDatabase {
     const feedbackByClusterId = new Map<string, WorkflowFeedbackSummary>();
 
     for (const row of rows) {
-      const current = feedbackByClusterId.get(row.workflow_cluster_id) ?? {};
-
-      feedbackByClusterId.set(row.workflow_cluster_id, {
+      const current =
+        feedbackByClusterId.get(row.workflow_signature) ??
+        feedbackByClusterId.get(row.workflow_cluster_id) ??
+        {};
+      const summary: WorkflowFeedbackSummary = {
         renameTo: row.rename_to ?? current.renameTo,
+        businessPurpose: row.business_purpose ?? current.businessPurpose,
         excluded: row.excluded === null ? current.excluded : row.excluded === 1,
         hidden: row.hidden === null ? current.hidden : row.hidden === 1,
-      });
+        repetitive: row.repetitive === null ? current.repetitive : row.repetitive === 1,
+        automationCandidate:
+          row.automation_candidate === null
+            ? current.automationCandidate
+            : row.automation_candidate === 1,
+        automationDifficulty: row.automation_difficulty ?? current.automationDifficulty,
+        approvedAutomationCandidate:
+          row.approved_automation_candidate === null
+            ? current.approvedAutomationCandidate
+            : row.approved_automation_candidate === 1,
+        mergeIntoWorkflowId: row.merge_into_workflow_id ?? current.mergeIntoWorkflowId,
+        mergeIntoWorkflowSignature:
+          row.merge_into_workflow_signature ?? current.mergeIntoWorkflowSignature,
+        splitAfterActionName: row.split_after_action_name ?? current.splitAfterActionName,
+      };
+
+      feedbackByClusterId.set(row.workflow_cluster_id, summary);
+      feedbackByClusterId.set(row.workflow_signature, summary);
     }
 
     return feedbackByClusterId;
@@ -662,6 +947,7 @@ export class AppDatabase {
           sessions.end_time,
           sessions.primary_application,
           sessions.primary_domain,
+          sessions.session_boundary_reason,
           COUNT(session_steps.normalized_event_id) AS step_count
         FROM sessions
         LEFT JOIN session_steps
@@ -671,7 +957,8 @@ export class AppDatabase {
           sessions.start_time,
           sessions.end_time,
           sessions.primary_application,
-          sessions.primary_domain
+          sessions.primary_domain,
+          sessions.session_boundary_reason
         ORDER BY sessions.start_time DESC
       `)
       .all() as unknown as SessionSummaryRow[];
@@ -680,9 +967,10 @@ export class AppDatabase {
       id: row.id,
       startTime: row.start_time,
       endTime: row.end_time,
-      primaryApplication: row.primary_application,
-      primaryDomain: row.primary_domain ?? undefined,
-      stepCount: row.step_count,
+          primaryApplication: row.primary_application,
+          primaryDomain: row.primary_domain ?? undefined,
+          sessionBoundaryReason: row.session_boundary_reason,
+          stepCount: row.step_count,
     }));
   }
 
@@ -694,19 +982,13 @@ export class AppDatabase {
           start_time,
           end_time,
           primary_application,
-          primary_domain
+          primary_domain,
+          session_boundary_reason,
+          session_boundary_details_json
         FROM sessions
         WHERE id = ?
       `)
-      .get(sessionId) as
-      | {
-          id: string;
-          start_time: string;
-          end_time: string;
-          primary_application: string;
-          primary_domain: string | null;
-        }
-      | undefined;
+      .get(sessionId) as SessionRow | undefined;
 
     if (!sessionRow) {
       return undefined;
@@ -719,6 +1001,9 @@ export class AppDatabase {
           normalized_event_id,
           timestamp,
           action,
+          action_name,
+          action_confidence,
+          action_source,
           application,
           domain,
           target
@@ -734,11 +1019,19 @@ export class AppDatabase {
       endTime: sessionRow.end_time,
       primaryApplication: sessionRow.primary_application,
       primaryDomain: sessionRow.primary_domain ?? undefined,
+      sessionBoundaryReason: sessionRow.session_boundary_reason,
+      sessionBoundaryDetails: JSON.parse(sessionRow.session_boundary_details_json ?? "{}") as Record<
+        string,
+        unknown
+      >,
       steps: stepRows.map((row, index) => ({
         order: index + 1,
         normalizedEventId: row.normalized_event_id ?? "",
         timestamp: row.timestamp ?? "",
         action: row.action ?? "",
+        actionName: row.action_name ?? row.action ?? "",
+        actionConfidence: row.action_confidence ?? 0,
+        actionSource: row.action_source ?? "inferred",
         application: row.application,
         domain: row.domain ?? undefined,
         target: row.target ?? undefined,
@@ -963,8 +1256,9 @@ export class AppDatabase {
           total_tracked_duration_seconds,
           workflows_json,
           emerging_workflows_json,
+          summary_json,
           generated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(window, report_date, timezone) DO UPDATE SET
           timezone_offset_minutes = excluded.timezone_offset_minutes,
           start_time = excluded.start_time,
@@ -973,6 +1267,7 @@ export class AppDatabase {
           total_tracked_duration_seconds = excluded.total_tracked_duration_seconds,
           workflows_json = excluded.workflows_json,
           emerging_workflows_json = excluded.emerging_workflows_json,
+          summary_json = excluded.summary_json,
           generated_at = excluded.generated_at
       `)
       .run(
@@ -987,6 +1282,7 @@ export class AppDatabase {
         snapshot.totalTrackedDurationSeconds,
         JSON.stringify(snapshot.workflows),
         JSON.stringify(snapshot.emergingWorkflows),
+        JSON.stringify(snapshot.summary),
         snapshot.generatedAt,
       );
 
@@ -1012,6 +1308,7 @@ export class AppDatabase {
           total_tracked_duration_seconds,
           workflows_json,
           emerging_workflows_json,
+          summary_json,
           generated_at
         FROM report_snapshots
         WHERE (? IS NULL OR window = ?)
@@ -1056,6 +1353,7 @@ export class AppDatabase {
           total_tracked_duration_seconds,
           workflows_json,
           emerging_workflows_json,
+          summary_json,
           generated_at
         FROM report_snapshots
         WHERE window = ?
@@ -1087,6 +1385,7 @@ export class AppDatabase {
           total_tracked_duration_seconds,
           workflows_json,
           emerging_workflows_json,
+          summary_json,
           generated_at
         FROM report_snapshots
         WHERE window = ?
@@ -1117,6 +1416,7 @@ export class AppDatabase {
       emergingWorkflows: JSON.parse(
         row.emerging_workflows_json,
       ) as ReportSnapshot["emergingWorkflows"],
+      summary: JSON.parse(row.summary_json ?? "{}") as ReportSnapshot["summary"],
       generatedAt: row.generated_at,
     };
   }

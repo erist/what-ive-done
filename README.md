@@ -10,22 +10,31 @@ Language:
 
 Local-first workflow pattern analyzer for discovering repetitive work before deciding what to automate.
 
-This repository currently provides a TypeScript CLI that collects or imports activity metadata, stores it locally in SQLite, groups activity into sessions, clusters similar sessions into workflows, and prints an all-time workflow report. It is focused on workflow analysis and discovery, not automation execution.
+This repository provides a TypeScript CLI plus a resident local agent. Together they collect or import activity metadata, store it locally in SQLite, normalize noisy events into stable workflow context, map them into semantic actions, segment them into sessions, cluster near-matching workflows, and generate workflow-centric reports with feedback reuse and automation hints. The project is focused on workflow analysis and discovery, not automation execution.
 
 ### Current Scope
 
-- local-only storage and analysis
+- local-only storage and analysis in SQLite
+- resident local agent runtime with persisted heartbeat and health state
+- agent-managed local ingest server and snapshot scheduler
 - Windows and macOS active-window collection paths
 - Chrome extension path for browser metadata ingestion
-- all-time, daily, and weekly CLI reports for analyzed local data
+- deterministic event normalization and semantic action abstraction
+- explainable session segmentation with boundary reasons
+- near-match workflow clustering with variants and confidence scores
+- all-time, daily, and weekly workflow-centric reports
 - stored daily and weekly report snapshots
-- local scheduler command for automatic snapshot refresh
-- workflow review, feedback, and session deletion
-- LLM-safe workflow summary export and provider-based workflow analysis for ChatGPT, Gemini, and Claude
+- workflow review, label, merge, split, exclude, hide, and session deletion
+- practical automation hints for likely automation candidates
+- LLM-safe workflow summary export and configurable provider-based workflow analysis for ChatGPT, Gemini, and Claude
+- saved default LLM provider/model/auth configuration
+- macOS LaunchAgent autostart helpers
 
-Current limitation:
+Current limitations:
 
-- short-horizon report entries are currently heuristic and shown as provisional emerging workflows
+- Windows autostart installation is not implemented yet
+- current feedback flow is CLI-first rather than a dedicated UI
+- native desktop collectors still focus on active-window changes
 - report comparison views are not implemented yet
 
 ### Quick Start
@@ -36,42 +45,74 @@ Install and verify:
 npm install
 npm run typecheck
 npm test
+npm run build
 ```
 
-Run a local demo:
+Run a one-command demo:
 
 ```bash
 npm run dev -- demo --data-dir ./tmp/demo-data
 ```
 
-Step-by-step flow:
+Recommended agent-first flow:
+
+```bash
+npm run dev -- init --data-dir ./tmp/agent-data
+npm run dev -- collect:mock --data-dir ./tmp/agent-data
+npm run dev -- agent:run-once --data-dir ./tmp/agent-data
+npm run dev -- agent:snapshot:latest --data-dir ./tmp/agent-data
+```
+
+Run the resident agent:
+
+```bash
+npm run dev -- agent:run --data-dir ./tmp/live-data
+```
+
+Check health and stop it:
+
+```bash
+npm run dev -- agent:status --data-dir ./tmp/live-data
+npm run dev -- agent:health --data-dir ./tmp/live-data
+npm run dev -- agent:stop --data-dir ./tmp/live-data
+```
+
+Manual analysis flow is still available:
 
 ```bash
 npm run dev -- init --data-dir ./tmp/local-data
 npm run dev -- collect:mock --data-dir ./tmp/local-data
 npm run dev -- analyze --data-dir ./tmp/local-data
-npm run dev -- report --data-dir ./tmp/local-data
+npm run dev -- report --data-dir ./tmp/local-data --window week --json
 ```
 
-JSON output:
+Workflow feedback examples:
 
 ```bash
-npm run dev -- report --data-dir ./tmp/local-data --json
-npm run dev -- report --data-dir ./tmp/local-data --window day --json
-npm run dev -- report --data-dir ./tmp/local-data --window week --json
-npm run dev -- report:scheduler --data-dir ./tmp/local-data --once --json
+npm run dev -- workflow:label <workflow-id> --purpose "Review shipping status" --automation-candidate true --difficulty medium --data-dir ./tmp/local-data
+npm run dev -- workflow:merge <workflow-id> <target-workflow-id> --data-dir ./tmp/local-data
+npm run dev -- workflow:split <workflow-id> --after-action search_order --data-dir ./tmp/local-data
 ```
 
 ### Common Commands
 
 ```bash
 npm run dev -- doctor
-npm run dev -- collector:list --json
-npm run dev -- collector:macos:info --json
-npm run dev -- collector:windows:info --json
+npm run dev -- agent:run --data-dir ./tmp/live-data
+npm run dev -- agent:health --data-dir ./tmp/live-data
+npm run dev -- agent:run-once --data-dir ./tmp/live-data
+npm run dev -- agent:snapshot:latest --data-dir ./tmp/live-data
+npm run dev -- agent:collectors --data-dir ./tmp/live-data
+npm run dev -- agent:autostart:status --data-dir ./tmp/live-data
+npm run dev -- report:snapshot:list --data-dir ./tmp/live-data --json
+npm run dev -- report:snapshot:show --data-dir ./tmp/live-data --window week --latest --json
+```
+
+Legacy/manual runtime commands still exist when needed:
+
+```bash
 npm run dev -- serve --data-dir ./tmp/live-data --host 127.0.0.1 --port 4318
-npm run dev -- report:snapshot:list --data-dir ./tmp/local-data --json
-npm run dev -- report:scheduler --data-dir ./tmp/local-data --once --json
+npm run dev -- report:scheduler --data-dir ./tmp/live-data --once --json
 ```
 
 ### LLM Configuration
@@ -115,23 +156,34 @@ The project stores behavioral metadata only. It must not collect raw keystrokes,
 <a id="ko"></a>
 ## 한국어
 
-자동화 실행 전에 반복 업무를 발견하고 분석하기 위한 로컬 우선 워크플로우 패턴 분석기입니다.
+자동화 실행 전에 반복 업무를 발견하고 분석하기 위한 로컬 우선 워크플로우 분석기입니다.
 
-현재 이 저장소는 활동 메타데이터를 수집하거나 import해서 로컬 SQLite에 저장하고, 이를 세션으로 묶고, 유사한 세션을 워크플로우로 군집화한 뒤, 전체 누적 기준의 CLI 리포트를 출력하는 TypeScript CLI를 제공합니다. 초점은 자동화 실행이 아니라 워크플로우 분석과 발견입니다.
+이 저장소는 TypeScript CLI와 resident local agent를 함께 제공합니다. 활동 메타데이터를 수집하거나 import해서 로컬 SQLite에 저장하고, noisy event를 stable workflow context로 정규화한 뒤 semantic action, session, workflow pattern으로 해석하고, feedback 재사용과 automation hint까지 포함한 workflow-centric 리포트를 생성합니다. 초점은 자동화 실행이 아니라 워크플로우 분석과 발견입니다.
 
 ### 현재 범위
 
-- 로컬 전용 저장 및 분석
+- SQLite 기반 로컬 전용 저장 및 분석
+- heartbeat와 health state를 기록하는 resident local agent runtime
+- agent가 관리하는 local ingest server와 snapshot scheduler
 - Windows/macOS active-window 수집 경로
 - 브라우저 메타데이터 수집용 Chrome extension 경로
-- 분석된 로컬 데이터 기준 all-time CLI 리포트
-- 워크플로우 검토, 피드백, 세션 삭제
-- LLM-safe 워크플로우 요약 export와 ChatGPT, Gemini, Claude 기반 분석
+- deterministic event normalization과 semantic action abstraction
+- boundary reason이 있는 session segmentation
+- near-match workflow clustering, variant, confidence 계산
+- all-time/day/week workflow-centric 리포트
+- daily/weekly report snapshot 저장
+- 워크플로우 검토, label, merge, split, exclude, hide, 세션 삭제
+- likely automation candidate를 위한 practical automation hint 제안
+- LLM-safe 워크플로우 요약 export와 ChatGPT, Gemini, Claude 기반 구성형 분석
+- 기본 LLM provider/model/auth 설정 저장
+- macOS LaunchAgent autostart helper
 
 현재 제한 사항:
 
-- `report`는 현재 all-time 리포트만 지원합니다
-- daily, weekly 리포트 window는 계획에 포함되어 있지만 아직 구현되지 않았습니다
+- Windows autostart 설치는 아직 구현되지 않았습니다
+- feedback flow는 아직 dedicated UI가 아니라 CLI 중심입니다
+- native desktop collector는 현재 active-window 변화 중심입니다
+- report comparison view는 아직 없습니다
 
 ### 빠른 시작
 
@@ -141,45 +193,82 @@ The project stores behavioral metadata only. It must not collect raw keystrokes,
 npm install
 npm run typecheck
 npm test
+npm run build
 ```
 
-로컬 데모 실행:
+원커맨드 데모:
 
 ```bash
 npm run dev -- demo --data-dir ./tmp/demo-data
 ```
 
-단계별 실행:
+권장 agent-first 흐름:
+
+```bash
+npm run dev -- init --data-dir ./tmp/agent-data
+npm run dev -- collect:mock --data-dir ./tmp/agent-data
+npm run dev -- agent:run-once --data-dir ./tmp/agent-data
+npm run dev -- agent:snapshot:latest --data-dir ./tmp/agent-data
+```
+
+resident agent 실행:
+
+```bash
+npm run dev -- agent:run --data-dir ./tmp/live-data
+```
+
+상태 확인과 종료:
+
+```bash
+npm run dev -- agent:status --data-dir ./tmp/live-data
+npm run dev -- agent:health --data-dir ./tmp/live-data
+npm run dev -- agent:stop --data-dir ./tmp/live-data
+```
+
+수동 분석 흐름:
 
 ```bash
 npm run dev -- init --data-dir ./tmp/local-data
 npm run dev -- collect:mock --data-dir ./tmp/local-data
 npm run dev -- analyze --data-dir ./tmp/local-data
-npm run dev -- report --data-dir ./tmp/local-data
+npm run dev -- report --data-dir ./tmp/local-data --window week --json
 ```
 
-JSON 출력:
+워크플로우 피드백 예시:
 
 ```bash
-npm run dev -- report --data-dir ./tmp/local-data --json
+npm run dev -- workflow:label <workflow-id> --purpose "배송 상태 검토" --automation-candidate true --difficulty medium --data-dir ./tmp/local-data
+npm run dev -- workflow:merge <workflow-id> <target-workflow-id> --data-dir ./tmp/local-data
+npm run dev -- workflow:split <workflow-id> --after-action search_order --data-dir ./tmp/local-data
 ```
 
 ### 자주 쓰는 명령
 
 ```bash
 npm run dev -- doctor
-npm run dev -- collector:list --json
-npm run dev -- collector:macos:info --json
-npm run dev -- collector:windows:info --json
+npm run dev -- agent:run --data-dir ./tmp/live-data
+npm run dev -- agent:health --data-dir ./tmp/live-data
+npm run dev -- agent:run-once --data-dir ./tmp/live-data
+npm run dev -- agent:snapshot:latest --data-dir ./tmp/live-data
+npm run dev -- agent:collectors --data-dir ./tmp/live-data
+npm run dev -- agent:autostart:status --data-dir ./tmp/live-data
+npm run dev -- report:snapshot:list --data-dir ./tmp/live-data --json
+npm run dev -- report:snapshot:show --data-dir ./tmp/live-data --window week --latest --json
+```
+
+필요하면 legacy/manual 명령도 사용할 수 있습니다:
+
+```bash
 npm run dev -- serve --data-dir ./tmp/live-data --host 127.0.0.1 --port 4318
+npm run dev -- report:scheduler --data-dir ./tmp/live-data --once --json
 ```
 
 ### LLM 설정
 
 ```bash
 npm run dev -- llm:providers --json
-npm run dev -- llm:config:set --data-dir ./tmp/local-data --provider claude --auth api-key --model claude-sonnet-4-5
-npm run dev -- credential:set claude
+npm run dev -- llm:config:set --data-dir ./tmp/local-data --provider gemini --auth api-key --model gemini-2.5-flash
+npm run dev -- credential:set gemini
 npm run dev -- llm:analyze --data-dir ./tmp/local-data --json
 ```
 

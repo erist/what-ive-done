@@ -4,7 +4,7 @@ Internal reference for the current repository state.
 
 ## Purpose
 
-**What I've Done** is a local-first workflow pattern analyzer. It captures desktop and browser activity metadata, stores that data locally in SQLite, normalizes events into semantic actions, groups them into sessions, clusters similar sessions into workflows, and produces reports that highlight automation candidates.
+**What I've Done** is a local-first workflow pattern analyzer. It captures desktop and browser activity metadata, stores that data locally in SQLite, normalizes noisy events into stable workflow context, maps them into semantic actions, segments them into sessions, clusters near-matching workflows, and produces workflow-centric reports that highlight automation candidates.
 
 The project is for workflow analysis and discovery. It does not execute automation.
 
@@ -17,55 +17,92 @@ Implemented today:
 - sensitive metadata sanitization before persistence
 - deterministic mock workflow generator
 - JSON and NDJSON raw-event import
-- local HTTP ingest server for collectors
+- local HTTP ingest server
 - Chrome extension scaffold for browser activity metadata
 - Windows PowerShell active-window collector path
 - macOS Swift active-window collector path with permission checks and one-shot capture
-- normalization, sessionization, workflow clustering, and all-time/daily/weekly CLI reporting
+- resident local agent runtime with persisted heartbeat and health state
+- agent-managed ingest server lifecycle
+- collector supervision for macOS and Windows command paths
+- agent-managed snapshot scheduler
+- normalization, semantic action abstraction, sessionization, workflow clustering, and all-time/daily/weekly reporting
 - persisted daily and weekly report snapshots
-- local scheduler command for automatic snapshot refresh
-- workflow rename, exclude, include, hide, and unhide feedback
+- workflow rename, label, merge, split, exclude, include, hide, and unhide feedback
 - session listing, session detail, and session deletion with reanalysis
+- practical automation hints in workflow reports
 - LLM-safe workflow payload export
 - OpenAI, Gemini, and Claude adapters for summarized workflow analysis
 - saved default LLM provider/model/auth configuration
 - macOS Keychain-backed storage for provider API keys and Gemini OAuth credentials
+- macOS LaunchAgent autostart helpers and CLI commands
 
 Not implemented yet:
 
 - Windows click, file operation, and clipboard collectors
+- Windows autostart installation flow
 - desktop UI
 - workflow feedback UI
 - secure credential storage on non-macOS platforms
 - report comparison views such as day-over-day or week-over-week diffs
 
-## Report Scope
+## Runtime Architecture
 
-Current CLI report behavior:
+The current runtime is split into three planes.
 
-- `report` prints the current all-time report for the analyzed local dataset by default
-- `report --window day` prints a local calendar day report
-- `report --window week` prints the latest 7-day report ending on the selected local report date
-- `report --json` prints structured JSON, including emerging workflows for short-horizon reports
-- `report:generate` stores a snapshot for a selected report window and date
-- `report:scheduler` refreshes day/week snapshots in a long-running local process
-- `report:snapshot:list` and `report:snapshot:show` read stored snapshots
+- runtime plane
+  - resident agent
+  - local ingest server
+  - collector supervision
+  - snapshot scheduler
+- control plane
+  - CLI commands such as `agent:status`, `agent:health`, and `agent:run-once`
+- data plane
+  - raw events
+  - normalized events
+  - sessions
+  - workflow clusters
+  - report snapshots
+  - workflow feedback
+
+The resident agent is implemented under `src/agent/`.
+
+- `src/agent/runtime.ts`
+- `src/agent/lock.ts`
+- `src/agent/state.ts`
+- `src/agent/collectors.ts`
+- `src/agent/scheduler.ts`
+- `src/agent/control.ts`
+- `src/agent/autostart/`
 
 ## Analysis Pipeline
 
 1. Raw events are collected from mock data, imported files, the local ingest server, or desktop collectors.
 2. Sensitive fields are sanitized before they are written to SQLite.
-3. Raw events are normalized into semantic actions such as `application_switch`, `page_navigation`, `button_click`, and `form_submit`.
-4. Events are grouped into sessions.
-5. Similar sessions are clustered into workflows.
-6. Reports and safe LLM summary payloads are generated from those workflow clusters.
+3. Raw events are normalized into stable context fields such as app alias, path pattern, page type, resource hint, and title pattern.
+4. Normalized events are mapped into semantic action labels with confidence and source metadata.
+5. Events are grouped into sessions with explainable boundary reasons.
+6. Similar sessions are clustered into workflows with representative sequences, variants, confidence, and automation hints.
+7. Reports, snapshots, and safe LLM summary payloads are generated from those workflow clusters.
 
 Current heuristic defaults in code:
 
-- session inactivity split: 5 minutes
-- context-shift split: 90 seconds with app/domain change
-- minimum workflow session duration: 60 seconds
+- session inactivity split: 150 seconds
+- context-shift split: 75 seconds with significant context change
+- minimum workflow session duration: 45 seconds
 - minimum workflow frequency: 3 similar sessions within 7 days
+
+## Report Scope
+
+Current report behavior:
+
+- `report` prints all-time, daily, or weekly workflow reports directly from local data
+- report output includes summary sections, workflow graphs, confidence, and automation hints
+- `report:generate` stores a snapshot for a selected report window and date
+- `report:snapshot:list` and `report:snapshot:show` read stored snapshots
+- `agent:run-once` triggers one snapshot cycle through the control plane
+- `agent:snapshot:latest` shows the latest stored snapshots for selected windows
+- `agent:run` keeps day/week snapshots fresh automatically through the resident scheduler
+- `report:scheduler` still exists as a legacy/manual fallback path
 
 ## Privacy Boundaries
 
@@ -116,40 +153,36 @@ npm run build
 
 ## Core Usage
 
-Initialize local storage:
+Recommended agent-first flow:
 
 ```bash
 npm run dev -- init --data-dir ./tmp/local-data
-```
-
-Seed deterministic mock events:
-
-```bash
 npm run dev -- collect:mock --data-dir ./tmp/local-data
+npm run dev -- agent:run-once --data-dir ./tmp/local-data
+npm run dev -- agent:snapshot:latest --data-dir ./tmp/local-data
 ```
 
-Run analysis:
+Run the resident agent:
 
 ```bash
+npm run dev -- agent:run --data-dir ./tmp/live-data
+```
+
+Inspect or stop it:
+
+```bash
+npm run dev -- agent:status --data-dir ./tmp/live-data
+npm run dev -- agent:health --data-dir ./tmp/live-data
+npm run dev -- agent:collectors --data-dir ./tmp/live-data
+npm run dev -- agent:stop --data-dir ./tmp/live-data
+```
+
+Manual analysis flow:
+
+```bash
+npm run dev -- init --data-dir ./tmp/local-data
+npm run dev -- collect:mock --data-dir ./tmp/local-data
 npm run dev -- analyze --data-dir ./tmp/local-data
-```
-
-Print the all-time report:
-
-```bash
-npm run dev -- report --data-dir ./tmp/local-data
-```
-
-Print JSON output:
-
-```bash
-npm run dev -- report --data-dir ./tmp/local-data --json
-```
-
-Print daily or weekly reports:
-
-```bash
-npm run dev -- report --data-dir ./tmp/local-data --window day --json
 npm run dev -- report --data-dir ./tmp/local-data --window week --json
 ```
 
@@ -161,11 +194,10 @@ npm run dev -- report:snapshot:list --data-dir ./tmp/local-data --json
 npm run dev -- report:snapshot:show --data-dir ./tmp/local-data --window week --latest --json
 ```
 
-Run the local scheduler:
+Legacy/manual scheduler flow:
 
 ```bash
 npm run dev -- report:scheduler --data-dir ./tmp/local-data --once --json
-npm run dev -- report:scheduler --data-dir ./tmp/local-data --interval-seconds 300
 ```
 
 One-command demo:
@@ -174,69 +206,7 @@ One-command demo:
 npm run dev -- demo --data-dir ./tmp/demo-data
 ```
 
-## Import And Live Ingestion
-
-Import JSON or NDJSON events:
-
-```bash
-npm run dev -- import:events ./fixtures/windows-active-window-sample.ndjson --data-dir ./tmp/import-data
-```
-
-Start the local ingest server:
-
-```bash
-npm run dev -- serve --data-dir ./tmp/live-data --host 127.0.0.1 --port 4318
-```
-
-List available collectors:
-
-```bash
-npm run dev -- collector:list --json
-```
-
-## Collector Notes
-
-Windows collector info:
-
-```bash
-npm run dev -- collector:windows:info --json
-```
-
-Typical Windows collector usage:
-
-```powershell
-pwsh -File ".\collectors\windows\active-window-collector.ps1" -OutputPath ".\events.ndjson"
-pwsh -File ".\collectors\windows\active-window-collector.ps1" -IngestUrl "http://127.0.0.1:4318/events"
-```
-
-macOS collector info:
-
-```bash
-npm run dev -- collector:macos:info --json
-npm run dev -- collector:macos:check --json
-```
-
-Typical macOS collector usage:
-
-```bash
-swift ./collectors/macos/active-window-collector.swift --once --stdout
-swift ./collectors/macos/active-window-collector.swift --output-path ./tmp/macos-events.ndjson
-swift ./collectors/macos/active-window-collector.swift --ingest-url http://127.0.0.1:4318/events
-```
-
-CLI one-shot capture on macOS:
-
-```bash
-npm run dev -- collect:macos:once --data-dir ./tmp/macos-cli-data --json
-```
-
-## Workflow Review And LLM Commands
-
-List workflows:
-
-```bash
-npm run dev -- workflow:list --data-dir ./tmp/local-data --json
-```
+## Feedback Commands
 
 Show one workflow:
 
@@ -244,10 +214,13 @@ Show one workflow:
 npm run dev -- workflow:show <workflow-id> --data-dir ./tmp/local-data --json
 ```
 
-Rename, exclude, or hide a workflow:
+Label, merge, split, exclude, or hide a workflow:
 
 ```bash
 npm run dev -- workflow:rename <workflow-id> "New workflow name" --data-dir ./tmp/local-data
+npm run dev -- workflow:label <workflow-id> --purpose "Review shipping status" --automation-candidate true --difficulty medium --data-dir ./tmp/local-data
+npm run dev -- workflow:merge <workflow-id> <target-workflow-id> --data-dir ./tmp/local-data
+npm run dev -- workflow:split <workflow-id> --after-action search_order --data-dir ./tmp/local-data
 npm run dev -- workflow:exclude <workflow-id> --data-dir ./tmp/local-data
 npm run dev -- workflow:hide <workflow-id> --data-dir ./tmp/local-data
 ```
@@ -264,6 +237,8 @@ Delete a session and reanalyze:
 ```bash
 npm run dev -- session:delete <session-id> --data-dir ./tmp/local-data
 ```
+
+## LLM Commands
 
 Print LLM-safe payloads:
 
@@ -322,6 +297,16 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 | `collect:macos:once` | Capture the current macOS frontmost app once and store it. |
 | `import:events` | Import raw events from a JSON or NDJSON file. |
 | `analyze` | Normalize events, build sessions, and detect workflows. |
+| `agent:run` | Run the resident local agent. |
+| `agent:status` | Show agent status and runtime state. |
+| `agent:stop` | Stop the running agent. |
+| `agent:health` | Show ingest, scheduler, and collector health. |
+| `agent:run-once` | Run one agent collection and snapshot cycle. |
+| `agent:snapshot:latest` | Show the latest stored snapshots. |
+| `agent:collectors` | Show collector supervision state. |
+| `agent:autostart:status` | Show macOS LaunchAgent autostart status. |
+| `agent:autostart:install` | Install the macOS LaunchAgent helper. |
+| `agent:autostart:uninstall` | Remove the macOS LaunchAgent helper. |
 | `collector:list` | List available collectors and scripts. |
 | `collector:macos:check` | Check macOS collector permission status. |
 | `collector:macos:info` | Show macOS collector usage, permissions, and file paths. |
@@ -330,10 +315,13 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 | `report:generate` | Generate and store a report snapshot. |
 | `report:snapshot:list` | List stored report snapshots. |
 | `report:snapshot:show` | Show one stored report snapshot. |
-| `report:scheduler` | Run the local report snapshot scheduler. |
+| `report:scheduler` | Run the legacy/manual report snapshot scheduler. |
 | `workflow:list` | List workflow clusters with feedback state. |
 | `workflow:show` | Show one workflow cluster in detail. |
 | `workflow:rename` | Rename a workflow cluster. |
+| `workflow:label` | Save workflow name, purpose, repetitive flag, and automation review fields. |
+| `workflow:merge` | Merge one workflow into another on future analyses. |
+| `workflow:split` | Split a workflow after a selected action on future analyses. |
 | `workflow:exclude` | Exclude a workflow cluster from report output. |
 | `workflow:include` | Re-include an excluded workflow cluster. |
 | `workflow:hide` | Hide an incorrect workflow cluster. |
@@ -354,13 +342,14 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 | `credential:delete-openai` | Delete the stored OpenAI API key from secure storage. |
 | `auth:login` | Run Gemini OAuth login and store the resulting credentials securely. |
 | `auth:logout` | Delete stored Gemini OAuth credentials. |
-| `serve` | Run the local HTTP ingest server for collectors. |
+| `serve` | Run the standalone local HTTP ingest server for collectors. |
 | `demo` | Reset data, seed mock events, run analysis, and print a report. |
 | `reset` | Delete all locally stored events and analysis artifacts. |
 
 ## Project Structure
 
 - `src/cli.ts`: CLI entry point and command definitions
+- `src/agent/`: resident runtime, control plane, collector supervision, scheduler, and autostart helpers
 - `src/storage/database.ts`: SQLite persistence layer
 - `src/storage/schema.ts`: database schema
 - `src/privacy/sanitize.ts`: sensitive metadata filtering
@@ -372,9 +361,12 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 - `collectors/macos/active-window-collector.swift`: macOS active-window collector script
 - `collectors/windows/active-window-collector.ps1`: Windows active-window collector script
 - `src/pipeline/normalize.ts`: raw event normalization
+- `src/pipeline/actions.ts`: semantic action abstraction rules
 - `src/pipeline/sessionize.ts`: session boundary logic
 - `src/pipeline/cluster.ts`: workflow clustering heuristics
-- `src/reporting/report.ts`: current all-time report formatting
+- `src/pipeline/analyze.ts`: end-to-end workflow analysis orchestration
+- `src/reporting/report.ts`: workflow-centric report formatting
+- `src/reporting/service.ts`: report generation and snapshot helpers
 - `src/llm/payloads.ts`: summarized LLM-safe workflow payload builder
 - `src/llm/openai.ts`: OpenAI Responses API adapter for workflow analysis
 - `src/llm/gemini.ts`: Gemini generateContent adapter for workflow analysis
@@ -394,7 +386,7 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 - the Windows and macOS native collectors currently capture only active-window changes
 - macOS window title capture depends on Accessibility permission
 - short-horizon emerging workflow summaries are heuristic and marked as provisional
-- automatic report refresh requires the local scheduler process to be running
+- automatic snapshot refresh requires the resident agent or legacy scheduler process to be running
 - workflow naming remains heuristic
 - report output is CLI-only
 - secure credential storage is implemented only for macOS Keychain today
