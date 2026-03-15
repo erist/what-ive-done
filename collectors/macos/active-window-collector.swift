@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import CoreGraphics
 import Foundation
 
 private let collectorId = "macos-active-window"
@@ -81,6 +82,12 @@ private struct Snapshot {
 
         return payload
     }
+}
+
+private struct FrontmostApplicationContext {
+    let localizedName: String?
+    let bundleIdentifier: String?
+    let processId: pid_t
 }
 
 private let bundleIdApplicationMap = [
@@ -247,10 +254,46 @@ private func focusedWindowTitle(processId: pid_t) -> String? {
     return trimmed.isEmpty ? nil : trimmed
 }
 
+private func frontmostApplicationContext() -> FrontmostApplicationContext? {
+    // NSWorkspace.shared.frontmostApplication can stay stale in a long-running CLI process.
+    guard let windowInfoList = CGWindowListCopyWindowInfo(
+        [.optionOnScreenOnly, .excludeDesktopElements],
+        kCGNullWindowID
+    ) as? [[String: Any]] else {
+        return nil
+    }
+
+    for windowInfo in windowInfoList {
+        let layer = windowInfo[kCGWindowLayer as String] as? Int ?? -1
+        guard layer == 0 else {
+            continue
+        }
+
+        guard let pidNumber = windowInfo[kCGWindowOwnerPID as String] as? NSNumber else {
+            continue
+        }
+
+        let processId = pid_t(pidNumber.int32Value)
+        guard processId > 0 else {
+            continue
+        }
+
+        let runningApplication = NSRunningApplication(processIdentifier: processId)
+
+        return FrontmostApplicationContext(
+            localizedName: runningApplication?.localizedName ?? (windowInfo[kCGWindowOwnerName as String] as? String),
+            bundleIdentifier: runningApplication?.bundleIdentifier,
+            processId: processId
+        )
+    }
+
+    return nil
+}
+
 private func captureSnapshot(promptAccessibility: Bool) throws -> Snapshot {
     let trusted = accessibilityTrusted(prompt: promptAccessibility)
 
-    guard let application = NSWorkspace.shared.frontmostApplication else {
+    guard let application = frontmostApplicationContext() else {
         throw CollectorError.noFrontmostApplication
     }
 
@@ -258,13 +301,13 @@ private func captureSnapshot(promptAccessibility: Bool) throws -> Snapshot {
         localizedName: application.localizedName,
         bundleIdentifier: application.bundleIdentifier
     )
-    let windowTitle = trusted ? focusedWindowTitle(processId: application.processIdentifier) : nil
+    let windowTitle = trusted ? focusedWindowTitle(processId: application.processId) : nil
 
     return Snapshot(
         application: canonicalApplication,
         windowTitle: windowTitle,
         bundleId: application.bundleIdentifier,
-        processId: application.processIdentifier,
+        processId: application.processId,
         accessibilityTrusted: trusted,
         timestamp: isoFormatter.string(from: Date())
     )
