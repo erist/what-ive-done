@@ -53,12 +53,50 @@ function renderReportTable(reportEntries: ReportEntry[]): void {
     reportEntries.map((entry) => ({
       workflow: entry.workflowName,
       frequency: entry.frequency,
+      frequencyPerWeek: entry.frequencyPerWeek,
       averageDuration: formatDuration(entry.averageDurationSeconds),
       totalDuration: formatDuration(entry.totalDurationSeconds),
+      apps: entry.involvedApps.join(", "),
+      confidence: entry.confidenceScore,
+      labeled: entry.userLabeled,
       automationSuitability: entry.automationSuitability,
+      automationScore: entry.automationSuitabilityScore,
       recommendation: entry.recommendedApproach,
     })),
   );
+}
+
+function renderWorkflowSection(title: string, reportEntries: ReportEntry[]): void {
+  if (reportEntries.length === 0) {
+    return;
+  }
+
+  console.log(title);
+  renderReportTable(reportEntries);
+}
+
+function renderWorkflowGraphs(reportEntries: ReportEntry[]): void {
+  if (reportEntries.length === 0) {
+    return;
+  }
+
+  console.log("Workflow graphs");
+
+  for (const entry of reportEntries) {
+    console.log(
+      JSON.stringify(
+        {
+          workflow: entry.workflowName,
+          graph: entry.graph.text,
+          steps: entry.representativeSteps,
+          businessPurpose: entry.businessPurpose ?? null,
+          firstAutomationHint: entry.automationHints[0] ?? null,
+        },
+        null,
+        2,
+      ),
+    );
+  }
 }
 
 function renderSnapshotListTable(snapshots: ReportSnapshotSummary[]): void {
@@ -140,7 +178,22 @@ function renderWindowedWorkflowReport(report: WorkflowReport, json = false): voi
   if (report.workflows.length === 0) {
     console.log("No confirmed workflows detected for this window.");
   } else {
+    renderWorkflowSection("Top repetitive workflows", report.summary.topRepetitiveWorkflows);
+    renderWorkflowSection(
+      "Highest time-consuming repetitive workflows",
+      report.summary.highestTimeConsumingRepetitiveWorkflows,
+    );
+    renderWorkflowSection(
+      "Quick-win automation candidates",
+      report.summary.quickWinAutomationCandidates,
+    );
+    renderWorkflowSection(
+      "Workflows needing human judgment",
+      report.summary.workflowsNeedingHumanJudgment,
+    );
+    console.log("All workflows");
     renderReportTable(report.workflows);
+    renderWorkflowGraphs(report.workflows.slice(0, 5));
   }
 
   if (report.emergingWorkflows.length > 0) {
@@ -168,18 +221,6 @@ function renderReport(
   } = {},
 ): void {
   const report = buildStoredWorkflowReport(dataDir, options);
-  const useLegacyAllTimeOutput = (options.window ?? "all") === "all" && options.date === undefined;
-
-  if (useLegacyAllTimeOutput) {
-    if (json) {
-      console.log(JSON.stringify(report.workflows, null, 2));
-      return;
-    }
-
-    renderReportTable(report.workflows);
-    return;
-  }
-
   renderWindowedWorkflowReport(report, json);
 }
 
@@ -187,6 +228,20 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function parseBooleanOption(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+
+  if (["true", "yes", "y", "1"].includes(normalized)) {
+    return true;
+  }
+
+  if (["false", "no", "n", "0"].includes(normalized)) {
+    return false;
+  }
+
+  throw new Error(`Expected a boolean value, received: ${value}`);
 }
 
 function renderWorkflowList(json = false, dataDir?: string): void {
@@ -630,7 +685,9 @@ program
   .action((options: { dataDir?: string }) => {
     const { analysisResult, rawEventCount } = withDatabase(options.dataDir, (database) => {
       const rawEvents = database.getRawEventsChronological();
-      const result = analyzeRawEvents(rawEvents);
+      const result = analyzeRawEvents(rawEvents, {
+        feedbackByWorkflowSignature: database.listWorkflowFeedbackSummary(),
+      });
 
       database.replaceAnalysisArtifacts(result);
 
@@ -1018,6 +1075,124 @@ program
   });
 
 program
+  .command("workflow:label")
+  .description("Store rich workflow feedback for naming, business purpose, and automation review")
+  .argument("<workflow-id>", "Workflow cluster id")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--name <name>", "Workflow display name")
+  .option("--purpose <purpose>", "Business purpose for this workflow")
+  .option("--repetitive <true|false>", "Mark whether the workflow is repetitive", parseBooleanOption)
+  .option(
+    "--automation-candidate <true|false>",
+    "Mark whether the workflow is an automation candidate",
+    parseBooleanOption,
+  )
+  .option("--difficulty <difficulty>", "Automation difficulty (low, medium, high)")
+  .option(
+    "--approve-candidate <true|false>",
+    "Mark whether the automation candidate is approved",
+    parseBooleanOption,
+  )
+  .action(
+    (
+      workflowId: string,
+      options: {
+        dataDir?: string;
+        name?: string;
+        purpose?: string;
+        repetitive?: boolean;
+        automationCandidate?: boolean;
+        difficulty?: "low" | "medium" | "high";
+        approveCandidate?: boolean;
+      },
+    ) => {
+      withDatabase(options.dataDir, (database) => {
+        database.saveWorkflowFeedback({
+          workflowClusterId: workflowId,
+          renameTo: options.name,
+          businessPurpose: options.purpose,
+          repetitive: options.repetitive,
+          automationCandidate: options.automationCandidate,
+          automationDifficulty: options.difficulty,
+          approvedAutomationCandidate: options.approveCandidate,
+        });
+      });
+
+      console.log(
+        JSON.stringify(
+          {
+            status: "workflow_labeled",
+            workflowId,
+            name: options.name ?? null,
+            purpose: options.purpose ?? null,
+            repetitive: options.repetitive ?? null,
+            automationCandidate: options.automationCandidate ?? null,
+            difficulty: options.difficulty ?? null,
+            approvedAutomationCandidate: options.approveCandidate ?? null,
+          },
+          null,
+          2,
+        ),
+      );
+    },
+  );
+
+program
+  .command("workflow:merge")
+  .description("Merge one workflow cluster into another on future analyses")
+  .argument("<workflow-id>", "Workflow cluster id to merge")
+  .argument("<target-workflow-id>", "Workflow cluster id to merge into")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((workflowId: string, targetWorkflowId: string, options: { dataDir?: string }) => {
+    withDatabase(options.dataDir, (database) => {
+      database.saveWorkflowFeedback({
+        workflowClusterId: workflowId,
+        mergeIntoWorkflowId: targetWorkflowId,
+      });
+    });
+
+    console.log(
+      JSON.stringify(
+        { status: "workflow_merge_saved", workflowId, targetWorkflowId },
+        null,
+        2,
+      ),
+    );
+  });
+
+program
+  .command("workflow:split")
+  .description("Split a workflow cluster on future analyses after a selected action")
+  .argument("<workflow-id>", "Workflow cluster id")
+  .requiredOption("--after-action <action-name>", "Action name after which the workflow should split")
+  .option("--data-dir <path>", "Override application data directory")
+  .action(
+    (
+      workflowId: string,
+      options: { dataDir?: string; afterAction: string },
+    ) => {
+      withDatabase(options.dataDir, (database) => {
+        database.saveWorkflowFeedback({
+          workflowClusterId: workflowId,
+          splitAfterActionName: options.afterAction,
+        });
+      });
+
+      console.log(
+        JSON.stringify(
+          {
+            status: "workflow_split_saved",
+            workflowId,
+            splitAfterActionName: options.afterAction,
+          },
+          null,
+          2,
+        ),
+      );
+    },
+  );
+
+program
   .command("workflow:exclude")
   .description("Exclude a workflow cluster from report output")
   .argument("<workflow-id>", "Workflow cluster id")
@@ -1109,7 +1284,9 @@ program
     const summary = withDatabase(options.dataDir, (database) => {
       const deletedRawEventCount = database.deleteSessionSourceEvents(sessionId);
       const remainingRawEvents = database.getRawEventsChronological();
-      const analysisResult = analyzeRawEvents(remainingRawEvents);
+      const analysisResult = analyzeRawEvents(remainingRawEvents, {
+        feedbackByWorkflowSignature: database.listWorkflowFeedbackSummary(),
+      });
 
       database.replaceAnalysisArtifacts(analysisResult);
 
@@ -1358,7 +1535,9 @@ program
       }
 
       const rawEvents = database.getRawEventsChronological();
-      const analysisResult = analyzeRawEvents(rawEvents);
+      const analysisResult = analyzeRawEvents(rawEvents, {
+        feedbackByWorkflowSignature: database.listWorkflowFeedbackSummary(),
+      });
 
       database.replaceAnalysisArtifacts(analysisResult);
 

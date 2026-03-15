@@ -14,6 +14,15 @@ function createTestDatabase(tempDir: string): AppDatabase {
   return new AppDatabase(resolveAppPaths(tempDir));
 }
 
+function createEmptySummary() {
+  return {
+    topRepetitiveWorkflows: [],
+    highestTimeConsumingRepetitiveWorkflows: [],
+    quickWinAutomationCandidates: [],
+    workflowsNeedingHumanJudgment: [],
+  };
+}
+
 test("getAgentHealthReport surfaces runtime issues and latest snapshots", () => {
   const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-agent-health-"));
 
@@ -32,6 +41,7 @@ test("getAgentHealthReport surfaces runtime issues and latest snapshots", () => 
       totalTrackedDurationSeconds: 0,
       workflows: [],
       emergingWorkflows: [],
+      summary: createEmptySummary(),
     });
 
     writeAgentRuntimeState(database, {
