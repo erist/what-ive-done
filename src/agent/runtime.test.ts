@@ -63,12 +63,14 @@ test("startAgentRuntime publishes heartbeat state and clears the lock on stop", 
   let ingestServerClosed = false;
   let collectorStopped = false;
   let snapshotSchedulerStopped = false;
+  let promptAccessibility: boolean | undefined;
 
   try {
     const runtime = await startAgentRuntime({
       dataDir: tempDir,
       heartbeatIntervalMs: 20,
       handleSignals: false,
+      promptAccessibility: true,
       ingestServerFactory: async () => ({
         host: "127.0.0.1",
         port: 4318,
@@ -76,7 +78,8 @@ test("startAgentRuntime publishes heartbeat state and clears the lock on stop", 
           ingestServerClosed = true;
         },
       }),
-      collectorSupervisorFactory: async ({ ingestUrl, onCollectorStateChange }) => {
+      collectorSupervisorFactory: async ({ ingestUrl, onCollectorStateChange, promptAccessibility: prompt }) => {
+        promptAccessibility = prompt;
         const collectorState = {
           id: "macos-active-window",
           platform: "macos",
@@ -133,6 +136,7 @@ test("startAgentRuntime publishes heartbeat state and clears the lock on stop", 
     assert.equal(initialStatus.state?.ingestServer?.status, "running");
     assert.equal(initialStatus.state?.collectors[0]?.status, "running");
     assert.equal(initialStatus.state?.snapshotScheduler?.status, "running");
+    assert.equal(promptAccessibility, true);
     assert.equal(
       initialStatus.state?.ingestServer?.eventsUrl,
       "http://127.0.0.1:4318/events",

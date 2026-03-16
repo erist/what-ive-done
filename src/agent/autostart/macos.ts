@@ -96,6 +96,7 @@ export function resolveMacOSLaunchAgentConfig(options: {
       process.execPath,
       cliEntrypointPath,
       "agent:run",
+      "--no-prompt-accessibility",
       "--data-dir",
       paths.dataDir,
     ],

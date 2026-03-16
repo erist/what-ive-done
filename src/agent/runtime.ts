@@ -12,6 +12,7 @@ export interface StartCollectorSupervisorOptions {
   ingestUrl: string;
   processPlatform?: NodeJS.Platform | undefined;
   pollIntervalMs?: number | undefined;
+  promptAccessibility?: boolean | undefined;
   restartDelayMs?: number | undefined;
   onCollectorStateChange?: ((state: AgentCollectorState) => void) | undefined;
 }
@@ -31,6 +32,7 @@ export interface StartAgentRuntimeOptions {
   ingestPort?: number | undefined;
   collectorPollIntervalMs?: number | undefined;
   collectorRestartDelayMs?: number | undefined;
+  promptAccessibility?: boolean | undefined;
   enableCollectors?: boolean | undefined;
   snapshotWindows?: ReportWindow[] | undefined;
   snapshotIntervalMs?: number | undefined;
@@ -153,6 +155,7 @@ export async function startAgentRuntime(
         ingestUrl: `http://${ingestServer.host}:${ingestServer.port}/events`,
         processPlatform: process.platform,
         pollIntervalMs: options.collectorPollIntervalMs,
+        promptAccessibility: options.promptAccessibility,
         restartDelayMs: options.collectorRestartDelayMs,
         onCollectorStateChange: mergeCollectorState,
       });

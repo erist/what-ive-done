@@ -590,6 +590,10 @@ program
   .option("--collector-poll-interval-ms <ms>", "Collector polling interval in milliseconds", "1000")
   .option("--collector-restart-delay-ms <ms>", "Collector restart delay after failures", "5000")
   .option(
+    "--no-prompt-accessibility",
+    "Don't ask macOS to show the Accessibility permission prompt when the collector starts",
+  )
+  .option(
     "--snapshot-windows <windows>",
     "Comma-separated snapshot windows",
     parseReportWindowList,
@@ -606,6 +610,7 @@ program
       ingestPort: string;
       collectorPollIntervalMs: string;
       collectorRestartDelayMs: string;
+      promptAccessibility: boolean;
       snapshotWindows: ReportWindow[];
       snapshotIntervalSeconds: string;
       collectors: boolean;
@@ -618,6 +623,7 @@ program
       ingestPort: Number.parseInt(options.ingestPort, 10),
       collectorPollIntervalMs: Number.parseInt(options.collectorPollIntervalMs, 10),
       collectorRestartDelayMs: Number.parseInt(options.collectorRestartDelayMs, 10),
+      promptAccessibility: options.promptAccessibility,
       enableCollectors: options.collectors,
       snapshotWindows: options.snapshotWindows,
       snapshotIntervalMs: Number.parseInt(options.snapshotIntervalSeconds, 10) * 1000,
