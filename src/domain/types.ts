@@ -74,6 +74,7 @@ export interface SessionStep {
   actionSource: ActionSource;
   application: string;
   domain?: string | undefined;
+  titlePattern?: string | undefined;
   target?: string | undefined;
 }
 

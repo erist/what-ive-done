@@ -169,6 +169,7 @@ function toSession(session: MutableSession): Session {
     actionSource: event.actionSource,
     application: event.application,
     domain: event.domain,
+    titlePattern: event.titlePattern,
     target: event.target,
   }));
 

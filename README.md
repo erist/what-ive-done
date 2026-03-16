@@ -17,6 +17,7 @@ This repository provides a TypeScript CLI plus a resident local agent. Together 
 - local-only storage and analysis in SQLite
 - resident local agent runtime with persisted heartbeat and health state
 - agent-managed local ingest server and snapshot scheduler
+- local browser viewer for agent status, live workflow reports, snapshots, and session drill-down
 - Windows and macOS active-window collection paths
 - Chrome extension path for browser metadata ingestion
 - deterministic event normalization and semantic action abstraction
@@ -33,7 +34,8 @@ This repository provides a TypeScript CLI plus a resident local agent. Together 
 Current limitations:
 
 - Windows autostart installation is not implemented yet
-- current feedback flow is CLI-first rather than a dedicated UI
+- the current browser viewer is read-only and feedback flow is still CLI-first
+- a packaged desktop app or tray UI does not exist yet
 - native desktop collectors still focus on active-window changes
 - report comparison views are not implemented yet
 
@@ -67,6 +69,24 @@ Run the resident agent:
 
 ```bash
 npm run dev -- agent:run --data-dir ./tmp/live-data
+```
+
+Run the resident agent and open the local browser viewer:
+
+```bash
+npm run dev -- agent:run --data-dir ./tmp/live-data --open-viewer
+```
+
+Open the local browser viewer directly:
+
+```bash
+npm run dev -- viewer:open --data-dir ./tmp/live-data
+```
+
+Default local viewer URL:
+
+```text
+http://127.0.0.1:4318/
 ```
 
 Check health and stop it:
@@ -104,15 +124,15 @@ npm run dev -- agent:run-once --data-dir ./tmp/live-data
 npm run dev -- agent:snapshot:latest --data-dir ./tmp/live-data
 npm run dev -- agent:collectors --data-dir ./tmp/live-data
 npm run dev -- agent:autostart:status --data-dir ./tmp/live-data
+npm run dev -- viewer:open --data-dir ./tmp/live-data
 npm run dev -- report:snapshot:list --data-dir ./tmp/live-data --json
 npm run dev -- report:snapshot:show --data-dir ./tmp/live-data --window week --latest --json
 ```
 
-Legacy/manual runtime commands still exist when needed:
+Lower-level server command when needed:
 
 ```bash
-npm run dev -- serve --data-dir ./tmp/live-data --host 127.0.0.1 --port 4318
-npm run dev -- report:scheduler --data-dir ./tmp/live-data --once --json
+npm run dev -- server:run --data-dir ./tmp/live-data --host 127.0.0.1 --port 4318 --open
 ```
 
 ### LLM Configuration
@@ -165,6 +185,7 @@ The project stores behavioral metadata only. It must not collect raw keystrokes,
 - SQLite 기반 로컬 전용 저장 및 분석
 - heartbeat와 health state를 기록하는 resident local agent runtime
 - agent가 관리하는 local ingest server와 snapshot scheduler
+- agent 상태, live report, snapshot, session detail을 보는 local browser viewer
 - Windows/macOS active-window 수집 경로
 - 브라우저 메타데이터 수집용 Chrome extension 경로
 - deterministic event normalization과 semantic action abstraction
@@ -181,7 +202,8 @@ The project stores behavioral metadata only. It must not collect raw keystrokes,
 현재 제한 사항:
 
 - Windows autostart 설치는 아직 구현되지 않았습니다
-- feedback flow는 아직 dedicated UI가 아니라 CLI 중심입니다
+- 현재 browser viewer는 read-only이며 feedback flow는 아직 CLI 중심입니다
+- packaged desktop app이나 tray UI는 아직 없습니다
 - native desktop collector는 현재 active-window 변화 중심입니다
 - report comparison view는 아직 없습니다
 
@@ -215,6 +237,24 @@ resident agent 실행:
 
 ```bash
 npm run dev -- agent:run --data-dir ./tmp/live-data
+```
+
+resident agent를 실행하면서 browser viewer까지 바로 열기:
+
+```bash
+npm run dev -- agent:run --data-dir ./tmp/live-data --open-viewer
+```
+
+browser viewer만 열기:
+
+```bash
+npm run dev -- viewer:open --data-dir ./tmp/live-data
+```
+
+기본 local viewer URL:
+
+```text
+http://127.0.0.1:4318/
 ```
 
 상태 확인과 종료:
@@ -252,15 +292,15 @@ npm run dev -- agent:run-once --data-dir ./tmp/live-data
 npm run dev -- agent:snapshot:latest --data-dir ./tmp/live-data
 npm run dev -- agent:collectors --data-dir ./tmp/live-data
 npm run dev -- agent:autostart:status --data-dir ./tmp/live-data
+npm run dev -- viewer:open --data-dir ./tmp/live-data
 npm run dev -- report:snapshot:list --data-dir ./tmp/live-data --json
 npm run dev -- report:snapshot:show --data-dir ./tmp/live-data --window week --latest --json
 ```
 
-필요하면 legacy/manual 명령도 사용할 수 있습니다:
+필요하면 lower-level server 명령도 사용할 수 있습니다:
 
 ```bash
-npm run dev -- serve --data-dir ./tmp/live-data --host 127.0.0.1 --port 4318
-npm run dev -- report:scheduler --data-dir ./tmp/live-data --once --json
+npm run dev -- server:run --data-dir ./tmp/live-data --host 127.0.0.1 --port 4318 --open
 ```
 
 ### LLM 설정

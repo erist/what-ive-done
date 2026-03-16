@@ -23,6 +23,7 @@ export interface AgentIngestServerState {
   status: AgentServiceStatus;
   host: string;
   port?: number | undefined;
+  viewerUrl?: string | undefined;
   healthUrl?: string | undefined;
   eventsUrl?: string | undefined;
   startedAt?: string | undefined;

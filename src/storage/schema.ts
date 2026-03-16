@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 
-export const CURRENT_SCHEMA_VERSION = 9;
+export const CURRENT_SCHEMA_VERSION = 10;
 
 export const INITIAL_SCHEMA_SQL = `
   PRAGMA journal_mode = WAL;
@@ -78,6 +78,7 @@ export const INITIAL_SCHEMA_SQL = `
     action_source TEXT NOT NULL DEFAULT 'inferred',
     application TEXT NOT NULL,
     domain TEXT,
+    title_pattern TEXT,
     target TEXT,
     PRIMARY KEY (session_id, step_order)
   );
@@ -365,5 +366,9 @@ export function applySchemaMigrations(
       "automation_hints_json",
       "automation_hints_json TEXT DEFAULT '[]'",
     );
+  }
+
+  if ((existingVersion ?? 0) < 10) {
+    ensureColumn(connection, "session_steps", "title_pattern", "title_pattern TEXT");
   }
 }

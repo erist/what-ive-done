@@ -9,7 +9,7 @@ import type {
   WorkflowGraph,
   WorkflowReport,
 } from "../domain/types.js";
-import { analyzeRawEvents } from "../pipeline/analyze.js";
+import { analyzeRawEvents, type AnalysisResult } from "../pipeline/analyze.js";
 import { clusterSessions } from "../pipeline/cluster.js";
 
 export interface BuildReportOptions {
@@ -229,20 +229,35 @@ export function buildWorkflowReport(args: {
   timeWindow: ReportTimeWindow;
   options?: BuildWorkflowReportOptions | undefined;
 }): WorkflowReport {
+  const analysisResult = analyzeRawEvents(args.rawEvents, {
+    feedbackByWorkflowSignature: args.options?.feedbackByClusterId,
+  });
+
+  return buildWorkflowReportFromAnalysis({
+    rawEvents: args.rawEvents,
+    timeWindow: args.timeWindow,
+    analysisResult,
+    options: args.options,
+  });
+}
+
+export function buildWorkflowReportFromAnalysis(args: {
+  rawEvents: RawEvent[];
+  timeWindow: ReportTimeWindow;
+  analysisResult: AnalysisResult;
+  options?: BuildWorkflowReportOptions | undefined;
+}): WorkflowReport {
   const options = args.options ?? {};
   const feedbackByClusterId = options.feedbackByClusterId ?? new Map<string, WorkflowFeedbackSummary>();
-  const analysisResult = analyzeRawEvents(args.rawEvents, {
-    feedbackByWorkflowSignature: feedbackByClusterId,
-  });
-  const clusters = analysisResult.workflowClusters.map((cluster) =>
+  const clusters = args.analysisResult.workflowClusters.map((cluster) =>
     applyFeedbackToCluster(cluster, feedbackByClusterId),
   );
   const workflows = buildReportEntries(clusters, args.timeWindow, args.rawEvents, options);
 
   return {
     timeWindow: args.timeWindow,
-    totalSessions: analysisResult.sessions.length,
-    totalTrackedDurationSeconds: analysisResult.sessions.reduce(
+    totalSessions: args.analysisResult.sessions.length,
+    totalTrackedDurationSeconds: args.analysisResult.sessions.reduce(
       (sum, session) => sum + secondsBetween(session.startTime, session.endTime),
       0,
     ),
@@ -250,7 +265,7 @@ export function buildWorkflowReport(args: {
     emergingWorkflows:
       args.timeWindow.window === "all"
         ? []
-        : buildEmergingWorkflowEntries(analysisResult.sessions, clusters, options),
+        : buildEmergingWorkflowEntries(args.analysisResult.sessions, clusters, options),
     summary: buildReportSummary(workflows),
   };
 }

@@ -105,3 +105,134 @@ test("resolveReportTimeWindow computes the expected weekly UTC boundaries", () =
   assert.equal(reportWindow.startTime, "2026-03-08T00:00:00.000Z");
   assert.equal(reportWindow.endTime, "2026-03-15T00:00:00.000Z");
 });
+
+test("buildWorkflowReport includes window-title context in representative steps", () => {
+  const rawEvents: RawEvent[] = [
+    {
+      id: "raw-1",
+      source: "desktop",
+      sourceEventType: "app.switch",
+      timestamp: "2026-03-14T09:00:00.000Z",
+      application: "chrome",
+      windowTitle: "Orders Queue",
+      action: "switch",
+      metadata: {},
+      sensitiveFiltered: true,
+      createdAt: "2026-03-14T09:00:00.000Z",
+    },
+    {
+      id: "raw-2",
+      source: "chrome_extension",
+      sourceEventType: "browser.click",
+      timestamp: "2026-03-14T09:00:20.000Z",
+      application: "chrome",
+      domain: "admin.internal",
+      action: "click",
+      target: "search_order",
+      metadata: {},
+      sensitiveFiltered: true,
+      createdAt: "2026-03-14T09:00:20.000Z",
+    },
+    {
+      id: "raw-3",
+      source: "desktop",
+      sourceEventType: "app.switch",
+      timestamp: "2026-03-14T09:00:45.000Z",
+      application: "slack",
+      windowTitle: "Order Status Updates",
+      action: "switch",
+      metadata: {},
+      sensitiveFiltered: true,
+      createdAt: "2026-03-14T09:00:45.000Z",
+    },
+    {
+      id: "raw-4",
+      source: "desktop",
+      sourceEventType: "app.switch",
+      timestamp: "2026-03-14T11:00:00.000Z",
+      application: "chrome",
+      windowTitle: "Orders Queue",
+      action: "switch",
+      metadata: {},
+      sensitiveFiltered: true,
+      createdAt: "2026-03-14T11:00:00.000Z",
+    },
+    {
+      id: "raw-5",
+      source: "chrome_extension",
+      sourceEventType: "browser.click",
+      timestamp: "2026-03-14T11:00:20.000Z",
+      application: "chrome",
+      domain: "admin.internal",
+      action: "click",
+      target: "search_order",
+      metadata: {},
+      sensitiveFiltered: true,
+      createdAt: "2026-03-14T11:00:20.000Z",
+    },
+    {
+      id: "raw-6",
+      source: "desktop",
+      sourceEventType: "app.switch",
+      timestamp: "2026-03-14T11:00:45.000Z",
+      application: "slack",
+      windowTitle: "Order Status Updates",
+      action: "switch",
+      metadata: {},
+      sensitiveFiltered: true,
+      createdAt: "2026-03-14T11:00:45.000Z",
+    },
+    {
+      id: "raw-7",
+      source: "desktop",
+      sourceEventType: "app.switch",
+      timestamp: "2026-03-14T13:00:00.000Z",
+      application: "chrome",
+      windowTitle: "Orders Queue",
+      action: "switch",
+      metadata: {},
+      sensitiveFiltered: true,
+      createdAt: "2026-03-14T13:00:00.000Z",
+    },
+    {
+      id: "raw-8",
+      source: "chrome_extension",
+      sourceEventType: "browser.click",
+      timestamp: "2026-03-14T13:00:20.000Z",
+      application: "chrome",
+      domain: "admin.internal",
+      action: "click",
+      target: "search_order",
+      metadata: {},
+      sensitiveFiltered: true,
+      createdAt: "2026-03-14T13:00:20.000Z",
+    },
+    {
+      id: "raw-9",
+      source: "desktop",
+      sourceEventType: "app.switch",
+      timestamp: "2026-03-14T13:00:45.000Z",
+      application: "slack",
+      windowTitle: "Order Status Updates",
+      action: "switch",
+      metadata: {},
+      sensitiveFiltered: true,
+      createdAt: "2026-03-14T13:00:45.000Z",
+    },
+  ];
+  const reportWindow = resolveReportTimeWindow({
+    window: "day",
+    reportDate: "2026-03-14",
+    timezone: "UTC",
+    timezoneOffsetMinutes: 0,
+  });
+  const report = buildWorkflowReport({
+    rawEvents,
+    timeWindow: reportWindow,
+  });
+
+  assert.equal(report.workflows.length, 1);
+  assert.ok(report.workflows[0]?.representativeSteps[0]?.includes("Orders Queue"));
+  assert.ok(report.workflows[0]?.representativeSteps[1]?.includes("Admin Internal"));
+  assert.ok(report.workflows[0]?.representativeSteps[2]?.includes("Order Status Updates"));
+});

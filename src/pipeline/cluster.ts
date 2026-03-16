@@ -156,6 +156,25 @@ function humanizeIdentifier(identifier: string | undefined): string | undefined 
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
+function normalizeForComparison(value: string | undefined): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function buildStepContext(step: SessionStep): string | undefined {
+  const titlePattern = humanizeIdentifier(step.titlePattern);
+  const application = humanizeIdentifier(step.application);
+
+  if (titlePattern && normalizeForComparison(titlePattern) !== normalizeForComparison(application)) {
+    return titlePattern;
+  }
+
+  return humanizeIdentifier(step.domain);
+}
+
+function shouldRenderApplication(step: SessionStep): boolean {
+  return step.actionName !== `switch_to_${step.application}`;
+}
+
 function buildWorkflowName(representativeSequence: string[], involvedApps: string[]): string {
   const primaryAction =
     representativeSequence.find((action) => !action.startsWith("open_") && !action.startsWith("switch_to_")) ??
@@ -231,7 +250,8 @@ function representativeSteps(steps: SessionStep[]): string[] {
   let previousToken: string | undefined;
 
   for (const step of steps) {
-    const token = `${step.application}|${step.actionName}`;
+    const context = buildStepContext(step);
+    const token = `${step.application}|${step.actionName}|${context ?? ""}`;
 
     if (token === previousToken) {
       continue;
@@ -240,7 +260,10 @@ function representativeSteps(steps: SessionStep[]): string[] {
     result.push(
       [
         humanizeIdentifier(step.actionName) ?? step.actionName,
-        humanizeIdentifier(step.application) ? `in ${humanizeIdentifier(step.application)}` : undefined,
+        shouldRenderApplication(step) && humanizeIdentifier(step.application)
+          ? `in ${humanizeIdentifier(step.application)}`
+          : undefined,
+        context ? `(${context})` : undefined,
       ]
         .filter((value): value is string => Boolean(value))
         .join(" "),

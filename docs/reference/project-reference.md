@@ -18,6 +18,7 @@ Implemented today:
 - deterministic mock workflow generator
 - JSON and NDJSON raw-event import
 - local HTTP ingest server
+- local browser viewer served from the same local HTTP server
 - Chrome extension scaffold for browser activity metadata
 - Windows PowerShell active-window collector path
 - macOS Swift active-window collector path with permission checks and one-shot capture
@@ -27,6 +28,7 @@ Implemented today:
 - agent-managed snapshot scheduler
 - normalization, semantic action abstraction, sessionization, workflow clustering, and all-time/daily/weekly reporting
 - persisted daily and weekly report snapshots
+- live browser dashboard for agent health, workflow reports, snapshots, and session drill-down
 - workflow rename, label, merge, split, exclude, include, hide, and unhide feedback
 - session listing, session detail, and session deletion with reanalysis
 - practical automation hints in workflow reports
@@ -40,8 +42,8 @@ Not implemented yet:
 
 - Windows click, file operation, and clipboard collectors
 - Windows autostart installation flow
-- desktop UI
-- workflow feedback UI
+- packaged desktop app or tray UI
+- browser-based workflow feedback write UI
 - secure credential storage on non-macOS platforms
 - report comparison views such as day-over-day or week-over-week diffs
 
@@ -51,7 +53,7 @@ The current runtime is split into three planes.
 
 - runtime plane
   - resident agent
-  - local ingest server
+  - local ingest server and browser viewer
   - collector supervision
   - snapshot scheduler
 - control plane
@@ -97,12 +99,13 @@ Current report behavior:
 
 - `report` prints all-time, daily, or weekly workflow reports directly from local data
 - report output includes summary sections, workflow graphs, confidence, and automation hints
+- `/` opens a local browser viewer with live report recomputation, latest snapshots, and session detail drill-down
 - `report:generate` stores a snapshot for a selected report window and date
 - `report:snapshot:list` and `report:snapshot:show` read stored snapshots
 - `agent:run-once` triggers one snapshot cycle through the control plane
 - `agent:snapshot:latest` shows the latest stored snapshots for selected windows
 - `agent:run` keeps day/week snapshots fresh automatically through the resident scheduler
-- `report:scheduler` still exists as a legacy/manual fallback path
+- a hidden deprecated `report:scheduler` alias still exists for manual/internal fallback paths
 
 ## Privacy Boundaries
 
@@ -168,6 +171,24 @@ Run the resident agent:
 npm run dev -- agent:run --data-dir ./tmp/live-data
 ```
 
+Run the resident agent and open the local browser viewer:
+
+```bash
+npm run dev -- agent:run --data-dir ./tmp/live-data --open-viewer
+```
+
+Open the local browser viewer directly:
+
+```bash
+npm run dev -- viewer:open --data-dir ./tmp/live-data
+```
+
+Default local viewer URL:
+
+```text
+http://127.0.0.1:4318/
+```
+
 Inspect or stop it:
 
 ```bash
@@ -194,10 +215,10 @@ npm run dev -- report:snapshot:list --data-dir ./tmp/local-data --json
 npm run dev -- report:snapshot:show --data-dir ./tmp/local-data --window week --latest --json
 ```
 
-Legacy/manual scheduler flow:
+Run the standalone local HTTP server for collectors and the browser viewer:
 
 ```bash
-npm run dev -- report:scheduler --data-dir ./tmp/local-data --once --json
+npm run dev -- server:run --data-dir ./tmp/live-data --open
 ```
 
 One-command demo:
@@ -217,8 +238,7 @@ npm run dev -- workflow:show <workflow-id> --data-dir ./tmp/local-data --json
 Label, merge, split, exclude, or hide a workflow:
 
 ```bash
-npm run dev -- workflow:rename <workflow-id> "New workflow name" --data-dir ./tmp/local-data
-npm run dev -- workflow:label <workflow-id> --purpose "Review shipping status" --automation-candidate true --difficulty medium --data-dir ./tmp/local-data
+npm run dev -- workflow:label <workflow-id> --name "New workflow name" --purpose "Review shipping status" --automation-candidate true --difficulty medium --data-dir ./tmp/local-data
 npm run dev -- workflow:merge <workflow-id> <target-workflow-id> --data-dir ./tmp/local-data
 npm run dev -- workflow:split <workflow-id> --after-action search_order --data-dir ./tmp/local-data
 npm run dev -- workflow:exclude <workflow-id> --data-dir ./tmp/local-data
@@ -307,6 +327,7 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 | `agent:autostart:status` | Show macOS LaunchAgent autostart status. |
 | `agent:autostart:install` | Install the macOS LaunchAgent helper. |
 | `agent:autostart:uninstall` | Remove the macOS LaunchAgent helper. |
+| `viewer:open` | Open the local browser viewer in the default browser. |
 | `collector:list` | List available collectors and scripts. |
 | `collector:macos:check` | Check macOS collector permission status. |
 | `collector:macos:info` | Show macOS collector usage, permissions, and file paths. |
@@ -315,10 +336,8 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 | `report:generate` | Generate and store a report snapshot. |
 | `report:snapshot:list` | List stored report snapshots. |
 | `report:snapshot:show` | Show one stored report snapshot. |
-| `report:scheduler` | Run the legacy/manual report snapshot scheduler. |
 | `workflow:list` | List workflow clusters with feedback state. |
 | `workflow:show` | Show one workflow cluster in detail. |
-| `workflow:rename` | Rename a workflow cluster. |
 | `workflow:label` | Save workflow name, purpose, repetitive flag, and automation review fields. |
 | `workflow:merge` | Merge one workflow into another on future analyses. |
 | `workflow:split` | Split a workflow after a selected action on future analyses. |
@@ -338,11 +357,9 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 | `credential:status` | Show secure credential backend status. |
 | `credential:set` | Store a provider API key in secure OS credential storage. |
 | `credential:delete` | Delete a stored provider API key from secure storage. |
-| `credential:set-openai` | Store the OpenAI API key in secure OS credential storage. |
-| `credential:delete-openai` | Delete the stored OpenAI API key from secure storage. |
 | `auth:login` | Run Gemini OAuth login and store the resulting credentials securely. |
 | `auth:logout` | Delete stored Gemini OAuth credentials. |
-| `serve` | Run the standalone local HTTP ingest server for collectors. |
+| `server:run` | Run the local HTTP server for collectors and the browser viewer. |
 | `demo` | Reset data, seed mock events, run analysis, and print a report. |
 | `reset` | Delete all locally stored events and analysis artifacts. |
 
@@ -350,6 +367,8 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 
 - `src/cli.ts`: CLI entry point and command definitions
 - `src/agent/`: resident runtime, control plane, collector supervision, scheduler, and autostart helpers
+- `src/viewer/`: live viewer data assembly for the local browser dashboard
+- `src/server/`: local HTTP server, ingest routes, and browser viewer assets
 - `src/storage/database.ts`: SQLite persistence layer
 - `src/storage/schema.ts`: database schema
 - `src/privacy/sanitize.ts`: sensitive metadata filtering

@@ -119,6 +119,7 @@ interface SessionStepContextRow {
   action_source?: NormalizedEvent["actionSource"];
   application: string;
   domain: string | null;
+  title_pattern?: string | null;
   target?: string | null;
 }
 
@@ -548,8 +549,9 @@ export class AppDatabase {
           action_source,
           application,
           domain,
+          title_pattern,
           target
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       for (const session of args.sessions) {
@@ -576,6 +578,7 @@ export class AppDatabase {
             step.actionSource,
             step.application,
             step.domain ?? null,
+            step.titlePattern ?? null,
             step.target ?? null,
           );
         }
@@ -1006,6 +1009,7 @@ export class AppDatabase {
           action_source,
           application,
           domain,
+          title_pattern,
           target
         FROM session_steps
         WHERE session_id = ?
@@ -1034,6 +1038,7 @@ export class AppDatabase {
         actionSource: row.action_source ?? "inferred",
         application: row.application,
         domain: row.domain ?? undefined,
+        titlePattern: row.title_pattern ?? undefined,
         target: row.target ?? undefined,
       })),
     };

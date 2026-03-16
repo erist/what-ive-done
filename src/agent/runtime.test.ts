@@ -74,6 +74,7 @@ test("startAgentRuntime publishes heartbeat state and clears the lock on stop", 
       ingestServerFactory: async () => ({
         host: "127.0.0.1",
         port: 4318,
+        viewerUrl: "http://127.0.0.1:4318/",
         close: async () => {
           ingestServerClosed = true;
         },
@@ -140,6 +141,10 @@ test("startAgentRuntime publishes heartbeat state and clears the lock on stop", 
     assert.equal(
       initialStatus.state?.ingestServer?.eventsUrl,
       "http://127.0.0.1:4318/events",
+    );
+    assert.equal(
+      initialStatus.state?.ingestServer?.viewerUrl,
+      "http://127.0.0.1:4318/",
     );
 
     await runtime.stop("test");

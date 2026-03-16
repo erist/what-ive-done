@@ -143,6 +143,7 @@ export async function startAgentRuntime(
         status: "running",
         host: ingestServer.host,
         port: ingestServer.port,
+        viewerUrl: ingestServer.viewerUrl,
         healthUrl: `http://${ingestServer.host}:${ingestServer.port}/health`,
         eventsUrl: `http://${ingestServer.host}:${ingestServer.port}/events`,
         startedAt: new Date().toISOString(),

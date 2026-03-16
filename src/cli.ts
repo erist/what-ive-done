@@ -275,6 +275,139 @@ function parseBooleanOption(value: string): boolean {
   throw new Error(`Expected a boolean value, received: ${value}`);
 }
 
+function printDeprecationWarning(
+  command: string,
+  options: {
+    replacement?: string | undefined;
+    note?: string | undefined;
+  } = {},
+): void {
+  const message = [
+    `[deprecated] ${command} is deprecated.`,
+    options.replacement ? `Use ${options.replacement} instead.` : "",
+    options.note ?? "",
+  ]
+    .filter((part) => part.length > 0)
+    .join(" ");
+
+  console.error(message);
+}
+
+function resolveViewerUrl(
+  dataDir?: string,
+  fallback: { host?: string | undefined; port?: number | undefined } = {},
+): string {
+  const status = getAgentStatusSnapshot(dataDir);
+  const viewerUrl = status.state?.ingestServer?.viewerUrl;
+
+  if (viewerUrl) {
+    return viewerUrl;
+  }
+
+  const host = status.state?.ingestServer?.host ?? fallback.host ?? "127.0.0.1";
+  const port = status.state?.ingestServer?.port ?? fallback.port ?? 4318;
+
+  return `http://${host}:${port}/`;
+}
+
+async function runServerCommand(
+  options: { dataDir?: string; host: string; port: string; open?: boolean },
+  invokedAs: "server:run" | "serve",
+): Promise<void> {
+  if (invokedAs === "serve") {
+    printDeprecationWarning("serve", {
+      replacement: "server:run",
+    });
+  }
+
+  const server = await startIngestServer({
+    dataDir: options.dataDir,
+    host: options.host,
+    port: Number.parseInt(options.port, 10),
+  });
+  const opened = options.open ? openSystemBrowser(server.viewerUrl) : false;
+
+  console.log(
+    JSON.stringify(
+      {
+        status: "listening",
+        host: server.host,
+        port: server.port,
+        viewerUrl: server.viewerUrl,
+        healthUrl: `http://${server.host}:${server.port}/health`,
+        eventsUrl: `http://${server.host}:${server.port}/events`,
+        viewerOpened: opened,
+      },
+      null,
+      2,
+    ),
+  );
+
+  const stopServer = async () => {
+    await server.close();
+    process.exit(0);
+  };
+
+  process.on("SIGINT", stopServer);
+  process.on("SIGTERM", stopServer);
+}
+
+async function runLegacyReportSchedulerCommand(options: {
+  dataDir?: string;
+  windows: ReportWindow[];
+  intervalSeconds: string;
+  once?: boolean;
+  json?: boolean;
+}): Promise<void> {
+  printDeprecationWarning("report:scheduler", {
+    note: "Prefer agent:run for the resident scheduler or agent:run-once for a single refresh cycle.",
+  });
+
+  const intervalMs = Number.parseInt(options.intervalSeconds, 10) * 1000;
+
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
+    throw new Error(`Invalid interval: ${options.intervalSeconds}`);
+  }
+
+  let stopped = false;
+  const stop = () => {
+    stopped = true;
+  };
+
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+
+  do {
+    const generatedSnapshots = withDatabase(options.dataDir, (database) =>
+      runReportSchedulerCycle(database, {
+        windows: options.windows,
+      }),
+    );
+    const payload = {
+      status: "report_scheduler_cycle_completed",
+      generatedAt: new Date().toISOString(),
+      windows: options.windows,
+      snapshots: generatedSnapshots.map((snapshot) => ({
+        id: snapshot.id,
+        window: snapshot.timeWindow.window,
+        reportDate: snapshot.timeWindow.reportDate,
+        generatedAt: snapshot.generatedAt,
+        totalSessions: snapshot.totalSessions,
+        workflows: snapshot.workflows.length,
+        emergingWorkflows: snapshot.emergingWorkflows.length,
+      })),
+    };
+
+    console.log(JSON.stringify(payload, null, 2));
+
+    if (options.once || stopped) {
+      break;
+    }
+
+    await sleep(intervalMs);
+  } while (!stopped);
+}
+
 function renderWorkflowList(json = false, dataDir?: string): void {
   const workflows = withDatabase(dataDir, (database) => database.listWorkflowClusters());
 
@@ -602,6 +735,7 @@ program
   .option("--snapshot-interval-seconds <seconds>", "Snapshot scheduler interval in seconds", "300")
   .option("--no-collectors", "Disable collector supervision inside the agent")
   .option("--no-snapshot-scheduler", "Disable snapshot scheduling inside the agent")
+  .option("--open-viewer", "Open the local viewer in the default browser after startup")
   .action(
     async (options: {
       dataDir?: string;
@@ -615,6 +749,7 @@ program
       snapshotIntervalSeconds: string;
       collectors: boolean;
       snapshotScheduler: boolean;
+      openViewer?: boolean;
     }) => {
     const runtime = await startAgentRuntime({
       dataDir: options.dataDir,
@@ -630,7 +765,16 @@ program
       enableSnapshotScheduler: options.snapshotScheduler,
     });
 
-    console.log(JSON.stringify(getAgentStatusSnapshot(options.dataDir), null, 2));
+    const status = getAgentStatusSnapshot(options.dataDir);
+
+    if (options.openViewer) {
+      openSystemBrowser(resolveViewerUrl(options.dataDir, {
+        host: options.ingestHost,
+        port: Number.parseInt(options.ingestPort, 10),
+      }));
+    }
+
+    console.log(JSON.stringify(status, null, 2));
 
     await runtime.waitForStop();
     },
@@ -1147,68 +1291,13 @@ program
 program
   .command("report:scheduler")
   .description("Run a local scheduler that refreshes report snapshots")
+  .helpGroup("Deprecated Commands:")
   .option("--data-dir <path>", "Override application data directory")
   .option("--windows <windows>", "Comma-separated report windows", parseReportWindowList, ["day", "week"])
   .option("--interval-seconds <seconds>", "Polling interval in seconds", "300")
   .option("--once", "Run one scheduler cycle and exit")
   .option("--json", "Print machine-readable JSON")
-  .action(
-    async (options: {
-      dataDir?: string;
-      windows: ReportWindow[];
-      intervalSeconds: string;
-      once?: boolean;
-      json?: boolean;
-    }) => {
-      const intervalMs = Number.parseInt(options.intervalSeconds, 10) * 1000;
-
-      if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
-        throw new Error(`Invalid interval: ${options.intervalSeconds}`);
-      }
-
-      let stopped = false;
-      const stop = () => {
-        stopped = true;
-      };
-
-      process.on("SIGINT", stop);
-      process.on("SIGTERM", stop);
-
-      do {
-        const generatedSnapshots = withDatabase(options.dataDir, (database) =>
-          runReportSchedulerCycle(database, {
-            windows: options.windows,
-          }),
-        );
-        const payload = {
-          status: "report_scheduler_cycle_completed",
-          generatedAt: new Date().toISOString(),
-          windows: options.windows,
-          snapshots: generatedSnapshots.map((snapshot) => ({
-            id: snapshot.id,
-            window: snapshot.timeWindow.window,
-            reportDate: snapshot.timeWindow.reportDate,
-            generatedAt: snapshot.generatedAt,
-            totalSessions: snapshot.totalSessions,
-            workflows: snapshot.workflows.length,
-            emergingWorkflows: snapshot.emergingWorkflows.length,
-          })),
-        };
-
-        if (options.json) {
-          console.log(JSON.stringify(payload, null, 2));
-        } else {
-          console.log(JSON.stringify(payload, null, 2));
-        }
-
-        if (options.once || stopped) {
-          break;
-        }
-
-        await sleep(intervalMs);
-      } while (!stopped);
-    },
-  );
+  .action(runLegacyReportSchedulerCommand);
 
 program
   .command("workflow:list")
@@ -1232,10 +1321,15 @@ program
 program
   .command("workflow:rename")
   .description("Rename a workflow cluster")
+  .helpGroup("Deprecated Commands:")
   .argument("<workflow-id>", "Workflow cluster id")
   .argument("<name>", "New workflow name")
   .option("--data-dir <path>", "Override application data directory")
   .action((workflowId: string, name: string, options: { dataDir?: string }) => {
+    printDeprecationWarning("workflow:rename", {
+      replacement: `workflow:label ${workflowId} --name "${name}"`,
+    });
+
     withDatabase(options.dataDir, (database) => {
       database.saveWorkflowFeedback({
         workflowClusterId: workflowId,
@@ -1762,8 +1856,13 @@ program
 program
   .command("credential:set-openai")
   .description("Store the OpenAI API key in secure OS credential storage")
+  .helpGroup("Deprecated Commands:")
   .argument("[api-key]", "OpenAI API key. If omitted, OPENAI_API_KEY is used.")
   .action((apiKey: string | undefined) => {
+    printDeprecationWarning("credential:set-openai", {
+      replacement: "credential:set openai",
+    });
+
     const credentialStore = resolveCredentialStore();
     const resolvedApiKey = apiKey ?? requireEnv("OPENAI_API_KEY");
 
@@ -1784,7 +1883,12 @@ program
 program
   .command("credential:delete-openai")
   .description("Delete the stored OpenAI API key from secure OS credential storage")
+  .helpGroup("Deprecated Commands:")
   .action(() => {
+    printDeprecationWarning("credential:delete-openai", {
+      replacement: "credential:delete openai",
+    });
+
     const credentialStore = resolveCredentialStore();
     deleteLLMApiKey(credentialStore, "openai");
 
@@ -1947,40 +2051,53 @@ program
   });
 
 program
-  .command("serve")
-  .description("Run a local HTTP ingest server for browser or desktop collectors")
+  .command("viewer:open")
+  .description("Open the local workflow viewer in the default browser")
   .option("--data-dir <path>", "Override application data directory")
-  .option("--host <host>", "Host to bind", "127.0.0.1")
-  .option("--port <port>", "Port to bind", "4318")
-  .action(async (options: { dataDir?: string; host: string; port: string }) => {
-    const server = await startIngestServer({
-      dataDir: options.dataDir,
+  .option("--host <host>", "Fallback host when no active agent state exists", "127.0.0.1")
+  .option("--port <port>", "Fallback port when no active agent state exists", "4318")
+  .action((options: { dataDir?: string; host: string; port: string }) => {
+    const viewerUrl = resolveViewerUrl(options.dataDir, {
       host: options.host,
       port: Number.parseInt(options.port, 10),
     });
+    const opened = openSystemBrowser(viewerUrl);
 
     console.log(
       JSON.stringify(
         {
-          status: "listening",
-          host: server.host,
-          port: server.port,
-          healthUrl: `http://${server.host}:${server.port}/health`,
-          eventsUrl: `http://${server.host}:${server.port}/events`,
+          status: opened ? "viewer_open_requested" : "viewer_open_failed",
+          viewerUrl,
+          opened,
         },
         null,
         2,
       ),
     );
-
-    const stopServer = async () => {
-      await server.close();
-      process.exit(0);
-    };
-
-    process.on("SIGINT", stopServer);
-    process.on("SIGTERM", stopServer);
   });
+
+program
+  .command("server:run")
+  .description("Run a local HTTP server for collectors and the browser viewer")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--host <host>", "Host to bind", "127.0.0.1")
+  .option("--port <port>", "Port to bind", "4318")
+  .option("--open", "Open the local viewer in the default browser after startup")
+  .action((options: { dataDir?: string; host: string; port: string; open?: boolean }) =>
+    runServerCommand(options, "server:run"),
+  );
+
+program
+  .command("serve")
+  .description("Run a local HTTP server for collectors and the browser viewer")
+  .helpGroup("Deprecated Commands:")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--host <host>", "Host to bind", "127.0.0.1")
+  .option("--port <port>", "Port to bind", "4318")
+  .option("--open", "Open the local viewer in the default browser after startup")
+  .action((options: { dataDir?: string; host: string; port: string; open?: boolean }) =>
+    runServerCommand(options, "serve"),
+  );
 
 program
   .command("demo")
