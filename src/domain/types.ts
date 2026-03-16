@@ -1,8 +1,18 @@
 export type EventSource = "desktop" | "chrome_extension" | "mock";
 
 export type AutomationSuitability = "high" | "medium" | "low";
+export type AutomationDifficulty = "high" | "medium" | "low";
 
 export type ReportWindow = "all" | "day" | "week";
+
+export type ActionSource = "rule" | "inferred" | "user_labeled";
+
+export type SessionBoundaryReason =
+  | "stream_start"
+  | "idle_gap"
+  | "context_shift"
+  | "idle_and_context_shift"
+  | "reset_after_interruption";
 
 export interface RawEvent {
   id: string;
@@ -38,8 +48,17 @@ export interface NormalizedEvent {
   rawEventId: string;
   timestamp: string;
   application: string;
+  appNameNormalized: string;
   domain?: string | undefined;
+  url?: string | undefined;
+  pathPattern?: string | undefined;
+  pageType?: string | undefined;
+  resourceHint?: string | undefined;
+  titlePattern?: string | undefined;
   action: string;
+  actionName: string;
+  actionConfidence: number;
+  actionSource: ActionSource;
   target?: string | undefined;
   metadata: Record<string, unknown>;
   createdAt: string;
@@ -50,8 +69,12 @@ export interface SessionStep {
   normalizedEventId: string;
   timestamp: string;
   action: string;
+  actionName: string;
+  actionConfidence: number;
+  actionSource: ActionSource;
   application: string;
   domain?: string | undefined;
+  titlePattern?: string | undefined;
   target?: string | undefined;
 }
 
@@ -61,6 +84,8 @@ export interface Session {
   endTime: string;
   primaryApplication: string;
   primaryDomain?: string | undefined;
+  sessionBoundaryReason: SessionBoundaryReason;
+  sessionBoundaryDetails: Record<string, unknown>;
   steps: SessionStep[];
 }
 
@@ -70,46 +95,111 @@ export interface SessionSummary {
   endTime: string;
   primaryApplication: string;
   primaryDomain?: string | undefined;
+  sessionBoundaryReason: SessionBoundaryReason;
   stepCount: number;
+}
+
+export interface WorkflowVariant {
+  sequence: string[];
+  occurrenceCount: number;
+  averageDurationSeconds: number;
 }
 
 export interface WorkflowCluster {
   id: string;
+  workflowSignature: string;
   name: string;
+  businessPurpose?: string | undefined;
   sessionIds: string[];
+  occurrenceCount: number;
   frequency: number;
   averageDurationSeconds: number;
   totalDurationSeconds: number;
+  representativeSequence: string[];
   representativeSteps: string[];
+  involvedApps: string[];
+  confidenceScore: number;
+  topVariants: WorkflowVariant[];
   automationSuitability: AutomationSuitability;
   recommendedApproach: string;
+  automationHints: AutomationHint[];
   excluded: boolean;
   hidden: boolean;
+  repetitive?: boolean | undefined;
+  automationCandidate?: boolean | undefined;
+  automationDifficulty?: AutomationDifficulty | undefined;
+  approvedAutomationCandidate?: boolean | undefined;
+  mergeIntoWorkflowId?: string | undefined;
+  mergeIntoWorkflowSignature?: string | undefined;
+  splitAfterActionName?: string | undefined;
+  userLabeled: boolean;
 }
 
 export interface WorkflowFeedback {
   id: string;
   workflowClusterId: string;
+  workflowSignature: string;
   renameTo?: string | undefined;
+  businessPurpose?: string | undefined;
   excluded?: boolean | undefined;
   hidden?: boolean | undefined;
+  repetitive?: boolean | undefined;
+  automationCandidate?: boolean | undefined;
+  automationDifficulty?: AutomationDifficulty | undefined;
+  approvedAutomationCandidate?: boolean | undefined;
+  mergeIntoWorkflowId?: string | undefined;
+  mergeIntoWorkflowSignature?: string | undefined;
+  splitAfterActionName?: string | undefined;
   createdAt: string;
 }
 
 export interface WorkflowFeedbackSummary {
   renameTo?: string | undefined;
+  businessPurpose?: string | undefined;
   excluded?: boolean | undefined;
   hidden?: boolean | undefined;
+  repetitive?: boolean | undefined;
+  automationCandidate?: boolean | undefined;
+  automationDifficulty?: AutomationDifficulty | undefined;
+  approvedAutomationCandidate?: boolean | undefined;
+  mergeIntoWorkflowId?: string | undefined;
+  mergeIntoWorkflowSignature?: string | undefined;
+  splitAfterActionName?: string | undefined;
+}
+
+export interface WorkflowGraph {
+  nodes: string[];
+  edges: Array<{ from: string; to: string; weight: number }>;
+  text: string;
+}
+
+export interface AutomationHint {
+  suggestedApproach: string;
+  whyThisFits: string;
+  estimatedDifficulty: AutomationDifficulty;
+  prerequisites: string[];
+  expectedTimeSavings: string;
 }
 
 export interface ReportEntry {
   workflowClusterId: string;
   workflowName: string;
+  businessPurpose?: string | undefined;
   frequency: number;
+  frequencyPerWeek: number;
   averageDurationSeconds: number;
   totalDurationSeconds: number;
+  estimatedTotalTimeSpentSeconds: number;
+  representativeSequence: string[];
+  representativeSteps: string[];
+  involvedApps: string[];
+  automationSuitabilityScore: number;
+  confidenceScore: number;
+  userLabeled: boolean;
+  graph: WorkflowGraph;
   automationSuitability: AutomationSuitability;
   recommendedApproach: string;
+  automationHints: AutomationHint[];
 }
 
 export interface ReportTimeWindow {
@@ -137,6 +227,12 @@ export interface WorkflowReport {
   totalTrackedDurationSeconds: number;
   workflows: ReportEntry[];
   emergingWorkflows: EmergingWorkflowEntry[];
+  summary: {
+    topRepetitiveWorkflows: ReportEntry[];
+    highestTimeConsumingRepetitiveWorkflows: ReportEntry[];
+    quickWinAutomationCandidates: ReportEntry[];
+    workflowsNeedingHumanJudgment: ReportEntry[];
+  };
 }
 
 export interface ReportSnapshot extends WorkflowReport {

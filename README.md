@@ -10,31 +10,34 @@ Language:
 
 Local-first workflow pattern analyzer for discovering repetitive work before deciding what to automate.
 
-The repository now centers on a **resident local agent** with a CLI control plane.
-The agent can run the local ingest server, supervise desktop collectors, generate day/week report snapshots, and expose runtime health through CLI commands.
-The project is focused on workflow analysis and discovery, not automation execution.
+This repository provides a TypeScript CLI plus a resident local agent. Together they collect or import activity metadata, store it locally in SQLite, normalize noisy events into stable workflow context, map them into semantic actions, segment them into sessions, cluster near-matching workflows, and generate workflow-centric reports with feedback reuse and automation hints. The project is focused on workflow analysis and discovery, not automation execution.
 
 ### Current Scope
 
 - local-only storage and analysis in SQLite
 - resident local agent runtime with persisted heartbeat and health state
-- local ingest server managed by the agent
+- agent-managed local ingest server and snapshot scheduler
+- local browser viewer for agent status, live workflow reports, snapshots, and session drill-down
 - Windows and macOS active-window collection paths
 - Chrome extension path for browser metadata ingestion
-- all-time, daily, and weekly reports for analyzed local data
+- deterministic event normalization and semantic action abstraction
+- explainable session segmentation with boundary reasons
+- near-match workflow clustering with variants and confidence scores
+- all-time, daily, and weekly workflow-centric reports
 - stored daily and weekly report snapshots
-- agent-managed snapshot scheduler
-- control-plane CLI commands for runtime health, manual snapshot refresh, and latest snapshot lookup
-- workflow review, feedback, and session deletion
-- LLM-safe workflow summary export and OpenAI-based workflow analysis
+- workflow review, label, merge, split, exclude, hide, and session deletion
+- practical automation hints for likely automation candidates
+- LLM-safe workflow summary export and configurable provider-based workflow analysis for ChatGPT, Gemini, and Claude
+- saved default LLM provider/model/auth configuration
 - macOS LaunchAgent autostart helpers
 
 Current limitations:
 
-- Windows autostart is not implemented yet
-- desktop UI and tray UI are not implemented yet
-- native desktop collectors currently focus on active-window changes
-- legacy/manual commands such as `serve` and `report:scheduler` still coexist with the new agent flow
+- Windows autostart installation is not implemented yet
+- the current browser viewer is read-only and feedback flow is still CLI-first
+- a packaged desktop app or tray UI does not exist yet
+- native desktop collectors still focus on active-window changes
+- report comparison views are not implemented yet
 
 ### Quick Start
 
@@ -47,13 +50,13 @@ npm test
 npm run build
 ```
 
-Run a one-command local demo:
+Run a one-command demo:
 
 ```bash
 npm run dev -- demo --data-dir ./tmp/demo-data
 ```
 
-Recommended agent-first flow with seeded data:
+Recommended agent-first flow:
 
 ```bash
 npm run dev -- init --data-dir ./tmp/agent-data
@@ -62,10 +65,28 @@ npm run dev -- agent:run-once --data-dir ./tmp/agent-data
 npm run dev -- agent:snapshot:latest --data-dir ./tmp/agent-data
 ```
 
-Run the resident agent for live operation:
+Run the resident agent:
 
 ```bash
 npm run dev -- agent:run --data-dir ./tmp/live-data
+```
+
+Run the resident agent and open the local browser viewer:
+
+```bash
+npm run dev -- agent:run --data-dir ./tmp/live-data --open-viewer
+```
+
+Open the local browser viewer directly:
+
+```bash
+npm run dev -- viewer:open --data-dir ./tmp/live-data
+```
+
+Default local viewer URL:
+
+```text
+http://127.0.0.1:4318/
 ```
 
 Check health and stop it:
@@ -85,6 +106,14 @@ npm run dev -- analyze --data-dir ./tmp/local-data
 npm run dev -- report --data-dir ./tmp/local-data --window week --json
 ```
 
+Workflow feedback examples:
+
+```bash
+npm run dev -- workflow:label <workflow-id> --purpose "Review shipping status" --automation-candidate true --difficulty medium --data-dir ./tmp/local-data
+npm run dev -- workflow:merge <workflow-id> <target-workflow-id> --data-dir ./tmp/local-data
+npm run dev -- workflow:split <workflow-id> --after-action search_order --data-dir ./tmp/local-data
+```
+
 ### Common Commands
 
 ```bash
@@ -95,14 +124,33 @@ npm run dev -- agent:run-once --data-dir ./tmp/live-data
 npm run dev -- agent:snapshot:latest --data-dir ./tmp/live-data
 npm run dev -- agent:collectors --data-dir ./tmp/live-data
 npm run dev -- agent:autostart:status --data-dir ./tmp/live-data
+npm run dev -- viewer:open --data-dir ./tmp/live-data
 npm run dev -- report:snapshot:list --data-dir ./tmp/live-data --json
+npm run dev -- report:snapshot:show --data-dir ./tmp/live-data --window week --latest --json
 ```
 
-Legacy/manual runtime commands still exist when needed:
+Lower-level server command when needed:
 
 ```bash
-npm run dev -- serve --data-dir ./tmp/live-data --host 127.0.0.1 --port 4318
-npm run dev -- report:scheduler --data-dir ./tmp/live-data --once --json
+npm run dev -- server:run --data-dir ./tmp/live-data --host 127.0.0.1 --port 4318 --open
+```
+
+### LLM Configuration
+
+```bash
+npm run dev -- llm:providers --json
+npm run dev -- llm:config:set --data-dir ./tmp/local-data --provider gemini --auth api-key --model gemini-2.5-flash
+npm run dev -- credential:set gemini
+npm run dev -- llm:analyze --data-dir ./tmp/local-data --json
+```
+
+Gemini OAuth login:
+
+```bash
+export GOOGLE_CLIENT_ID="your-client-id"
+export GOOGLE_CLIENT_SECRET="your-client-secret"
+export GOOGLE_CLOUD_PROJECT="your-project-id"
+npm run dev -- auth:login gemini --data-dir ./tmp/local-data
 ```
 
 ### Privacy
@@ -123,38 +171,41 @@ The project stores behavioral metadata only. It must not collect raw keystrokes,
 - Chrome for live browser collection
 - Windows PowerShell for the Windows active-window collector
 - Xcode or Xcode Command Line Tools with Swift for the macOS active-window collector
-- `OPENAI_API_KEY` for `llm:analyze` if no key is stored in secure storage
+- provider API key env vars such as `OPENAI_API_KEY`, `GEMINI_API_KEY`/`GOOGLE_API_KEY`, or `ANTHROPIC_API_KEY` when no key is stored in secure storage
 
 <a id="ko"></a>
 ## 한국어
 
-자동화 실행 전에 반복 업무를 발견하고 분석하기 위한 로컬 우선 워크플로우 패턴 분석기입니다.
+자동화 실행 전에 반복 업무를 발견하고 분석하기 위한 로컬 우선 워크플로우 분석기입니다.
 
-이 저장소는 이제 **resident local agent** 와 CLI control plane을 중심으로 동작합니다.
-에이전트는 로컬 ingest server 실행, desktop collector supervision, day/week snapshot 생성, runtime health 상태 노출을 맡습니다.
-초점은 자동화 실행이 아니라 워크플로우 분석과 발견입니다.
+이 저장소는 TypeScript CLI와 resident local agent를 함께 제공합니다. 활동 메타데이터를 수집하거나 import해서 로컬 SQLite에 저장하고, noisy event를 stable workflow context로 정규화한 뒤 semantic action, session, workflow pattern으로 해석하고, feedback 재사용과 automation hint까지 포함한 workflow-centric 리포트를 생성합니다. 초점은 자동화 실행이 아니라 워크플로우 분석과 발견입니다.
 
 ### 현재 범위
 
 - SQLite 기반 로컬 전용 저장 및 분석
 - heartbeat와 health state를 기록하는 resident local agent runtime
-- agent가 관리하는 local ingest server
+- agent가 관리하는 local ingest server와 snapshot scheduler
+- agent 상태, live report, snapshot, session detail을 보는 local browser viewer
 - Windows/macOS active-window 수집 경로
 - 브라우저 메타데이터 수집용 Chrome extension 경로
-- all-time, daily, weekly 리포트
+- deterministic event normalization과 semantic action abstraction
+- boundary reason이 있는 session segmentation
+- near-match workflow clustering, variant, confidence 계산
+- all-time/day/week workflow-centric 리포트
 - daily/weekly report snapshot 저장
-- agent 내부 snapshot scheduler
-- runtime health, 수동 snapshot refresh, latest snapshot 조회용 control CLI
-- 워크플로우 검토, 피드백, 세션 삭제
-- LLM-safe 워크플로우 요약 export와 OpenAI 기반 분석
+- 워크플로우 검토, label, merge, split, exclude, hide, 세션 삭제
+- likely automation candidate를 위한 practical automation hint 제안
+- LLM-safe 워크플로우 요약 export와 ChatGPT, Gemini, Claude 기반 구성형 분석
+- 기본 LLM provider/model/auth 설정 저장
 - macOS LaunchAgent autostart helper
 
 현재 제한 사항:
 
-- Windows autostart는 아직 구현되지 않았습니다
-- desktop UI와 tray UI는 아직 없습니다
+- Windows autostart 설치는 아직 구현되지 않았습니다
+- 현재 browser viewer는 read-only이며 feedback flow는 아직 CLI 중심입니다
+- packaged desktop app이나 tray UI는 아직 없습니다
 - native desktop collector는 현재 active-window 변화 중심입니다
-- `serve`, `report:scheduler` 같은 legacy/manual 명령도 아직 함께 남아 있습니다
+- report comparison view는 아직 없습니다
 
 ### 빠른 시작
 
@@ -167,13 +218,13 @@ npm test
 npm run build
 ```
 
-원커맨드 로컬 데모:
+원커맨드 데모:
 
 ```bash
 npm run dev -- demo --data-dir ./tmp/demo-data
 ```
 
-seeded data 기준 agent-first 흐름:
+권장 agent-first 흐름:
 
 ```bash
 npm run dev -- init --data-dir ./tmp/agent-data
@@ -182,10 +233,28 @@ npm run dev -- agent:run-once --data-dir ./tmp/agent-data
 npm run dev -- agent:snapshot:latest --data-dir ./tmp/agent-data
 ```
 
-실사용 기준 resident agent 실행:
+resident agent 실행:
 
 ```bash
 npm run dev -- agent:run --data-dir ./tmp/live-data
+```
+
+resident agent를 실행하면서 browser viewer까지 바로 열기:
+
+```bash
+npm run dev -- agent:run --data-dir ./tmp/live-data --open-viewer
+```
+
+browser viewer만 열기:
+
+```bash
+npm run dev -- viewer:open --data-dir ./tmp/live-data
+```
+
+기본 local viewer URL:
+
+```text
+http://127.0.0.1:4318/
 ```
 
 상태 확인과 종료:
@@ -196,13 +265,21 @@ npm run dev -- agent:health --data-dir ./tmp/live-data
 npm run dev -- agent:stop --data-dir ./tmp/live-data
 ```
 
-기존 수동 분석 흐름도 계속 사용할 수 있습니다:
+수동 분석 흐름:
 
 ```bash
 npm run dev -- init --data-dir ./tmp/local-data
 npm run dev -- collect:mock --data-dir ./tmp/local-data
 npm run dev -- analyze --data-dir ./tmp/local-data
 npm run dev -- report --data-dir ./tmp/local-data --window week --json
+```
+
+워크플로우 피드백 예시:
+
+```bash
+npm run dev -- workflow:label <workflow-id> --purpose "배송 상태 검토" --automation-candidate true --difficulty medium --data-dir ./tmp/local-data
+npm run dev -- workflow:merge <workflow-id> <target-workflow-id> --data-dir ./tmp/local-data
+npm run dev -- workflow:split <workflow-id> --after-action search_order --data-dir ./tmp/local-data
 ```
 
 ### 자주 쓰는 명령
@@ -215,14 +292,33 @@ npm run dev -- agent:run-once --data-dir ./tmp/live-data
 npm run dev -- agent:snapshot:latest --data-dir ./tmp/live-data
 npm run dev -- agent:collectors --data-dir ./tmp/live-data
 npm run dev -- agent:autostart:status --data-dir ./tmp/live-data
+npm run dev -- viewer:open --data-dir ./tmp/live-data
 npm run dev -- report:snapshot:list --data-dir ./tmp/live-data --json
+npm run dev -- report:snapshot:show --data-dir ./tmp/live-data --window week --latest --json
 ```
 
-필요할 때만 쓰는 legacy/manual runtime 명령:
+필요하면 lower-level server 명령도 사용할 수 있습니다:
 
 ```bash
-npm run dev -- serve --data-dir ./tmp/live-data --host 127.0.0.1 --port 4318
-npm run dev -- report:scheduler --data-dir ./tmp/live-data --once --json
+npm run dev -- server:run --data-dir ./tmp/live-data --host 127.0.0.1 --port 4318 --open
+```
+
+### LLM 설정
+
+```bash
+npm run dev -- llm:providers --json
+npm run dev -- llm:config:set --data-dir ./tmp/local-data --provider gemini --auth api-key --model gemini-2.5-flash
+npm run dev -- credential:set gemini
+npm run dev -- llm:analyze --data-dir ./tmp/local-data --json
+```
+
+Gemini OAuth 로그인:
+
+```bash
+export GOOGLE_CLIENT_ID="your-client-id"
+export GOOGLE_CLIENT_SECRET="your-client-secret"
+export GOOGLE_CLOUD_PROJECT="your-project-id"
+npm run dev -- auth:login gemini --data-dir ./tmp/local-data
 ```
 
 ### 개인정보
@@ -243,4 +339,4 @@ npm run dev -- report:scheduler --data-dir ./tmp/live-data --once --json
 - 실시간 브라우저 수집용 Chrome
 - Windows active-window collector 실행용 Windows PowerShell
 - macOS active-window collector 실행용 Xcode 또는 Xcode Command Line Tools의 Swift
-- secure storage에 키가 없을 때 `llm:analyze`용 `OPENAI_API_KEY`
+- secure storage에 키가 없을 때 `OPENAI_API_KEY`, `GEMINI_API_KEY`/`GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`

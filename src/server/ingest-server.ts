@@ -2,8 +2,11 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { URL } from "node:url";
 
 import { resolveAppPaths } from "../app-paths.js";
+import { parseReportWindow } from "../reporting/windows.js";
 import { AppDatabase } from "../storage/database.js";
+import { buildViewerDashboard, getViewerSessionDetail } from "../viewer/service.js";
 import { coerceIncomingEvents } from "./ingest.js";
+import { renderViewerCss, renderViewerHtml, renderViewerJs } from "./viewer-assets.js";
 
 export interface IngestServerOptions {
   dataDir?: string | undefined;
@@ -14,6 +17,7 @@ export interface IngestServerOptions {
 export interface RunningIngestServer {
   host: string;
   port: number;
+  viewerUrl: string;
   close: () => Promise<void>;
 }
 
@@ -24,9 +28,31 @@ const JSON_HEADERS = {
   "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
 };
 
+const HTML_HEADERS = {
+  "Content-Type": "text/html; charset=utf-8",
+};
+
+const CSS_HEADERS = {
+  "Content-Type": "text/css; charset=utf-8",
+};
+
+const JS_HEADERS = {
+  "Content-Type": "text/javascript; charset=utf-8",
+};
+
 function sendJson(response: ServerResponse, statusCode: number, payload: unknown): void {
   response.writeHead(statusCode, JSON_HEADERS);
   response.end(JSON.stringify(payload, null, 2));
+}
+
+function sendText(
+  response: ServerResponse,
+  statusCode: number,
+  payload: string,
+  headers: Record<string, string>,
+): void {
+  response.writeHead(statusCode, headers);
+  response.end(payload);
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
@@ -53,6 +79,7 @@ export async function startIngestServer(options: IngestServerOptions = {}): Prom
 
   const server = createServer(async (request, response) => {
     const requestUrl = new URL(request.url ?? "/", `http://${host}:${port}`);
+    const sessionPathMatch = requestUrl.pathname.match(/^\/api\/viewer\/sessions\/([^/]+)$/u);
 
     if (request.method === "OPTIONS") {
       response.writeHead(204, JSON_HEADERS);
@@ -61,10 +88,86 @@ export async function startIngestServer(options: IngestServerOptions = {}): Prom
     }
 
     if (request.method === "GET" && requestUrl.pathname === "/health") {
+      const currentAddress = server.address();
+      const viewerPort =
+        currentAddress && typeof currentAddress !== "string" ? currentAddress.port : port;
+
       sendJson(response, 200, {
         status: "ok",
         databasePath: database.paths.databasePath,
+        viewerUrl: `http://${host}:${viewerPort}/`,
       });
+      return;
+    }
+
+    if (request.method === "GET" && requestUrl.pathname === "/") {
+      sendText(response, 200, renderViewerHtml(), HTML_HEADERS);
+      return;
+    }
+
+    if (request.method === "GET" && requestUrl.pathname === "/viewer.css") {
+      sendText(response, 200, renderViewerCss(), CSS_HEADERS);
+      return;
+    }
+
+    if (request.method === "GET" && requestUrl.pathname === "/viewer.js") {
+      sendText(response, 200, renderViewerJs(), JS_HEADERS);
+      return;
+    }
+
+    if (request.method === "GET" && requestUrl.pathname === "/api/viewer/dashboard") {
+      try {
+        const windowValue = requestUrl.searchParams.get("window");
+        const reportWindow = windowValue ? parseReportWindow(windowValue) : "day";
+        const reportDate = requestUrl.searchParams.get("date") ?? undefined;
+
+        sendJson(
+          response,
+          200,
+          buildViewerDashboard(database, {
+            dataDir: options.dataDir,
+            window: reportWindow,
+            date: reportDate,
+          }),
+        );
+      } catch (error) {
+        sendJson(response, 400, {
+          status: "error",
+          message: error instanceof Error ? error.message : "Unknown viewer dashboard error",
+        });
+      }
+
+      return;
+    }
+
+    if (request.method === "GET" && sessionPathMatch) {
+      try {
+        const sessionId = decodeURIComponent(sessionPathMatch[1] ?? "");
+        const windowValue = requestUrl.searchParams.get("window");
+        const reportWindow = windowValue ? parseReportWindow(windowValue) : "day";
+        const reportDate = requestUrl.searchParams.get("date") ?? undefined;
+        const session = getViewerSessionDetail(database, sessionId, {
+          dataDir: options.dataDir,
+          window: reportWindow,
+          date: reportDate,
+        });
+
+        if (!session) {
+          sendJson(response, 404, {
+            status: "not_found",
+            sessionId,
+          });
+          return;
+        }
+
+        sendJson(response, 200, session);
+      } catch (error) {
+        sendJson(response, 400, {
+          status: "error",
+          message: error instanceof Error ? error.message : "Unknown viewer session error",
+        });
+      }
+
       return;
     }
 
@@ -114,6 +217,7 @@ export async function startIngestServer(options: IngestServerOptions = {}): Prom
   return {
     host,
     port: address.port,
+    viewerUrl: `http://${host}:${address.port}/`,
     close: async () => {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => {

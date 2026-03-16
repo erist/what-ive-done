@@ -9,13 +9,44 @@ import {
 import { getAgentStatusSnapshot } from "./agent/state.js";
 import { startAgentRuntime, stopAgentRuntime } from "./agent/runtime.js";
 import { resolveAppPaths } from "./app-paths.js";
+import { openSystemBrowser } from "./auth/browser.js";
+import {
+  isGoogleOAuthAccessTokenExpired,
+  refreshGoogleOAuthCredentials,
+  runGoogleOAuthInteractiveLogin,
+} from "./auth/google-oauth.js";
 import { getAvailableCollectors } from "./collectors/index.js";
 import { getMacOSActiveWindowCollectorInfo, resolveMacOSCollectorRunner } from "./collectors/macos.js";
 import { getWindowsActiveWindowCollectorInfo } from "./collectors/windows.js";
+import {
+  deleteGeminiOAuthCredentials,
+  deleteLLMApiKey,
+  getGeminiOAuthCredentials,
+  getLLMApiKey,
+  hasGeminiOAuthCredentials,
+  hasLLMApiKey,
+  setGeminiOAuthCredentials,
+  setLLMApiKey,
+} from "./credentials/llm.js";
 import { resolveCredentialStore } from "./credentials/store.js";
 import { generateMockRawEvents } from "./collectors/mock.js";
 import { importEventsFromFile } from "./importers/events.js";
-import { createOpenAIWorkflowAnalyzer } from "./llm/openai.js";
+import {
+  getDefaultLLMAuthMethod,
+  getLLMProviderDescriptor,
+  LLM_PROVIDERS,
+  normalizeLLMAuthMethod,
+  normalizeLLMProvider,
+  supportsLLMAuthMethod,
+  type LLMAuthMethod,
+  type LLMProvider,
+} from "./llm/catalog.js";
+import {
+  getStoredLLMConfiguration,
+  updateLLMConfiguration,
+  type LLMConfiguration,
+} from "./llm/config.js";
+import { createWorkflowAnalyzer } from "./llm/factory.js";
 import { analyzeRawEvents } from "./pipeline/analyze.js";
 import { buildWorkflowReport, formatDuration } from "./reporting/report.js";
 import {
@@ -53,12 +84,50 @@ function renderReportTable(reportEntries: ReportEntry[]): void {
     reportEntries.map((entry) => ({
       workflow: entry.workflowName,
       frequency: entry.frequency,
+      frequencyPerWeek: entry.frequencyPerWeek,
       averageDuration: formatDuration(entry.averageDurationSeconds),
       totalDuration: formatDuration(entry.totalDurationSeconds),
+      apps: entry.involvedApps.join(", "),
+      confidence: entry.confidenceScore,
+      labeled: entry.userLabeled,
       automationSuitability: entry.automationSuitability,
+      automationScore: entry.automationSuitabilityScore,
       recommendation: entry.recommendedApproach,
     })),
   );
+}
+
+function renderWorkflowSection(title: string, reportEntries: ReportEntry[]): void {
+  if (reportEntries.length === 0) {
+    return;
+  }
+
+  console.log(title);
+  renderReportTable(reportEntries);
+}
+
+function renderWorkflowGraphs(reportEntries: ReportEntry[]): void {
+  if (reportEntries.length === 0) {
+    return;
+  }
+
+  console.log("Workflow graphs");
+
+  for (const entry of reportEntries) {
+    console.log(
+      JSON.stringify(
+        {
+          workflow: entry.workflowName,
+          graph: entry.graph.text,
+          steps: entry.representativeSteps,
+          businessPurpose: entry.businessPurpose ?? null,
+          firstAutomationHint: entry.automationHints[0] ?? null,
+        },
+        null,
+        2,
+      ),
+    );
+  }
 }
 
 function renderSnapshotListTable(snapshots: ReportSnapshotSummary[]): void {
@@ -140,7 +209,22 @@ function renderWindowedWorkflowReport(report: WorkflowReport, json = false): voi
   if (report.workflows.length === 0) {
     console.log("No confirmed workflows detected for this window.");
   } else {
+    renderWorkflowSection("Top repetitive workflows", report.summary.topRepetitiveWorkflows);
+    renderWorkflowSection(
+      "Highest time-consuming repetitive workflows",
+      report.summary.highestTimeConsumingRepetitiveWorkflows,
+    );
+    renderWorkflowSection(
+      "Quick-win automation candidates",
+      report.summary.quickWinAutomationCandidates,
+    );
+    renderWorkflowSection(
+      "Workflows needing human judgment",
+      report.summary.workflowsNeedingHumanJudgment,
+    );
+    console.log("All workflows");
     renderReportTable(report.workflows);
+    renderWorkflowGraphs(report.workflows.slice(0, 5));
   }
 
   if (report.emergingWorkflows.length > 0) {
@@ -168,18 +252,6 @@ function renderReport(
   } = {},
 ): void {
   const report = buildStoredWorkflowReport(dataDir, options);
-  const useLegacyAllTimeOutput = (options.window ?? "all") === "all" && options.date === undefined;
-
-  if (useLegacyAllTimeOutput) {
-    if (json) {
-      console.log(JSON.stringify(report.workflows, null, 2));
-      return;
-    }
-
-    renderReportTable(report.workflows);
-    return;
-  }
-
   renderWindowedWorkflowReport(report, json);
 }
 
@@ -187,6 +259,153 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function parseBooleanOption(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+
+  if (["true", "yes", "y", "1"].includes(normalized)) {
+    return true;
+  }
+
+  if (["false", "no", "n", "0"].includes(normalized)) {
+    return false;
+  }
+
+  throw new Error(`Expected a boolean value, received: ${value}`);
+}
+
+function printDeprecationWarning(
+  command: string,
+  options: {
+    replacement?: string | undefined;
+    note?: string | undefined;
+  } = {},
+): void {
+  const message = [
+    `[deprecated] ${command} is deprecated.`,
+    options.replacement ? `Use ${options.replacement} instead.` : "",
+    options.note ?? "",
+  ]
+    .filter((part) => part.length > 0)
+    .join(" ");
+
+  console.error(message);
+}
+
+function resolveViewerUrl(
+  dataDir?: string,
+  fallback: { host?: string | undefined; port?: number | undefined } = {},
+): string {
+  const status = getAgentStatusSnapshot(dataDir);
+  const viewerUrl = status.state?.ingestServer?.viewerUrl;
+
+  if (viewerUrl) {
+    return viewerUrl;
+  }
+
+  const host = status.state?.ingestServer?.host ?? fallback.host ?? "127.0.0.1";
+  const port = status.state?.ingestServer?.port ?? fallback.port ?? 4318;
+
+  return `http://${host}:${port}/`;
+}
+
+async function runServerCommand(
+  options: { dataDir?: string; host: string; port: string; open?: boolean },
+  invokedAs: "server:run" | "serve",
+): Promise<void> {
+  if (invokedAs === "serve") {
+    printDeprecationWarning("serve", {
+      replacement: "server:run",
+    });
+  }
+
+  const server = await startIngestServer({
+    dataDir: options.dataDir,
+    host: options.host,
+    port: Number.parseInt(options.port, 10),
+  });
+  const opened = options.open ? openSystemBrowser(server.viewerUrl) : false;
+
+  console.log(
+    JSON.stringify(
+      {
+        status: "listening",
+        host: server.host,
+        port: server.port,
+        viewerUrl: server.viewerUrl,
+        healthUrl: `http://${server.host}:${server.port}/health`,
+        eventsUrl: `http://${server.host}:${server.port}/events`,
+        viewerOpened: opened,
+      },
+      null,
+      2,
+    ),
+  );
+
+  const stopServer = async () => {
+    await server.close();
+    process.exit(0);
+  };
+
+  process.on("SIGINT", stopServer);
+  process.on("SIGTERM", stopServer);
+}
+
+async function runLegacyReportSchedulerCommand(options: {
+  dataDir?: string;
+  windows: ReportWindow[];
+  intervalSeconds: string;
+  once?: boolean;
+  json?: boolean;
+}): Promise<void> {
+  printDeprecationWarning("report:scheduler", {
+    note: "Prefer agent:run for the resident scheduler or agent:run-once for a single refresh cycle.",
+  });
+
+  const intervalMs = Number.parseInt(options.intervalSeconds, 10) * 1000;
+
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
+    throw new Error(`Invalid interval: ${options.intervalSeconds}`);
+  }
+
+  let stopped = false;
+  const stop = () => {
+    stopped = true;
+  };
+
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+
+  do {
+    const generatedSnapshots = withDatabase(options.dataDir, (database) =>
+      runReportSchedulerCycle(database, {
+        windows: options.windows,
+      }),
+    );
+    const payload = {
+      status: "report_scheduler_cycle_completed",
+      generatedAt: new Date().toISOString(),
+      windows: options.windows,
+      snapshots: generatedSnapshots.map((snapshot) => ({
+        id: snapshot.id,
+        window: snapshot.timeWindow.window,
+        reportDate: snapshot.timeWindow.reportDate,
+        generatedAt: snapshot.generatedAt,
+        totalSessions: snapshot.totalSessions,
+        workflows: snapshot.workflows.length,
+        emergingWorkflows: snapshot.emergingWorkflows.length,
+      })),
+    };
+
+    console.log(JSON.stringify(payload, null, 2));
+
+    if (options.once || stopped) {
+      break;
+    }
+
+    await sleep(intervalMs);
+  } while (!stopped);
 }
 
 function renderWorkflowList(json = false, dataDir?: string): void {
@@ -326,15 +545,150 @@ function requireEnv(name: string): string {
   return value;
 }
 
-function resolveOpenAIApiKey(): string {
+function getStoredAnalysisConfiguration(dataDir?: string): LLMConfiguration {
+  return withDatabase(dataDir, (database) => getStoredLLMConfiguration(database));
+}
+
+function resolveApiKeyFromEnv(provider: LLMProvider): string | undefined {
+  const descriptor = getLLMProviderDescriptor(provider);
+
+  for (const envVar of descriptor.apiKeyEnvVars) {
+    const value = process.env[envVar];
+
+    if (value) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function resolveProviderApiKey(provider: LLMProvider): string {
   const credentialStore = resolveCredentialStore();
-  const storedKey = credentialStore.getOpenAIKey();
+  const storedKey = getLLMApiKey(credentialStore, provider);
 
   if (storedKey) {
     return storedKey;
   }
 
-  return requireEnv("OPENAI_API_KEY");
+  const envKey = resolveApiKeyFromEnv(provider);
+
+  if (envKey) {
+    return envKey;
+  }
+
+  const descriptor = getLLMProviderDescriptor(provider);
+  throw new Error(
+    `${descriptor.label} API key is required. Use credential:set ${provider} or set ${descriptor.apiKeyEnvVars.join(", ")}`,
+  );
+}
+
+function resolveLLMAnalysisConfiguration(
+  dataDir: string | undefined,
+  options: {
+    provider?: string | undefined;
+    auth?: string | undefined;
+    model?: string | undefined;
+    baseUrl?: string | undefined;
+    projectId?: string | undefined;
+  },
+): LLMConfiguration {
+  const stored = getStoredAnalysisConfiguration(dataDir);
+  const provider = options.provider ? normalizeLLMProvider(options.provider) : stored.provider;
+  const providerChanged = provider !== stored.provider;
+  const authMethod = options.auth
+    ? normalizeLLMAuthMethod(options.auth)
+    : providerChanged && !supportsLLMAuthMethod(provider, stored.authMethod)
+      ? getDefaultLLMAuthMethod(provider)
+      : stored.authMethod;
+
+  if (!supportsLLMAuthMethod(provider, authMethod)) {
+    throw new Error(`Provider ${provider} does not support auth method ${authMethod}`);
+  }
+
+  const configuration: LLMConfiguration = {
+    provider,
+    authMethod,
+  };
+
+  const model = options.model ?? (providerChanged ? undefined : stored.model);
+  const baseUrl = options.baseUrl ?? (providerChanged ? undefined : stored.baseUrl);
+  const googleProjectId =
+    provider === "gemini"
+      ? options.projectId ?? (providerChanged ? undefined : stored.googleProjectId)
+      : undefined;
+
+  if (model) {
+    configuration.model = model;
+  }
+
+  if (baseUrl) {
+    configuration.baseUrl = baseUrl;
+  }
+
+  if (googleProjectId) {
+    configuration.googleProjectId = googleProjectId;
+  }
+
+  return configuration;
+}
+
+async function resolveGeminiOAuthRuntime(
+  dataDir: string | undefined,
+): Promise<{ accessToken: string; projectId: string }> {
+  const credentialStore = resolveCredentialStore();
+  const storedCredentials = getGeminiOAuthCredentials(credentialStore);
+
+  if (!storedCredentials) {
+    throw new Error("Gemini OAuth credentials not found. Run auth:login gemini first.");
+  }
+
+  const credentials = isGoogleOAuthAccessTokenExpired(storedCredentials)
+    ? await refreshGoogleOAuthCredentials({
+        credentials: storedCredentials,
+      })
+    : storedCredentials;
+
+  if (credentials !== storedCredentials) {
+    setGeminiOAuthCredentials(credentialStore, credentials);
+  }
+
+  const configuredProjectId = getStoredAnalysisConfiguration(dataDir).googleProjectId;
+  const projectId = configuredProjectId ?? credentials.projectId;
+
+  if (!projectId) {
+    throw new Error("Gemini OAuth analysis requires a Google Cloud project id");
+  }
+
+  return {
+    accessToken: credentials.accessToken,
+    projectId,
+  };
+}
+
+function buildProviderCredentialStatus(dataDir?: string) {
+  const credentialStore = resolveCredentialStore();
+  const configuration = getStoredAnalysisConfiguration(dataDir);
+
+  return {
+    backend: credentialStore.backend,
+    supported: credentialStore.isSupported(),
+    configuration,
+    hasOpenAIKey: hasLLMApiKey(credentialStore, "openai"),
+    providers: LLM_PROVIDERS.map((provider) => {
+      const descriptor = getLLMProviderDescriptor(provider);
+      return {
+        provider,
+        label: descriptor.label,
+        defaultModel: descriptor.defaultModel,
+        supportedAuthMethods: descriptor.supportedAuthMethods,
+        hasApiKey: hasLLMApiKey(credentialStore, provider),
+        envApiKeyAvailable: Boolean(resolveApiKeyFromEnv(provider)),
+        hasOAuthCredentials: provider === "gemini" ? hasGeminiOAuthCredentials(credentialStore) : false,
+        selected: configuration.provider === provider,
+      };
+    }),
+  };
 }
 
 program
@@ -369,6 +723,10 @@ program
   .option("--collector-poll-interval-ms <ms>", "Collector polling interval in milliseconds", "1000")
   .option("--collector-restart-delay-ms <ms>", "Collector restart delay after failures", "5000")
   .option(
+    "--no-prompt-accessibility",
+    "Don't ask macOS to show the Accessibility permission prompt when the collector starts",
+  )
+  .option(
     "--snapshot-windows <windows>",
     "Comma-separated snapshot windows",
     parseReportWindowList,
@@ -377,6 +735,7 @@ program
   .option("--snapshot-interval-seconds <seconds>", "Snapshot scheduler interval in seconds", "300")
   .option("--no-collectors", "Disable collector supervision inside the agent")
   .option("--no-snapshot-scheduler", "Disable snapshot scheduling inside the agent")
+  .option("--open-viewer", "Open the local viewer in the default browser after startup")
   .action(
     async (options: {
       dataDir?: string;
@@ -385,10 +744,12 @@ program
       ingestPort: string;
       collectorPollIntervalMs: string;
       collectorRestartDelayMs: string;
+      promptAccessibility: boolean;
       snapshotWindows: ReportWindow[];
       snapshotIntervalSeconds: string;
       collectors: boolean;
       snapshotScheduler: boolean;
+      openViewer?: boolean;
     }) => {
     const runtime = await startAgentRuntime({
       dataDir: options.dataDir,
@@ -397,13 +758,23 @@ program
       ingestPort: Number.parseInt(options.ingestPort, 10),
       collectorPollIntervalMs: Number.parseInt(options.collectorPollIntervalMs, 10),
       collectorRestartDelayMs: Number.parseInt(options.collectorRestartDelayMs, 10),
+      promptAccessibility: options.promptAccessibility,
       enableCollectors: options.collectors,
       snapshotWindows: options.snapshotWindows,
       snapshotIntervalMs: Number.parseInt(options.snapshotIntervalSeconds, 10) * 1000,
       enableSnapshotScheduler: options.snapshotScheduler,
     });
 
-    console.log(JSON.stringify(getAgentStatusSnapshot(options.dataDir), null, 2));
+    const status = getAgentStatusSnapshot(options.dataDir);
+
+    if (options.openViewer) {
+      openSystemBrowser(resolveViewerUrl(options.dataDir, {
+        host: options.ingestHost,
+        port: Number.parseInt(options.ingestPort, 10),
+      }));
+    }
+
+    console.log(JSON.stringify(status, null, 2));
 
     await runtime.waitForStop();
     },
@@ -630,7 +1001,9 @@ program
   .action((options: { dataDir?: string }) => {
     const { analysisResult, rawEventCount } = withDatabase(options.dataDir, (database) => {
       const rawEvents = database.getRawEventsChronological();
-      const result = analyzeRawEvents(rawEvents);
+      const result = analyzeRawEvents(rawEvents, {
+        feedbackByWorkflowSignature: database.listWorkflowFeedbackSummary(),
+      });
 
       database.replaceAnalysisArtifacts(result);
 
@@ -918,68 +1291,13 @@ program
 program
   .command("report:scheduler")
   .description("Run a local scheduler that refreshes report snapshots")
+  .helpGroup("Deprecated Commands:")
   .option("--data-dir <path>", "Override application data directory")
   .option("--windows <windows>", "Comma-separated report windows", parseReportWindowList, ["day", "week"])
   .option("--interval-seconds <seconds>", "Polling interval in seconds", "300")
   .option("--once", "Run one scheduler cycle and exit")
   .option("--json", "Print machine-readable JSON")
-  .action(
-    async (options: {
-      dataDir?: string;
-      windows: ReportWindow[];
-      intervalSeconds: string;
-      once?: boolean;
-      json?: boolean;
-    }) => {
-      const intervalMs = Number.parseInt(options.intervalSeconds, 10) * 1000;
-
-      if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
-        throw new Error(`Invalid interval: ${options.intervalSeconds}`);
-      }
-
-      let stopped = false;
-      const stop = () => {
-        stopped = true;
-      };
-
-      process.on("SIGINT", stop);
-      process.on("SIGTERM", stop);
-
-      do {
-        const generatedSnapshots = withDatabase(options.dataDir, (database) =>
-          runReportSchedulerCycle(database, {
-            windows: options.windows,
-          }),
-        );
-        const payload = {
-          status: "report_scheduler_cycle_completed",
-          generatedAt: new Date().toISOString(),
-          windows: options.windows,
-          snapshots: generatedSnapshots.map((snapshot) => ({
-            id: snapshot.id,
-            window: snapshot.timeWindow.window,
-            reportDate: snapshot.timeWindow.reportDate,
-            generatedAt: snapshot.generatedAt,
-            totalSessions: snapshot.totalSessions,
-            workflows: snapshot.workflows.length,
-            emergingWorkflows: snapshot.emergingWorkflows.length,
-          })),
-        };
-
-        if (options.json) {
-          console.log(JSON.stringify(payload, null, 2));
-        } else {
-          console.log(JSON.stringify(payload, null, 2));
-        }
-
-        if (options.once || stopped) {
-          break;
-        }
-
-        await sleep(intervalMs);
-      } while (!stopped);
-    },
-  );
+  .action(runLegacyReportSchedulerCommand);
 
 program
   .command("workflow:list")
@@ -1003,10 +1321,15 @@ program
 program
   .command("workflow:rename")
   .description("Rename a workflow cluster")
+  .helpGroup("Deprecated Commands:")
   .argument("<workflow-id>", "Workflow cluster id")
   .argument("<name>", "New workflow name")
   .option("--data-dir <path>", "Override application data directory")
   .action((workflowId: string, name: string, options: { dataDir?: string }) => {
+    printDeprecationWarning("workflow:rename", {
+      replacement: `workflow:label ${workflowId} --name "${name}"`,
+    });
+
     withDatabase(options.dataDir, (database) => {
       database.saveWorkflowFeedback({
         workflowClusterId: workflowId,
@@ -1016,6 +1339,124 @@ program
 
     console.log(JSON.stringify({ status: "workflow_renamed", workflowId, name }, null, 2));
   });
+
+program
+  .command("workflow:label")
+  .description("Store rich workflow feedback for naming, business purpose, and automation review")
+  .argument("<workflow-id>", "Workflow cluster id")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--name <name>", "Workflow display name")
+  .option("--purpose <purpose>", "Business purpose for this workflow")
+  .option("--repetitive <true|false>", "Mark whether the workflow is repetitive", parseBooleanOption)
+  .option(
+    "--automation-candidate <true|false>",
+    "Mark whether the workflow is an automation candidate",
+    parseBooleanOption,
+  )
+  .option("--difficulty <difficulty>", "Automation difficulty (low, medium, high)")
+  .option(
+    "--approve-candidate <true|false>",
+    "Mark whether the automation candidate is approved",
+    parseBooleanOption,
+  )
+  .action(
+    (
+      workflowId: string,
+      options: {
+        dataDir?: string;
+        name?: string;
+        purpose?: string;
+        repetitive?: boolean;
+        automationCandidate?: boolean;
+        difficulty?: "low" | "medium" | "high";
+        approveCandidate?: boolean;
+      },
+    ) => {
+      withDatabase(options.dataDir, (database) => {
+        database.saveWorkflowFeedback({
+          workflowClusterId: workflowId,
+          renameTo: options.name,
+          businessPurpose: options.purpose,
+          repetitive: options.repetitive,
+          automationCandidate: options.automationCandidate,
+          automationDifficulty: options.difficulty,
+          approvedAutomationCandidate: options.approveCandidate,
+        });
+      });
+
+      console.log(
+        JSON.stringify(
+          {
+            status: "workflow_labeled",
+            workflowId,
+            name: options.name ?? null,
+            purpose: options.purpose ?? null,
+            repetitive: options.repetitive ?? null,
+            automationCandidate: options.automationCandidate ?? null,
+            difficulty: options.difficulty ?? null,
+            approvedAutomationCandidate: options.approveCandidate ?? null,
+          },
+          null,
+          2,
+        ),
+      );
+    },
+  );
+
+program
+  .command("workflow:merge")
+  .description("Merge one workflow cluster into another on future analyses")
+  .argument("<workflow-id>", "Workflow cluster id to merge")
+  .argument("<target-workflow-id>", "Workflow cluster id to merge into")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((workflowId: string, targetWorkflowId: string, options: { dataDir?: string }) => {
+    withDatabase(options.dataDir, (database) => {
+      database.saveWorkflowFeedback({
+        workflowClusterId: workflowId,
+        mergeIntoWorkflowId: targetWorkflowId,
+      });
+    });
+
+    console.log(
+      JSON.stringify(
+        { status: "workflow_merge_saved", workflowId, targetWorkflowId },
+        null,
+        2,
+      ),
+    );
+  });
+
+program
+  .command("workflow:split")
+  .description("Split a workflow cluster on future analyses after a selected action")
+  .argument("<workflow-id>", "Workflow cluster id")
+  .requiredOption("--after-action <action-name>", "Action name after which the workflow should split")
+  .option("--data-dir <path>", "Override application data directory")
+  .action(
+    (
+      workflowId: string,
+      options: { dataDir?: string; afterAction: string },
+    ) => {
+      withDatabase(options.dataDir, (database) => {
+        database.saveWorkflowFeedback({
+          workflowClusterId: workflowId,
+          splitAfterActionName: options.afterAction,
+        });
+      });
+
+      console.log(
+        JSON.stringify(
+          {
+            status: "workflow_split_saved",
+            workflowId,
+            splitAfterActionName: options.afterAction,
+          },
+          null,
+          2,
+        ),
+      );
+    },
+  );
 
 program
   .command("workflow:exclude")
@@ -1109,7 +1550,9 @@ program
     const summary = withDatabase(options.dataDir, (database) => {
       const deletedRawEventCount = database.deleteSessionSourceEvents(sessionId);
       const remainingRawEvents = database.getRawEventsChronological();
-      const analysisResult = analyzeRawEvents(remainingRawEvents);
+      const analysisResult = analyzeRawEvents(remainingRawEvents, {
+        feedbackByWorkflowSignature: database.listWorkflowFeedbackSummary(),
+      });
 
       database.replaceAnalysisArtifacts(analysisResult);
 
@@ -1153,9 +1596,11 @@ program
   .command("llm:analyze")
   .description("Analyze summarized workflow payloads with an LLM provider")
   .option("--data-dir <path>", "Override application data directory")
-  .option("--provider <provider>", "LLM provider", "openai")
+  .option("--provider <provider>", "LLM provider")
+  .option("--auth <method>", "Authentication method for the provider")
   .option("--model <model>", "Model name for the provider")
   .option("--base-url <url>", "Override provider base URL")
+  .option("--project-id <id>", "Override Google Cloud project id for Gemini OAuth")
   .option("--include-excluded", "Include excluded workflows")
   .option("--include-hidden", "Include hidden workflows")
   .option("--apply-names", "Persist LLM workflow_name results as rename feedback")
@@ -1163,28 +1608,38 @@ program
   .action(
     async (options: {
       dataDir?: string;
-      provider: string;
+      provider?: string;
+      auth?: string;
       model?: string;
       baseUrl?: string;
+      projectId?: string;
       includeExcluded?: boolean;
       includeHidden?: boolean;
       applyNames?: boolean;
       json?: boolean;
     }) => {
-      if (options.provider !== "openai") {
-        throw new Error(`Unsupported provider: ${options.provider}`);
-      }
-
       const payloadRecords = withDatabase(options.dataDir, (database) =>
         database.listWorkflowSummaryPayloadRecords({
           includeExcluded: options.includeExcluded,
           includeHidden: options.includeHidden,
         }),
       );
-      const analyzer = createOpenAIWorkflowAnalyzer({
-        apiKey: resolveOpenAIApiKey(),
-        model: options.model,
-        baseUrl: options.baseUrl,
+      const configuration = resolveLLMAnalysisConfiguration(options.dataDir, options);
+      const runtimeAuth =
+        configuration.provider === "gemini" && configuration.authMethod === "oauth2"
+          ? await resolveGeminiOAuthRuntime(options.dataDir)
+          : undefined;
+      const analyzer = createWorkflowAnalyzer({
+        provider: configuration.provider,
+        authMethod: configuration.authMethod,
+        apiKey:
+          configuration.authMethod === "api-key"
+            ? resolveProviderApiKey(configuration.provider)
+            : undefined,
+        accessToken: runtimeAuth?.accessToken,
+        projectId: configuration.googleProjectId ?? runtimeAuth?.projectId,
+        model: configuration.model,
+        baseUrl: configuration.baseUrl,
       });
       const analyses: WorkflowLLMAnalysis[] = [];
 
@@ -1222,17 +1677,175 @@ program
   );
 
 program
+  .command("llm:providers")
+  .description("List supported LLM providers and authentication methods")
+  .option("--json", "Print machine-readable JSON")
+  .action((options: { json?: boolean }) => {
+    const providers = LLM_PROVIDERS.map((provider) => {
+      const descriptor = getLLMProviderDescriptor(provider);
+
+      return {
+        provider,
+        label: descriptor.label,
+        defaultModel: descriptor.defaultModel,
+        supportedAuthMethods: descriptor.supportedAuthMethods,
+        apiKeyEnvVars: descriptor.apiKeyEnvVars,
+      };
+    });
+
+    if (options.json) {
+      console.log(JSON.stringify(providers, null, 2));
+      return;
+    }
+
+    console.table(
+      providers.map((provider) => ({
+        provider: provider.provider,
+        label: provider.label,
+        defaultModel: provider.defaultModel,
+        auth: provider.supportedAuthMethods.join(", "),
+        envVars: provider.apiKeyEnvVars.join(", "),
+      })),
+    );
+  });
+
+program
+  .command("llm:config:show")
+  .description("Show the saved default LLM analysis configuration")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--json", "Print machine-readable JSON")
+  .action((options: { dataDir?: string; json?: boolean }) => {
+    const credentialStatus = buildProviderCredentialStatus(options.dataDir);
+
+    if (options.json) {
+      console.log(JSON.stringify(credentialStatus, null, 2));
+      return;
+    }
+
+    console.log(JSON.stringify(credentialStatus.configuration, null, 2));
+    console.table(
+      credentialStatus.providers.map((provider) => ({
+        provider: provider.provider,
+        label: provider.label,
+        defaultModel: provider.defaultModel,
+        supportedAuthMethods: provider.supportedAuthMethods.join(", "),
+        hasApiKey: provider.hasApiKey,
+        hasOAuthCredentials: provider.hasOAuthCredentials,
+        selected: provider.selected,
+      })),
+    );
+  });
+
+program
+  .command("llm:config:set")
+  .description("Update the saved default LLM analysis configuration")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--provider <provider>", "Default LLM provider")
+  .option("--auth <method>", "Default authentication method")
+  .option("--model <model>", "Default model name")
+  .option("--base-url <url>", "Default provider base URL")
+  .option("--clear-base-url", "Clear a previously saved base URL")
+  .option("--project-id <id>", "Default Google Cloud project id for Gemini OAuth")
+  .option("--clear-project-id", "Clear a previously saved Google Cloud project id")
+  .action(
+    (options: {
+      dataDir?: string;
+      provider?: string;
+      auth?: string;
+      model?: string;
+      baseUrl?: string;
+      clearBaseUrl?: boolean;
+      projectId?: string;
+      clearProjectId?: boolean;
+    }) => {
+      if (
+        !options.provider &&
+        !options.auth &&
+        options.model === undefined &&
+        options.baseUrl === undefined &&
+        !options.clearBaseUrl &&
+        options.projectId === undefined &&
+        !options.clearProjectId
+      ) {
+        throw new Error("At least one config option is required");
+      }
+
+      const configuration = withDatabase(options.dataDir, (database) =>
+        updateLLMConfiguration(database, {
+          provider: options.provider,
+          authMethod: options.auth,
+          model: options.model,
+          baseUrl: options.clearBaseUrl ? null : options.baseUrl,
+          googleProjectId: options.clearProjectId ? null : options.projectId,
+        }),
+      );
+
+      console.log(
+        JSON.stringify(
+          {
+            status: "llm_config_updated",
+            configuration,
+          },
+          null,
+          2,
+        ),
+      );
+    },
+  );
+
+program
   .command("credential:status")
   .description("Show secure credential backend status")
-  .action(() => {
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    console.log(JSON.stringify(buildProviderCredentialStatus(options.dataDir), null, 2));
+  });
+
+program
+  .command("credential:set")
+  .description("Store a provider API key in secure OS credential storage")
+  .argument("<provider>", "Provider name: openai|gemini|claude")
+  .argument("[api-key]", "Provider API key. If omitted, provider env vars are used.")
+  .action((providerName: string, apiKey: string | undefined) => {
     const credentialStore = resolveCredentialStore();
+    const provider = normalizeLLMProvider(providerName);
+    const resolvedApiKey = apiKey ?? resolveApiKeyFromEnv(provider);
+
+    if (!resolvedApiKey) {
+      const descriptor = getLLMProviderDescriptor(provider);
+      throw new Error(`API key is required. Expected one of: ${descriptor.apiKeyEnvVars.join(", ")}`);
+    }
+
+    setLLMApiKey(credentialStore, provider, resolvedApiKey);
 
     console.log(
       JSON.stringify(
         {
+          status: "api_key_stored",
+          provider,
           backend: credentialStore.backend,
-          supported: credentialStore.isSupported(),
-          hasOpenAIKey: credentialStore.hasOpenAIKey(),
+        },
+        null,
+        2,
+      ),
+    );
+  });
+
+program
+  .command("credential:delete")
+  .description("Delete a stored provider API key from secure OS credential storage")
+  .argument("<provider>", "Provider name: openai|gemini|claude")
+  .action((providerName: string) => {
+    const credentialStore = resolveCredentialStore();
+    const provider = normalizeLLMProvider(providerName);
+    deleteLLMApiKey(credentialStore, provider);
+
+    console.log(
+      JSON.stringify(
+        {
+          status: "api_key_deleted",
+          provider,
+          backend: credentialStore.backend,
         },
         null,
         2,
@@ -1243,12 +1856,17 @@ program
 program
   .command("credential:set-openai")
   .description("Store the OpenAI API key in secure OS credential storage")
+  .helpGroup("Deprecated Commands:")
   .argument("[api-key]", "OpenAI API key. If omitted, OPENAI_API_KEY is used.")
   .action((apiKey: string | undefined) => {
+    printDeprecationWarning("credential:set-openai", {
+      replacement: "credential:set openai",
+    });
+
     const credentialStore = resolveCredentialStore();
     const resolvedApiKey = apiKey ?? requireEnv("OPENAI_API_KEY");
 
-    credentialStore.setOpenAIKey(resolvedApiKey);
+    setLLMApiKey(credentialStore, "openai", resolvedApiKey);
 
     console.log(
       JSON.stringify(
@@ -1265,15 +1883,141 @@ program
 program
   .command("credential:delete-openai")
   .description("Delete the stored OpenAI API key from secure OS credential storage")
+  .helpGroup("Deprecated Commands:")
   .action(() => {
+    printDeprecationWarning("credential:delete-openai", {
+      replacement: "credential:delete openai",
+    });
+
     const credentialStore = resolveCredentialStore();
-    credentialStore.deleteOpenAIKey();
+    deleteLLMApiKey(credentialStore, "openai");
 
     console.log(
       JSON.stringify(
         {
           status: "openai_key_deleted",
           backend: credentialStore.backend,
+        },
+        null,
+        2,
+      ),
+    );
+  });
+
+program
+  .command("auth:login")
+  .description("Run a provider OAuth login flow when supported")
+  .argument("<provider>", "Provider name")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--client-id <id>", "OAuth client id for Gemini")
+  .option("--client-secret <secret>", "OAuth client secret for Gemini")
+  .option("--project-id <id>", "Google Cloud project id for Gemini")
+  .option("--port <port>", "Local callback port", "0")
+  .action(
+    async (
+      providerName: string,
+      options: {
+        dataDir?: string;
+        clientId?: string;
+        clientSecret?: string;
+        projectId?: string;
+        port: string;
+      },
+    ) => {
+      const provider = normalizeLLMProvider(providerName);
+
+      if (provider !== "gemini") {
+        throw new Error(`${provider} does not expose a public OAuth login flow for direct API usage`);
+      }
+
+      const credentialStore = resolveCredentialStore();
+
+      if (!credentialStore.isSupported()) {
+        throw new Error("Secure credential storage is required for OAuth login on this platform");
+      }
+
+      let authorizationUrl = "";
+      let redirectUri = "";
+      const credentials = await runGoogleOAuthInteractiveLogin({
+        clientId: options.clientId ?? requireEnv("GOOGLE_CLIENT_ID"),
+        clientSecret: options.clientSecret ?? requireEnv("GOOGLE_CLIENT_SECRET"),
+        projectId: options.projectId ?? requireEnv("GOOGLE_CLOUD_PROJECT"),
+        port: Number.parseInt(options.port, 10),
+        openBrowser: openSystemBrowser,
+        onAuthorizationUrl: (url, resolvedRedirectUri) => {
+          authorizationUrl = url;
+          redirectUri = resolvedRedirectUri;
+          console.log(
+            JSON.stringify(
+              {
+                status: "oauth2_login_started",
+                provider: "gemini",
+                authorizationUrl: url,
+                redirectUri: resolvedRedirectUri,
+              },
+              null,
+              2,
+            ),
+          );
+        },
+      });
+
+      setGeminiOAuthCredentials(credentialStore, credentials);
+      withDatabase(options.dataDir, (database) =>
+        updateLLMConfiguration(database, {
+          provider: "gemini",
+          authMethod: "oauth2",
+          googleProjectId: credentials.projectId,
+        }),
+      );
+
+      console.log(
+        JSON.stringify(
+          {
+            status: "oauth2_login_completed",
+            provider: "gemini",
+            authorizationUrl,
+            redirectUri,
+            expiresAt: credentials.expiresAt,
+            scopes: credentials.scope,
+          },
+          null,
+          2,
+        ),
+      );
+    },
+  );
+
+program
+  .command("auth:logout")
+  .description("Delete stored OAuth credentials for a provider")
+  .argument("<provider>", "Provider name")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((providerName: string, options: { dataDir?: string }) => {
+    const provider = normalizeLLMProvider(providerName);
+
+    if (provider !== "gemini") {
+      throw new Error(`${provider} does not have stored OAuth credentials in this CLI`);
+    }
+
+    const credentialStore = resolveCredentialStore();
+    deleteGeminiOAuthCredentials(credentialStore);
+
+    withDatabase(options.dataDir, (database) => {
+      const current = getStoredLLMConfiguration(database);
+
+      if (current.provider === "gemini" && current.authMethod === "oauth2") {
+        updateLLMConfiguration(database, {
+          authMethod: "api-key",
+        });
+      }
+    });
+
+    console.log(
+      JSON.stringify(
+        {
+          status: "oauth2_credentials_deleted",
+          provider: "gemini",
         },
         null,
         2,
@@ -1307,40 +2051,53 @@ program
   });
 
 program
-  .command("serve")
-  .description("Run a local HTTP ingest server for browser or desktop collectors")
+  .command("viewer:open")
+  .description("Open the local workflow viewer in the default browser")
   .option("--data-dir <path>", "Override application data directory")
-  .option("--host <host>", "Host to bind", "127.0.0.1")
-  .option("--port <port>", "Port to bind", "4318")
-  .action(async (options: { dataDir?: string; host: string; port: string }) => {
-    const server = await startIngestServer({
-      dataDir: options.dataDir,
+  .option("--host <host>", "Fallback host when no active agent state exists", "127.0.0.1")
+  .option("--port <port>", "Fallback port when no active agent state exists", "4318")
+  .action((options: { dataDir?: string; host: string; port: string }) => {
+    const viewerUrl = resolveViewerUrl(options.dataDir, {
       host: options.host,
       port: Number.parseInt(options.port, 10),
     });
+    const opened = openSystemBrowser(viewerUrl);
 
     console.log(
       JSON.stringify(
         {
-          status: "listening",
-          host: server.host,
-          port: server.port,
-          healthUrl: `http://${server.host}:${server.port}/health`,
-          eventsUrl: `http://${server.host}:${server.port}/events`,
+          status: opened ? "viewer_open_requested" : "viewer_open_failed",
+          viewerUrl,
+          opened,
         },
         null,
         2,
       ),
     );
-
-    const stopServer = async () => {
-      await server.close();
-      process.exit(0);
-    };
-
-    process.on("SIGINT", stopServer);
-    process.on("SIGTERM", stopServer);
   });
+
+program
+  .command("server:run")
+  .description("Run a local HTTP server for collectors and the browser viewer")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--host <host>", "Host to bind", "127.0.0.1")
+  .option("--port <port>", "Port to bind", "4318")
+  .option("--open", "Open the local viewer in the default browser after startup")
+  .action((options: { dataDir?: string; host: string; port: string; open?: boolean }) =>
+    runServerCommand(options, "server:run"),
+  );
+
+program
+  .command("serve")
+  .description("Run a local HTTP server for collectors and the browser viewer")
+  .helpGroup("Deprecated Commands:")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--host <host>", "Host to bind", "127.0.0.1")
+  .option("--port <port>", "Port to bind", "4318")
+  .option("--open", "Open the local viewer in the default browser after startup")
+  .action((options: { dataDir?: string; host: string; port: string; open?: boolean }) =>
+    runServerCommand(options, "serve"),
+  );
 
 program
   .command("demo")
@@ -1358,7 +2115,9 @@ program
       }
 
       const rawEvents = database.getRawEventsChronological();
-      const analysisResult = analyzeRawEvents(rawEvents);
+      const analysisResult = analyzeRawEvents(rawEvents, {
+        feedbackByWorkflowSignature: database.listWorkflowFeedbackSummary(),
+      });
 
       database.replaceAnalysisArtifacts(analysisResult);
 

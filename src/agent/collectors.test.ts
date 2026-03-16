@@ -30,6 +30,7 @@ test("buildManagedCollectorSpecs maps darwin and win32 runtimes", () => {
     ingestUrl: "http://127.0.0.1:4318/events",
     processPlatform: "darwin",
     pollIntervalMs: 250,
+    promptAccessibility: true,
   });
   const windowsSpecs = buildManagedCollectorSpecs({
     ingestUrl: "http://127.0.0.1:4318/events",
@@ -39,11 +40,12 @@ test("buildManagedCollectorSpecs maps darwin and win32 runtimes", () => {
 
   assert.equal(darwinSpecs.length, 1);
   assert.equal(darwinSpecs[0]?.command, "swift");
-  assert.deepEqual(darwinSpecs[0]?.args.slice(-4), [
+  assert.deepEqual(darwinSpecs[0]?.args.slice(-5), [
     "--ingest-url",
     "http://127.0.0.1:4318/events",
     "--poll-interval-ms",
     "250",
+    "--prompt-accessibility",
   ]);
 
   assert.equal(windowsSpecs.length, 1);
@@ -94,6 +96,30 @@ test("startCollectorSupervisor restarts a collector after an unexpected exit", a
   await supervisor.stop();
 
   assert.equal(supervisor.getCollectorStates()[0]?.status, "stopped");
+});
+
+test("startCollectorSupervisor forwards macOS accessibility prompt configuration", async () => {
+  let spawnedArgs: string[] = [];
+
+  const supervisor = await startCollectorSupervisor({
+    ingestUrl: "http://127.0.0.1:4318/events",
+    processPlatform: "darwin",
+    promptAccessibility: true,
+    spawnProcess: (_command, args) => {
+      spawnedArgs = args;
+      const processHandle = new FakeSpawnedProcess(4_100);
+      queueMicrotask(() => {
+        processHandle.emit("spawn");
+      });
+      return processHandle;
+    },
+  });
+
+  await delay(0);
+
+  assert.ok(spawnedArgs.includes("--prompt-accessibility"));
+
+  await supervisor.stop();
 });
 
 test("startCollectorSupervisor returns no managed collectors on unsupported platforms", async () => {

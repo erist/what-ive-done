@@ -18,6 +18,7 @@ export interface CollectorSupervisorOptions {
   ingestUrl: string;
   processPlatform?: NodeJS.Platform | undefined;
   pollIntervalMs?: number | undefined;
+  promptAccessibility?: boolean | undefined;
   restartDelayMs?: number | undefined;
   onCollectorStateChange?: ((state: AgentCollectorState) => void) | undefined;
   spawnProcess?: SpawnProcess | undefined;
@@ -60,6 +61,7 @@ export function buildManagedCollectorSpecs(options: {
   ingestUrl: string;
   processPlatform?: NodeJS.Platform | undefined;
   pollIntervalMs?: number | undefined;
+  promptAccessibility?: boolean | undefined;
 }): CollectorProcessSpec[] {
   const processPlatform = options.processPlatform ?? process.platform;
   const pollIntervalMs = options.pollIntervalMs ?? 1_000;
@@ -79,6 +81,7 @@ export function buildManagedCollectorSpecs(options: {
           options.ingestUrl,
           "--poll-interval-ms",
           String(pollIntervalMs),
+          ...(options.promptAccessibility ? ["--prompt-accessibility"] : []),
         ],
         ingestUrl: options.ingestUrl,
       },
@@ -125,6 +128,7 @@ export async function startCollectorSupervisor(
     ingestUrl: options.ingestUrl,
     processPlatform: options.processPlatform,
     pollIntervalMs: options.pollIntervalMs,
+    promptAccessibility: options.promptAccessibility,
   });
   const restartDelayMs = options.restartDelayMs ?? 5_000;
   const spawnProcess = options.spawnProcess ?? defaultSpawnProcess;

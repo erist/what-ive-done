@@ -24,6 +24,7 @@ test("renderMacOSLaunchAgentPlist includes the CLI entrypoint and data dir argum
 
   assert.ok(plist.includes("<string>/repo/dist/cli.js</string>"));
   assert.ok(plist.includes("<string>agent:run</string>"));
+  assert.ok(plist.includes("<string>--no-prompt-accessibility</string>"));
   assert.ok(plist.includes("<string>/tmp/what-ive-done-data</string>"));
 });
 
