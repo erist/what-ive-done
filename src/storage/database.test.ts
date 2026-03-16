@@ -10,14 +10,19 @@ import { analyzeRawEvents } from "../pipeline/analyze.js";
 import { resolveReportTimeWindow } from "../reporting/windows.js";
 import { AppDatabase } from "./database.js";
 
+function createTestDatabase(tempDir: string): AppDatabase {
+  return new AppDatabase({
+    dataDir: tempDir,
+    databasePath: join(tempDir, "test.sqlite"),
+    agentLockPath: join(tempDir, "agent.lock"),
+  });
+}
+
 test("AppDatabase initializes schema and stores sanitized raw events", () => {
   const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-"));
 
   try {
-    const database = new AppDatabase({
-      dataDir: tempDir,
-      databasePath: join(tempDir, "test.sqlite"),
-    });
+    const database = createTestDatabase(tempDir);
 
     database.initialize();
 
@@ -87,10 +92,7 @@ test("getRawEventsInRange returns only events within the selected local day", ()
   });
 
   try {
-    const database = new AppDatabase({
-      dataDir: tempDir,
-      databasePath: join(tempDir, "test.sqlite"),
-    });
+    const database = createTestDatabase(tempDir);
     database.initialize();
 
     for (const input of toRawEventInputs(referenceDate)) {
@@ -121,10 +123,7 @@ test("workflow feedback persists across analysis refreshes for stable cluster id
   const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-feedback-"));
 
   try {
-    const database = new AppDatabase({
-      dataDir: tempDir,
-      databasePath: join(tempDir, "test.sqlite"),
-    });
+    const database = createTestDatabase(tempDir);
     database.initialize();
 
     for (const input of toRawEventInputs()) {
@@ -169,6 +168,7 @@ test("advanced workflow feedback fields are persisted and applied by workflow si
     const database = new AppDatabase({
       dataDir: tempDir,
       databasePath: join(tempDir, "test.sqlite"),
+      agentLockPath: join(tempDir, "agent.lock"),
     });
     database.initialize();
 
@@ -216,6 +216,7 @@ test("merge feedback is reused on the next analysis run", () => {
     const database = new AppDatabase({
       dataDir: tempDir,
       databasePath: join(tempDir, "test.sqlite"),
+      agentLockPath: join(tempDir, "agent.lock"),
     });
     database.initialize();
 
@@ -259,6 +260,7 @@ test("normalized events persist derived normalization fields", () => {
     const database = new AppDatabase({
       dataDir: tempDir,
       databasePath: join(tempDir, "test.sqlite"),
+      agentLockPath: join(tempDir, "agent.lock"),
     });
     database.initialize();
 
@@ -294,10 +296,7 @@ test("deleting a session removes its source events and changes downstream analys
   const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-session-delete-"));
 
   try {
-    const database = new AppDatabase({
-      dataDir: tempDir,
-      databasePath: join(tempDir, "test.sqlite"),
-    });
+    const database = createTestDatabase(tempDir);
     database.initialize();
 
     for (const input of toRawEventInputs()) {
@@ -332,10 +331,7 @@ test("session details can be loaded with ordered steps", () => {
   const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-session-show-"));
 
   try {
-    const database = new AppDatabase({
-      dataDir: tempDir,
-      databasePath: join(tempDir, "test.sqlite"),
-    });
+    const database = createTestDatabase(tempDir);
     database.initialize();
 
     for (const input of toRawEventInputs()) {
@@ -367,10 +363,7 @@ test("LLM payload records exclude raw event details and honor workflow feedback 
   const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-llm-payload-"));
 
   try {
-    const database = new AppDatabase({
-      dataDir: tempDir,
-      databasePath: join(tempDir, "test.sqlite"),
-    });
+    const database = createTestDatabase(tempDir);
     database.initialize();
 
     for (const input of toRawEventInputs()) {
@@ -410,10 +403,7 @@ test("workflow LLM analyses can be stored and surfaced through workflow names", 
   const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-llm-store-"));
 
   try {
-    const database = new AppDatabase({
-      dataDir: tempDir,
-      databasePath: join(tempDir, "test.sqlite"),
-    });
+    const database = createTestDatabase(tempDir);
     database.initialize();
 
     for (const input of toRawEventInputs()) {
@@ -452,6 +442,56 @@ test("workflow LLM analyses can be stored and surfaced through workflow names", 
 
     assert.equal(storedAnalysis?.workflowName, "AI Renamed Workflow");
     assert.equal(renamedWorkflow?.name, "AI Renamed Workflow");
+
+    database.close();
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("settings can be stored, updated, and deleted as JSON values", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-settings-"));
+
+  try {
+    const database = createTestDatabase(tempDir);
+    database.initialize();
+
+    database.setSetting("llm.config", {
+      provider: "gemini",
+      authMethod: "oauth2",
+      model: "gemini-2.5-flash",
+    });
+
+    assert.deepEqual(database.getSetting("llm.config"), {
+      provider: "gemini",
+      authMethod: "oauth2",
+      model: "gemini-2.5-flash",
+    });
+
+    database.setSetting("agent.runtime", {
+      status: "running",
+      pid: 1234,
+    });
+
+    assert.deepEqual(database.getSetting("agent.runtime"), {
+      status: "running",
+      pid: 1234,
+    });
+
+    database.setSetting("agent.runtime", {
+      status: "stopped",
+      pid: 1234,
+    });
+
+    assert.deepEqual(database.getSetting("agent.runtime"), {
+      status: "stopped",
+      pid: 1234,
+    });
+
+    database.deleteSetting("agent.runtime");
+    database.deleteSetting("llm.config");
+    assert.equal(database.getSetting("agent.runtime"), undefined);
+    assert.equal(database.getSetting("llm.config"), undefined);
 
     database.close();
   } finally {

@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 export interface AppPaths {
   dataDir: string;
   databasePath: string;
+  agentLockPath: string;
 }
 
 const APP_NAME = "what-ive-done";
@@ -26,6 +27,7 @@ export function resolveAppPaths(dataDir = resolveDefaultDataDir()): AppPaths {
   return {
     dataDir,
     databasePath: join(dataDir, DATABASE_FILE),
+    agentLockPath: join(dataDir, "agent.lock"),
   };
 }
 

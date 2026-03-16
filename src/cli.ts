@@ -1,13 +1,52 @@
 import { Command } from "commander";
 
+import { getAgentHealthReport, listLatestAgentSnapshots, runAgentOnce } from "./agent/control.js";
+import {
+  getAgentAutostartStatus,
+  installAgentAutostart,
+  uninstallAgentAutostart,
+} from "./agent/autostart/index.js";
+import { getAgentStatusSnapshot } from "./agent/state.js";
+import { startAgentRuntime, stopAgentRuntime } from "./agent/runtime.js";
 import { resolveAppPaths } from "./app-paths.js";
+import { openSystemBrowser } from "./auth/browser.js";
+import {
+  isGoogleOAuthAccessTokenExpired,
+  refreshGoogleOAuthCredentials,
+  runGoogleOAuthInteractiveLogin,
+} from "./auth/google-oauth.js";
 import { getAvailableCollectors } from "./collectors/index.js";
 import { getMacOSActiveWindowCollectorInfo, resolveMacOSCollectorRunner } from "./collectors/macos.js";
 import { getWindowsActiveWindowCollectorInfo } from "./collectors/windows.js";
+import {
+  deleteGeminiOAuthCredentials,
+  deleteLLMApiKey,
+  getGeminiOAuthCredentials,
+  getLLMApiKey,
+  hasGeminiOAuthCredentials,
+  hasLLMApiKey,
+  setGeminiOAuthCredentials,
+  setLLMApiKey,
+} from "./credentials/llm.js";
 import { resolveCredentialStore } from "./credentials/store.js";
 import { generateMockRawEvents } from "./collectors/mock.js";
 import { importEventsFromFile } from "./importers/events.js";
-import { createOpenAIWorkflowAnalyzer } from "./llm/openai.js";
+import {
+  getDefaultLLMAuthMethod,
+  getLLMProviderDescriptor,
+  LLM_PROVIDERS,
+  normalizeLLMAuthMethod,
+  normalizeLLMProvider,
+  supportsLLMAuthMethod,
+  type LLMAuthMethod,
+  type LLMProvider,
+} from "./llm/catalog.js";
+import {
+  getStoredLLMConfiguration,
+  updateLLMConfiguration,
+  type LLMConfiguration,
+} from "./llm/config.js";
+import { createWorkflowAnalyzer } from "./llm/factory.js";
 import { analyzeRawEvents } from "./pipeline/analyze.js";
 import { buildWorkflowReport, formatDuration } from "./reporting/report.js";
 import {
@@ -373,15 +412,150 @@ function requireEnv(name: string): string {
   return value;
 }
 
-function resolveOpenAIApiKey(): string {
+function getStoredAnalysisConfiguration(dataDir?: string): LLMConfiguration {
+  return withDatabase(dataDir, (database) => getStoredLLMConfiguration(database));
+}
+
+function resolveApiKeyFromEnv(provider: LLMProvider): string | undefined {
+  const descriptor = getLLMProviderDescriptor(provider);
+
+  for (const envVar of descriptor.apiKeyEnvVars) {
+    const value = process.env[envVar];
+
+    if (value) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function resolveProviderApiKey(provider: LLMProvider): string {
   const credentialStore = resolveCredentialStore();
-  const storedKey = credentialStore.getOpenAIKey();
+  const storedKey = getLLMApiKey(credentialStore, provider);
 
   if (storedKey) {
     return storedKey;
   }
 
-  return requireEnv("OPENAI_API_KEY");
+  const envKey = resolveApiKeyFromEnv(provider);
+
+  if (envKey) {
+    return envKey;
+  }
+
+  const descriptor = getLLMProviderDescriptor(provider);
+  throw new Error(
+    `${descriptor.label} API key is required. Use credential:set ${provider} or set ${descriptor.apiKeyEnvVars.join(", ")}`,
+  );
+}
+
+function resolveLLMAnalysisConfiguration(
+  dataDir: string | undefined,
+  options: {
+    provider?: string | undefined;
+    auth?: string | undefined;
+    model?: string | undefined;
+    baseUrl?: string | undefined;
+    projectId?: string | undefined;
+  },
+): LLMConfiguration {
+  const stored = getStoredAnalysisConfiguration(dataDir);
+  const provider = options.provider ? normalizeLLMProvider(options.provider) : stored.provider;
+  const providerChanged = provider !== stored.provider;
+  const authMethod = options.auth
+    ? normalizeLLMAuthMethod(options.auth)
+    : providerChanged && !supportsLLMAuthMethod(provider, stored.authMethod)
+      ? getDefaultLLMAuthMethod(provider)
+      : stored.authMethod;
+
+  if (!supportsLLMAuthMethod(provider, authMethod)) {
+    throw new Error(`Provider ${provider} does not support auth method ${authMethod}`);
+  }
+
+  const configuration: LLMConfiguration = {
+    provider,
+    authMethod,
+  };
+
+  const model = options.model ?? (providerChanged ? undefined : stored.model);
+  const baseUrl = options.baseUrl ?? (providerChanged ? undefined : stored.baseUrl);
+  const googleProjectId =
+    provider === "gemini"
+      ? options.projectId ?? (providerChanged ? undefined : stored.googleProjectId)
+      : undefined;
+
+  if (model) {
+    configuration.model = model;
+  }
+
+  if (baseUrl) {
+    configuration.baseUrl = baseUrl;
+  }
+
+  if (googleProjectId) {
+    configuration.googleProjectId = googleProjectId;
+  }
+
+  return configuration;
+}
+
+async function resolveGeminiOAuthRuntime(
+  dataDir: string | undefined,
+): Promise<{ accessToken: string; projectId: string }> {
+  const credentialStore = resolveCredentialStore();
+  const storedCredentials = getGeminiOAuthCredentials(credentialStore);
+
+  if (!storedCredentials) {
+    throw new Error("Gemini OAuth credentials not found. Run auth:login gemini first.");
+  }
+
+  const credentials = isGoogleOAuthAccessTokenExpired(storedCredentials)
+    ? await refreshGoogleOAuthCredentials({
+        credentials: storedCredentials,
+      })
+    : storedCredentials;
+
+  if (credentials !== storedCredentials) {
+    setGeminiOAuthCredentials(credentialStore, credentials);
+  }
+
+  const configuredProjectId = getStoredAnalysisConfiguration(dataDir).googleProjectId;
+  const projectId = configuredProjectId ?? credentials.projectId;
+
+  if (!projectId) {
+    throw new Error("Gemini OAuth analysis requires a Google Cloud project id");
+  }
+
+  return {
+    accessToken: credentials.accessToken,
+    projectId,
+  };
+}
+
+function buildProviderCredentialStatus(dataDir?: string) {
+  const credentialStore = resolveCredentialStore();
+  const configuration = getStoredAnalysisConfiguration(dataDir);
+
+  return {
+    backend: credentialStore.backend,
+    supported: credentialStore.isSupported(),
+    configuration,
+    hasOpenAIKey: hasLLMApiKey(credentialStore, "openai"),
+    providers: LLM_PROVIDERS.map((provider) => {
+      const descriptor = getLLMProviderDescriptor(provider);
+      return {
+        provider,
+        label: descriptor.label,
+        defaultModel: descriptor.defaultModel,
+        supportedAuthMethods: descriptor.supportedAuthMethods,
+        hasApiKey: hasLLMApiKey(credentialStore, provider),
+        envApiKeyAvailable: Boolean(resolveApiKeyFromEnv(provider)),
+        hasOAuthCredentials: provider === "gemini" ? hasGeminiOAuthCredentials(credentialStore) : false,
+        selected: configuration.provider === provider,
+      };
+    }),
+  };
 }
 
 program
@@ -400,9 +574,170 @@ program
       arch: process.arch,
       dataDir: paths.dataDir,
       databasePath: paths.databasePath,
+      agentLockPath: paths.agentLockPath,
     };
 
     console.log(JSON.stringify(result, null, 2));
+  });
+
+program
+  .command("agent:run")
+  .description("Run the resident local agent runtime")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--heartbeat-interval-ms <ms>", "Heartbeat interval in milliseconds", "30000")
+  .option("--ingest-host <host>", "Host to bind the local ingest server", "127.0.0.1")
+  .option("--ingest-port <port>", "Port to bind the local ingest server", "4318")
+  .option("--collector-poll-interval-ms <ms>", "Collector polling interval in milliseconds", "1000")
+  .option("--collector-restart-delay-ms <ms>", "Collector restart delay after failures", "5000")
+  .option(
+    "--snapshot-windows <windows>",
+    "Comma-separated snapshot windows",
+    parseReportWindowList,
+    ["day", "week"],
+  )
+  .option("--snapshot-interval-seconds <seconds>", "Snapshot scheduler interval in seconds", "300")
+  .option("--no-collectors", "Disable collector supervision inside the agent")
+  .option("--no-snapshot-scheduler", "Disable snapshot scheduling inside the agent")
+  .action(
+    async (options: {
+      dataDir?: string;
+      heartbeatIntervalMs: string;
+      ingestHost: string;
+      ingestPort: string;
+      collectorPollIntervalMs: string;
+      collectorRestartDelayMs: string;
+      snapshotWindows: ReportWindow[];
+      snapshotIntervalSeconds: string;
+      collectors: boolean;
+      snapshotScheduler: boolean;
+    }) => {
+    const runtime = await startAgentRuntime({
+      dataDir: options.dataDir,
+      heartbeatIntervalMs: Number.parseInt(options.heartbeatIntervalMs, 10),
+      ingestHost: options.ingestHost,
+      ingestPort: Number.parseInt(options.ingestPort, 10),
+      collectorPollIntervalMs: Number.parseInt(options.collectorPollIntervalMs, 10),
+      collectorRestartDelayMs: Number.parseInt(options.collectorRestartDelayMs, 10),
+      enableCollectors: options.collectors,
+      snapshotWindows: options.snapshotWindows,
+      snapshotIntervalMs: Number.parseInt(options.snapshotIntervalSeconds, 10) * 1000,
+      enableSnapshotScheduler: options.snapshotScheduler,
+    });
+
+    console.log(JSON.stringify(getAgentStatusSnapshot(options.dataDir), null, 2));
+
+    await runtime.waitForStop();
+    },
+  );
+
+program
+  .command("agent:status")
+  .description("Show resident agent runtime status")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    const status = getAgentStatusSnapshot(options.dataDir);
+
+    console.log(JSON.stringify(status, null, 2));
+  });
+
+program
+  .command("agent:stop")
+  .description("Stop the resident agent runtime if it is running")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    const result = stopAgentRuntime(options.dataDir);
+
+    console.log(JSON.stringify(result, null, 2));
+  });
+
+program
+  .command("agent:health")
+  .description("Show a concise health summary for the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    const report = getAgentHealthReport(options.dataDir);
+
+    console.log(JSON.stringify(report, null, 2));
+  });
+
+program
+  .command("agent:run-once")
+  .description("Run one manual snapshot refresh cycle without starting the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--windows <windows>", "Comma-separated snapshot windows", parseReportWindowList, ["day", "week"])
+  .action((options: { dataDir?: string; windows: ReportWindow[] }) => {
+    const result = runAgentOnce(options.dataDir, {
+      windows: options.windows,
+    });
+
+    console.log(JSON.stringify(result, null, 2));
+  });
+
+program
+  .command("agent:snapshot:latest")
+  .description("Show the latest stored snapshots for the control plane")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--windows <windows>", "Comma-separated snapshot windows", parseReportWindowList, ["day", "week"])
+  .action((options: { dataDir?: string; windows: ReportWindow[] }) => {
+    const snapshots = listLatestAgentSnapshots(options.dataDir, options.windows);
+
+    console.log(JSON.stringify(snapshots, null, 2));
+  });
+
+program
+  .command("agent:collectors")
+  .description("Show collector states managed by the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    const status = getAgentStatusSnapshot(options.dataDir);
+
+    console.log(JSON.stringify(status.state?.collectors ?? [], null, 2));
+  });
+
+program
+  .command("agent:autostart:status")
+  .description("Show OS autostart status for the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--plist-path <path>", "Override the LaunchAgent plist path")
+  .action((options: { dataDir?: string; plistPath?: string }) => {
+    const status = getAgentAutostartStatus({
+      dataDir: options.dataDir,
+      plistPath: options.plistPath,
+    });
+
+    console.log(JSON.stringify(status, null, 2));
+  });
+
+program
+  .command("agent:autostart:install")
+  .description("Install OS autostart for the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--plist-path <path>", "Override the LaunchAgent plist path")
+  .option("--no-load", "Write the LaunchAgent file without loading it")
+  .action((options: { dataDir?: string; plistPath?: string; load: boolean }) => {
+    const status = installAgentAutostart({
+      dataDir: options.dataDir,
+      plistPath: options.plistPath,
+      load: options.load,
+    });
+
+    console.log(JSON.stringify(status, null, 2));
+  });
+
+program
+  .command("agent:autostart:uninstall")
+  .description("Remove OS autostart for the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--plist-path <path>", "Override the LaunchAgent plist path")
+  .option("--no-unload", "Remove the LaunchAgent file without unloading it first")
+  .action((options: { dataDir?: string; plistPath?: string; unload: boolean }) => {
+    const status = uninstallAgentAutostart({
+      dataDir: options.dataDir,
+      plistPath: options.plistPath,
+      unload: options.unload,
+    });
+
+    console.log(JSON.stringify(status, null, 2));
   });
 
 program
@@ -1161,9 +1496,11 @@ program
   .command("llm:analyze")
   .description("Analyze summarized workflow payloads with an LLM provider")
   .option("--data-dir <path>", "Override application data directory")
-  .option("--provider <provider>", "LLM provider", "openai")
+  .option("--provider <provider>", "LLM provider")
+  .option("--auth <method>", "Authentication method for the provider")
   .option("--model <model>", "Model name for the provider")
   .option("--base-url <url>", "Override provider base URL")
+  .option("--project-id <id>", "Override Google Cloud project id for Gemini OAuth")
   .option("--include-excluded", "Include excluded workflows")
   .option("--include-hidden", "Include hidden workflows")
   .option("--apply-names", "Persist LLM workflow_name results as rename feedback")
@@ -1171,28 +1508,38 @@ program
   .action(
     async (options: {
       dataDir?: string;
-      provider: string;
+      provider?: string;
+      auth?: string;
       model?: string;
       baseUrl?: string;
+      projectId?: string;
       includeExcluded?: boolean;
       includeHidden?: boolean;
       applyNames?: boolean;
       json?: boolean;
     }) => {
-      if (options.provider !== "openai") {
-        throw new Error(`Unsupported provider: ${options.provider}`);
-      }
-
       const payloadRecords = withDatabase(options.dataDir, (database) =>
         database.listWorkflowSummaryPayloadRecords({
           includeExcluded: options.includeExcluded,
           includeHidden: options.includeHidden,
         }),
       );
-      const analyzer = createOpenAIWorkflowAnalyzer({
-        apiKey: resolveOpenAIApiKey(),
-        model: options.model,
-        baseUrl: options.baseUrl,
+      const configuration = resolveLLMAnalysisConfiguration(options.dataDir, options);
+      const runtimeAuth =
+        configuration.provider === "gemini" && configuration.authMethod === "oauth2"
+          ? await resolveGeminiOAuthRuntime(options.dataDir)
+          : undefined;
+      const analyzer = createWorkflowAnalyzer({
+        provider: configuration.provider,
+        authMethod: configuration.authMethod,
+        apiKey:
+          configuration.authMethod === "api-key"
+            ? resolveProviderApiKey(configuration.provider)
+            : undefined,
+        accessToken: runtimeAuth?.accessToken,
+        projectId: configuration.googleProjectId ?? runtimeAuth?.projectId,
+        model: configuration.model,
+        baseUrl: configuration.baseUrl,
       });
       const analyses: WorkflowLLMAnalysis[] = [];
 
@@ -1230,17 +1577,175 @@ program
   );
 
 program
+  .command("llm:providers")
+  .description("List supported LLM providers and authentication methods")
+  .option("--json", "Print machine-readable JSON")
+  .action((options: { json?: boolean }) => {
+    const providers = LLM_PROVIDERS.map((provider) => {
+      const descriptor = getLLMProviderDescriptor(provider);
+
+      return {
+        provider,
+        label: descriptor.label,
+        defaultModel: descriptor.defaultModel,
+        supportedAuthMethods: descriptor.supportedAuthMethods,
+        apiKeyEnvVars: descriptor.apiKeyEnvVars,
+      };
+    });
+
+    if (options.json) {
+      console.log(JSON.stringify(providers, null, 2));
+      return;
+    }
+
+    console.table(
+      providers.map((provider) => ({
+        provider: provider.provider,
+        label: provider.label,
+        defaultModel: provider.defaultModel,
+        auth: provider.supportedAuthMethods.join(", "),
+        envVars: provider.apiKeyEnvVars.join(", "),
+      })),
+    );
+  });
+
+program
+  .command("llm:config:show")
+  .description("Show the saved default LLM analysis configuration")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--json", "Print machine-readable JSON")
+  .action((options: { dataDir?: string; json?: boolean }) => {
+    const credentialStatus = buildProviderCredentialStatus(options.dataDir);
+
+    if (options.json) {
+      console.log(JSON.stringify(credentialStatus, null, 2));
+      return;
+    }
+
+    console.log(JSON.stringify(credentialStatus.configuration, null, 2));
+    console.table(
+      credentialStatus.providers.map((provider) => ({
+        provider: provider.provider,
+        label: provider.label,
+        defaultModel: provider.defaultModel,
+        supportedAuthMethods: provider.supportedAuthMethods.join(", "),
+        hasApiKey: provider.hasApiKey,
+        hasOAuthCredentials: provider.hasOAuthCredentials,
+        selected: provider.selected,
+      })),
+    );
+  });
+
+program
+  .command("llm:config:set")
+  .description("Update the saved default LLM analysis configuration")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--provider <provider>", "Default LLM provider")
+  .option("--auth <method>", "Default authentication method")
+  .option("--model <model>", "Default model name")
+  .option("--base-url <url>", "Default provider base URL")
+  .option("--clear-base-url", "Clear a previously saved base URL")
+  .option("--project-id <id>", "Default Google Cloud project id for Gemini OAuth")
+  .option("--clear-project-id", "Clear a previously saved Google Cloud project id")
+  .action(
+    (options: {
+      dataDir?: string;
+      provider?: string;
+      auth?: string;
+      model?: string;
+      baseUrl?: string;
+      clearBaseUrl?: boolean;
+      projectId?: string;
+      clearProjectId?: boolean;
+    }) => {
+      if (
+        !options.provider &&
+        !options.auth &&
+        options.model === undefined &&
+        options.baseUrl === undefined &&
+        !options.clearBaseUrl &&
+        options.projectId === undefined &&
+        !options.clearProjectId
+      ) {
+        throw new Error("At least one config option is required");
+      }
+
+      const configuration = withDatabase(options.dataDir, (database) =>
+        updateLLMConfiguration(database, {
+          provider: options.provider,
+          authMethod: options.auth,
+          model: options.model,
+          baseUrl: options.clearBaseUrl ? null : options.baseUrl,
+          googleProjectId: options.clearProjectId ? null : options.projectId,
+        }),
+      );
+
+      console.log(
+        JSON.stringify(
+          {
+            status: "llm_config_updated",
+            configuration,
+          },
+          null,
+          2,
+        ),
+      );
+    },
+  );
+
+program
   .command("credential:status")
   .description("Show secure credential backend status")
-  .action(() => {
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    console.log(JSON.stringify(buildProviderCredentialStatus(options.dataDir), null, 2));
+  });
+
+program
+  .command("credential:set")
+  .description("Store a provider API key in secure OS credential storage")
+  .argument("<provider>", "Provider name: openai|gemini|claude")
+  .argument("[api-key]", "Provider API key. If omitted, provider env vars are used.")
+  .action((providerName: string, apiKey: string | undefined) => {
     const credentialStore = resolveCredentialStore();
+    const provider = normalizeLLMProvider(providerName);
+    const resolvedApiKey = apiKey ?? resolveApiKeyFromEnv(provider);
+
+    if (!resolvedApiKey) {
+      const descriptor = getLLMProviderDescriptor(provider);
+      throw new Error(`API key is required. Expected one of: ${descriptor.apiKeyEnvVars.join(", ")}`);
+    }
+
+    setLLMApiKey(credentialStore, provider, resolvedApiKey);
 
     console.log(
       JSON.stringify(
         {
+          status: "api_key_stored",
+          provider,
           backend: credentialStore.backend,
-          supported: credentialStore.isSupported(),
-          hasOpenAIKey: credentialStore.hasOpenAIKey(),
+        },
+        null,
+        2,
+      ),
+    );
+  });
+
+program
+  .command("credential:delete")
+  .description("Delete a stored provider API key from secure OS credential storage")
+  .argument("<provider>", "Provider name: openai|gemini|claude")
+  .action((providerName: string) => {
+    const credentialStore = resolveCredentialStore();
+    const provider = normalizeLLMProvider(providerName);
+    deleteLLMApiKey(credentialStore, provider);
+
+    console.log(
+      JSON.stringify(
+        {
+          status: "api_key_deleted",
+          provider,
+          backend: credentialStore.backend,
         },
         null,
         2,
@@ -1256,7 +1761,7 @@ program
     const credentialStore = resolveCredentialStore();
     const resolvedApiKey = apiKey ?? requireEnv("OPENAI_API_KEY");
 
-    credentialStore.setOpenAIKey(resolvedApiKey);
+    setLLMApiKey(credentialStore, "openai", resolvedApiKey);
 
     console.log(
       JSON.stringify(
@@ -1275,13 +1780,134 @@ program
   .description("Delete the stored OpenAI API key from secure OS credential storage")
   .action(() => {
     const credentialStore = resolveCredentialStore();
-    credentialStore.deleteOpenAIKey();
+    deleteLLMApiKey(credentialStore, "openai");
 
     console.log(
       JSON.stringify(
         {
           status: "openai_key_deleted",
           backend: credentialStore.backend,
+        },
+        null,
+        2,
+      ),
+    );
+  });
+
+program
+  .command("auth:login")
+  .description("Run a provider OAuth login flow when supported")
+  .argument("<provider>", "Provider name")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--client-id <id>", "OAuth client id for Gemini")
+  .option("--client-secret <secret>", "OAuth client secret for Gemini")
+  .option("--project-id <id>", "Google Cloud project id for Gemini")
+  .option("--port <port>", "Local callback port", "0")
+  .action(
+    async (
+      providerName: string,
+      options: {
+        dataDir?: string;
+        clientId?: string;
+        clientSecret?: string;
+        projectId?: string;
+        port: string;
+      },
+    ) => {
+      const provider = normalizeLLMProvider(providerName);
+
+      if (provider !== "gemini") {
+        throw new Error(`${provider} does not expose a public OAuth login flow for direct API usage`);
+      }
+
+      const credentialStore = resolveCredentialStore();
+
+      if (!credentialStore.isSupported()) {
+        throw new Error("Secure credential storage is required for OAuth login on this platform");
+      }
+
+      let authorizationUrl = "";
+      let redirectUri = "";
+      const credentials = await runGoogleOAuthInteractiveLogin({
+        clientId: options.clientId ?? requireEnv("GOOGLE_CLIENT_ID"),
+        clientSecret: options.clientSecret ?? requireEnv("GOOGLE_CLIENT_SECRET"),
+        projectId: options.projectId ?? requireEnv("GOOGLE_CLOUD_PROJECT"),
+        port: Number.parseInt(options.port, 10),
+        openBrowser: openSystemBrowser,
+        onAuthorizationUrl: (url, resolvedRedirectUri) => {
+          authorizationUrl = url;
+          redirectUri = resolvedRedirectUri;
+          console.log(
+            JSON.stringify(
+              {
+                status: "oauth2_login_started",
+                provider: "gemini",
+                authorizationUrl: url,
+                redirectUri: resolvedRedirectUri,
+              },
+              null,
+              2,
+            ),
+          );
+        },
+      });
+
+      setGeminiOAuthCredentials(credentialStore, credentials);
+      withDatabase(options.dataDir, (database) =>
+        updateLLMConfiguration(database, {
+          provider: "gemini",
+          authMethod: "oauth2",
+          googleProjectId: credentials.projectId,
+        }),
+      );
+
+      console.log(
+        JSON.stringify(
+          {
+            status: "oauth2_login_completed",
+            provider: "gemini",
+            authorizationUrl,
+            redirectUri,
+            expiresAt: credentials.expiresAt,
+            scopes: credentials.scope,
+          },
+          null,
+          2,
+        ),
+      );
+    },
+  );
+
+program
+  .command("auth:logout")
+  .description("Delete stored OAuth credentials for a provider")
+  .argument("<provider>", "Provider name")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((providerName: string, options: { dataDir?: string }) => {
+    const provider = normalizeLLMProvider(providerName);
+
+    if (provider !== "gemini") {
+      throw new Error(`${provider} does not have stored OAuth credentials in this CLI`);
+    }
+
+    const credentialStore = resolveCredentialStore();
+    deleteGeminiOAuthCredentials(credentialStore);
+
+    withDatabase(options.dataDir, (database) => {
+      const current = getStoredLLMConfiguration(database);
+
+      if (current.provider === "gemini" && current.authMethod === "oauth2") {
+        updateLLMConfiguration(database, {
+          authMethod: "api-key",
+        });
+      }
+    });
+
+    console.log(
+      JSON.stringify(
+        {
+          status: "oauth2_credentials_deleted",
+          provider: "gemini",
         },
         null,
         2,

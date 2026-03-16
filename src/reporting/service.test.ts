@@ -8,6 +8,14 @@ import { generateMockRawEvents } from "../collectors/mock.js";
 import { AppDatabase } from "../storage/database.js";
 import { generateReportSnapshot, runReportSchedulerCycle } from "./service.js";
 
+function createTestDatabase(tempDir: string): AppDatabase {
+  return new AppDatabase({
+    dataDir: tempDir,
+    databasePath: join(tempDir, "test.sqlite"),
+    agentLockPath: join(tempDir, "agent.lock"),
+  });
+}
+
 function seedMockEvents(database: AppDatabase, referenceDate: Date): void {
   for (const event of generateMockRawEvents(referenceDate)) {
     database.insertRawEvent(event);
@@ -20,10 +28,7 @@ test("generateReportSnapshot upserts one snapshot per window and report date", (
   const timezoneOffsetMinutes = -referenceDate.getTimezoneOffset();
 
   try {
-    const database = new AppDatabase({
-      dataDir: tempDir,
-      databasePath: join(tempDir, "test.sqlite"),
-    });
+    const database = createTestDatabase(tempDir);
     database.initialize();
     seedMockEvents(database, referenceDate);
 
@@ -62,10 +67,7 @@ test("runReportSchedulerCycle stores daily and weekly snapshots for the current 
   const timezoneOffsetMinutes = -referenceDate.getTimezoneOffset();
 
   try {
-    const database = new AppDatabase({
-      dataDir: tempDir,
-      databasePath: join(tempDir, "test.sqlite"),
-    });
+    const database = createTestDatabase(tempDir);
     database.initialize();
     seedMockEvents(database, referenceDate);
 

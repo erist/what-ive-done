@@ -1,15 +1,14 @@
 import { execFileSync } from "node:child_process";
 
-const OPENAI_SERVICE_NAME = "what-ive-done.openai";
-const OPENAI_ACCOUNT_NAME = "default";
+const DEFAULT_ACCOUNT_NAME = "default";
 
 export interface CredentialStore {
   backend: string;
   isSupported(): boolean;
-  hasOpenAIKey(): boolean;
-  getOpenAIKey(): string | undefined;
-  setOpenAIKey(apiKey: string): void;
-  deleteOpenAIKey(): void;
+  hasSecret(serviceName: string, accountName?: string): boolean;
+  getSecret(serviceName: string, accountName?: string): string | undefined;
+  setSecret(serviceName: string, secret: string, accountName?: string): void;
+  deleteSecret(serviceName: string, accountName?: string): void;
 }
 
 interface ExecRunner {
@@ -27,21 +26,21 @@ export function createUnsupportedCredentialStore(): CredentialStore {
   return {
     backend: "unsupported",
     isSupported: () => false,
-    hasOpenAIKey: () => false,
-    getOpenAIKey: () => undefined,
-    setOpenAIKey: () => {
+    hasSecret: () => false,
+    getSecret: () => undefined,
+    setSecret: () => {
       throw new Error("Secure credential storage is not supported on this platform yet");
     },
-    deleteOpenAIKey: () => {
+    deleteSecret: () => {
       throw new Error("Secure credential storage is not supported on this platform yet");
     },
   };
 }
 
 export function createMacOSKeychainCredentialStore(execRunner: ExecRunner = defaultExecRunner): CredentialStore {
-  const baseArgs = ["-s", OPENAI_SERVICE_NAME, "-a", OPENAI_ACCOUNT_NAME];
+  function find(serviceName: string, accountName = DEFAULT_ACCOUNT_NAME): string | undefined {
+    const baseArgs = ["-s", serviceName, "-a", accountName];
 
-  function find(): string | undefined {
     try {
       return execRunner("security", ["find-generic-password", "-w", ...baseArgs]).trim();
     } catch {
@@ -52,14 +51,30 @@ export function createMacOSKeychainCredentialStore(execRunner: ExecRunner = defa
   return {
     backend: "macos-keychain",
     isSupported: () => true,
-    hasOpenAIKey: () => Boolean(find()),
-    getOpenAIKey: () => find(),
-    setOpenAIKey: (apiKey: string) => {
-      execRunner("security", ["add-generic-password", "-U", "-w", apiKey, ...baseArgs]);
+    hasSecret: (serviceName: string, accountName?: string) =>
+      Boolean(find(serviceName, accountName)),
+    getSecret: (serviceName: string, accountName?: string) => find(serviceName, accountName),
+    setSecret: (serviceName: string, secret: string, accountName?: string) => {
+      execRunner("security", [
+        "add-generic-password",
+        "-U",
+        "-w",
+        secret,
+        "-s",
+        serviceName,
+        "-a",
+        accountName ?? DEFAULT_ACCOUNT_NAME,
+      ]);
     },
-    deleteOpenAIKey: () => {
+    deleteSecret: (serviceName: string, accountName?: string) => {
       try {
-        execRunner("security", ["delete-generic-password", ...baseArgs]);
+        execRunner("security", [
+          "delete-generic-password",
+          "-s",
+          serviceName,
+          "-a",
+          accountName ?? DEFAULT_ACCOUNT_NAME,
+        ]);
       } catch {
         return;
       }
