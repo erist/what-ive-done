@@ -62,3 +62,77 @@ test("sanitizeRawEvent derives a stable opaque resource hash for approved browse
   assert.equal(first.resourceHash, second.resourceHash);
   assert.equal(first.resourceHash?.includes("550e8400"), false);
 });
+
+test("sanitizeRawEvent keeps only approved browser context metadata fields", () => {
+  const sanitized = sanitizeRawEvent({
+    source: "chrome_extension",
+    sourceEventType: "chrome.route_change",
+    timestamp: "2026-03-17T00:10:00.000Z",
+    application: "chrome",
+    action: "navigation",
+    url: "https://workspace.example.com/#/orders/123/edit",
+    metadata: {
+      browserContext: {
+        routeTaxonomy: {
+          source: "hash",
+          signature: "hash:/orders/{id}/edit",
+          routeTemplate: "/orders/{id}/edit",
+          depth: 3,
+          primarySection: "orders",
+          secondarySection: "{id}",
+          leafSection: "edit",
+          dynamicSegmentCount: 1,
+          rawPath: "/orders/123/edit",
+        },
+        documentTypeHash: "ABCDEF1234567890",
+        tabOrder: {
+          globalSequence: 7,
+          windowSequence: 3,
+          tabIndex: 1,
+          previousTabId: 22,
+          windowId: 5,
+          debug: "drop-me",
+        },
+        dwell: {
+          durationMs: 4200.4,
+          startedAt: "2026-03-17T00:09:55.800Z",
+          endedAt: "2026-03-17T00:10:00.000Z",
+          reason: "route_change",
+          debug: "drop-me",
+        },
+        signalOnly: true,
+        debug: "drop-me",
+      },
+    },
+  });
+
+  assert.deepEqual(sanitized.metadata, {
+    browserContext: {
+      routeTaxonomy: {
+        source: "hash",
+        signature: "hash:/orders/{id}/edit",
+        routeTemplate: "/orders/{id}/edit",
+        depth: 3,
+        primarySection: "orders",
+        secondarySection: "{id}",
+        leafSection: "edit",
+        dynamicSegmentCount: 1,
+      },
+      documentTypeHash: "abcdef1234567890",
+      tabOrder: {
+        globalSequence: 7,
+        windowSequence: 3,
+        tabIndex: 1,
+        previousTabId: 22,
+        windowId: 5,
+      },
+      dwell: {
+        durationMs: 4200,
+        startedAt: "2026-03-17T00:09:55.800Z",
+        endedAt: "2026-03-17T00:10:00.000Z",
+        reason: "route_change",
+      },
+      signalOnly: true,
+    },
+  });
+});

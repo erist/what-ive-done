@@ -21,6 +21,7 @@ Implemented today:
 - localhost-only ingest auth token and request rate limiting
 - local browser viewer served from the same local HTTP server
 - Chrome extension scaffold for browser activity metadata
+- Chrome browser context collection with route taxonomy, document-type hash, tab-order metadata, and signal-only dwell segments
 - golden workflow fixtures and debug trace commands
 - Windows PowerShell active-window collector path
 - macOS Swift active-window collector path with permission checks and one-shot capture
@@ -129,6 +130,37 @@ npm run dev -- doctor --data-dir ./tmp/live-data
 npm run dev -- server:run --data-dir ./tmp/live-data --verbose
 ```
 
+## Chrome Context Contract
+
+Browser schema v2 remains the top-level compatibility layer:
+
+- `browser_schema_version`
+- `canonical_url`
+- `route_template`
+- `route_key`
+- `resource_hash`
+
+Chrome collector expansion adds a privacy-reviewed `metadata.browserContext` envelope:
+
+- `routeTaxonomy`
+  - normalized route source, template, signature, section hints, and dynamic segment count
+- `documentTypeHash`
+  - opaque SHA-256-derived hash of coarse document structure only
+- `tabOrder`
+  - activation counters, tab index, and previous tab reference
+- `dwell`
+  - dwell duration and segment timestamps
+
+Special handling:
+
+- `chrome.dwell` events are stored as raw signal-only events with `metadata.browserContext.signalOnly = true`
+- signal-only dwell events are skipped by normalized workflow analysis so they do not become workflow steps
+- hash-based SPA routes are reduced to normalized route taxonomy and are not stored as raw fragment text
+
+Privacy note:
+
+- [Chrome Context Privacy Review](./chrome-context-privacy-review.md)
+
 ## Report Scope
 
 Current report behavior:
@@ -150,6 +182,10 @@ Collected metadata:
 - application name
 - window title
 - URL and domain
+- normalized route taxonomy
+- opaque document-type hash
+- tab-order metadata
+- dwell duration and timestamps
 - event action and target hints
 - timestamps
 - session structure
@@ -412,6 +448,7 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 - `src/agent/`: resident runtime, control plane, collector supervision, scheduler, and autostart helpers
 - `src/viewer/`: live viewer data assembly for the local browser dashboard
 - `src/server/`: local HTTP server, ingest routes, and browser viewer assets
+- `src/privacy/browser.ts`: browser URL canonicalization and privacy-safe browser schema derivation
 - `src/storage/database.ts`: SQLite persistence layer
 - `src/storage/schema.ts`: database schema
 - `src/privacy/sanitize.ts`: sensitive metadata filtering
@@ -442,6 +479,7 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 - `src/server/security.ts`: ingest auth token, localhost-only enforcement, and rate limiting
 - `src/debug/trace.ts`: raw/session/workflow trace builders for the debug CLI
 - `extension/chrome`: Chrome extension scaffold for live browser collection
+- `extension/chrome/context.js`: shared Chrome collector helpers for route taxonomy and document-type hashes
 
 ## Known Limitations
 

@@ -507,6 +507,11 @@ export class AppDatabase {
           window_title,
           domain,
           url,
+          browser_schema_version,
+          canonical_url,
+          route_template,
+          route_key,
+          resource_hash,
           action,
           target,
           metadata_json,
@@ -521,21 +526,7 @@ export class AppDatabase {
       return undefined;
     }
 
-    return {
-      id: row.id,
-      source: row.source as RawEvent["source"],
-      sourceEventType: row.source_event_type,
-      timestamp: row.timestamp,
-      application: row.application,
-      windowTitle: row.window_title ?? undefined,
-      domain: row.domain ?? undefined,
-      url: row.url ?? undefined,
-      action: row.action,
-      target: row.target ?? undefined,
-      metadata: JSON.parse(row.metadata_json) as Record<string, unknown>,
-      sensitiveFiltered: row.sensitive_filtered === 1,
-      createdAt: row.created_at,
-    };
+    return mapRawEventRow(row);
   }
 
   getRawEventsChronological(): RawEvent[] {
@@ -646,6 +637,11 @@ export class AppDatabase {
           app_name_normalized,
           domain,
           url,
+          browser_schema_version,
+          canonical_url,
+          route_template,
+          route_key,
+          resource_hash,
           path_pattern,
           page_type,
           resource_hint,
@@ -666,26 +662,7 @@ export class AppDatabase {
       return undefined;
     }
 
-    return {
-      id: row.id,
-      rawEventId: row.raw_event_id,
-      timestamp: row.timestamp,
-      application: row.application,
-      appNameNormalized: row.app_name_normalized ?? row.application,
-      domain: row.domain ?? undefined,
-      url: row.url ?? undefined,
-      pathPattern: row.path_pattern ?? undefined,
-      pageType: row.page_type ?? undefined,
-      resourceHint: row.resource_hint ?? undefined,
-      titlePattern: row.title_pattern ?? undefined,
-      action: row.action,
-      actionName: row.action_name ?? row.action,
-      actionConfidence: row.action_confidence ?? 0,
-      actionSource: row.action_source ?? "inferred",
-      target: row.target ?? undefined,
-      metadata: JSON.parse(row.metadata_json) as Record<string, unknown>,
-      createdAt: row.created_at,
-    };
+    return mapNormalizedEventRow(row);
   }
 
   getNormalizedEventByRawEventId(rawEventId: string): NormalizedEvent | undefined {
@@ -699,6 +676,11 @@ export class AppDatabase {
           app_name_normalized,
           domain,
           url,
+          browser_schema_version,
+          canonical_url,
+          route_template,
+          route_key,
+          resource_hash,
           path_pattern,
           page_type,
           resource_hint,
@@ -719,26 +701,7 @@ export class AppDatabase {
       return undefined;
     }
 
-    return {
-      id: row.id,
-      rawEventId: row.raw_event_id,
-      timestamp: row.timestamp,
-      application: row.application,
-      appNameNormalized: row.app_name_normalized ?? row.application,
-      domain: row.domain ?? undefined,
-      url: row.url ?? undefined,
-      pathPattern: row.path_pattern ?? undefined,
-      pageType: row.page_type ?? undefined,
-      resourceHint: row.resource_hint ?? undefined,
-      titlePattern: row.title_pattern ?? undefined,
-      action: row.action,
-      actionName: row.action_name ?? row.action,
-      actionConfidence: row.action_confidence ?? 0,
-      actionSource: row.action_source ?? "inferred",
-      target: row.target ?? undefined,
-      metadata: JSON.parse(row.metadata_json) as Record<string, unknown>,
-      createdAt: row.created_at,
-    };
+    return mapNormalizedEventRow(row);
   }
 
   replaceAnalysisArtifacts(args: {

@@ -9,6 +9,7 @@ const ACTION_BY_SOURCE_EVENT_TYPE: Record<string, string> = {
   "application.switch": "application_switch",
   "browser.click": "button_click",
   "chrome.click": "button_click",
+  "chrome.route_change": "page_navigation",
   "chrome.navigation": "page_navigation",
   "clipboard.use": "clipboard_usage",
   "dom.click": "button_click",
@@ -24,6 +25,10 @@ const ACTION_BY_SOURCE_EVENT_TYPE: Record<string, string> = {
 const NUMBER_SEQUENCE = /\b\d{2,}\b/g;
 const UUID_SEQUENCE =
   /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
 
 function normalizeAction(rawEvent: RawEvent): string {
   return ACTION_BY_SOURCE_EVENT_TYPE[rawEvent.sourceEventType] ?? rawEvent.action;
@@ -152,6 +157,13 @@ export function normalizeRawEvents(
   config: NormalizationConfig = DEFAULT_NORMALIZATION_CONFIG,
 ): NormalizedEvent[] {
   const baseEvents = [...rawEvents]
+    .filter((rawEvent) => {
+      const browserContext = isRecord(rawEvent.metadata.browserContext)
+        ? rawEvent.metadata.browserContext
+        : undefined;
+
+      return browserContext?.signalOnly !== true;
+    })
     .sort((left, right) => left.timestamp.localeCompare(right.timestamp))
     .map((rawEvent) => {
       const browserFields = deriveBrowserCanonicalFields(rawEvent, config);
