@@ -177,7 +177,12 @@ function shouldRenderApplication(step: SessionStep): boolean {
 
 function buildWorkflowName(representativeSequence: string[], involvedApps: string[]): string {
   const primaryAction =
-    representativeSequence.find((action) => !action.startsWith("open_") && !action.startsWith("switch_to_")) ??
+    representativeSequence.find(
+      (action) =>
+        action !== "unknown_action" &&
+        !action.startsWith("open_") &&
+        !action.startsWith("switch_to_"),
+    ) ??
     representativeSequence[0];
   const actionName = humanizeIdentifier(primaryAction);
 

@@ -43,5 +43,23 @@
     "expectedWorkflowClusters": 1,
     "expectedWorkflowName": "Send Email Response workflow",
     "expectedRepresentativeSequence": ["send_email_response", "save_sheet", "send_slack_report"]
+  },
+  {
+    "id": "google-sheets-status-share",
+    "file": "google-sheets-status-share.ndjson",
+    "description": "Repeated Google Sheets status update and share workflow",
+    "expectedSessions": 3,
+    "expectedWorkflowClusters": 1,
+    "expectedWorkflowName": "Edit Sheet workflow",
+    "expectedRepresentativeSequence": ["open_sheet", "edit_sheet", "share_sheet"]
+  },
+  {
+    "id": "bigquery-run-query",
+    "file": "bigquery-run-query.ndjson",
+    "description": "Repeated BigQuery query execution and save workflow",
+    "expectedSessions": 3,
+    "expectedWorkflowClusters": 1,
+    "expectedWorkflowName": "Run Query workflow",
+    "expectedRepresentativeSequence": ["open_query_workspace", "run_query", "save_query"]
   }
 ]

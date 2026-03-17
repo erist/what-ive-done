@@ -1,22 +1,25 @@
 import {
   DEFAULT_ACTION_ABSTRACTION_CONFIG,
   type ActionAbstractionConfig,
-  type ActionRule,
 } from "../config/analysis.js";
 import type { ActionSource, NormalizedEvent } from "../domain/types.js";
-
-type ActionlessNormalizedEvent = Omit<
-  NormalizedEvent,
-  "actionName" | "actionConfidence" | "actionSource"
->;
-
-interface NearbyContext {
-  previousNearby?: ActionlessNormalizedEvent | undefined;
-  nextNearby?: ActionlessNormalizedEvent | undefined;
-}
+import { ACTION_PACK_REGISTRY_VERSION, matchActionPackRule } from "../action-packs/index.js";
+import type {
+  ActionMatchMetadata,
+  ActionlessNormalizedEvent,
+  NearbyContext,
+} from "../action-packs/types.js";
 
 function millisecondsBetween(left: string, right: string): number {
   return Math.abs(new Date(left).getTime() - new Date(right).getTime());
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function compactObject<T extends Record<string, unknown>>(value: T): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined));
 }
 
 function normalizeIdentifier(value: string): string {
@@ -25,17 +28,6 @@ function normalizeIdentifier(value: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
-}
-
-function specificity(rule: ActionRule): number {
-  return [
-    rule.applications,
-    rule.domains,
-    rule.eventTypes,
-    rule.pageTypes,
-    rule.targetIncludes,
-    rule.resourceHints,
-  ].filter((value) => Boolean(value && value.length > 0)).length;
 }
 
 function buildNearbyContext(
@@ -70,67 +62,76 @@ function buildNearbyContext(
   };
 }
 
-function eventMatchesRule(
-  event: ActionlessNormalizedEvent,
-  rule: ActionRule,
-  context: NearbyContext,
-): boolean {
-  const directTargetValue = (event.target ?? "").toLowerCase();
-  const contextualTargetValue = [context.previousNearby?.target, context.nextNearby?.target]
-    .filter((value): value is string => Boolean(value))
-    .join(" ")
-    .toLowerCase();
-  const targetValue = directTargetValue || contextualTargetValue;
-  const pageType = event.pageType ?? context.previousNearby?.pageType ?? context.nextNearby?.pageType;
-  const resourceHint =
-    event.resourceHint ??
-    context.previousNearby?.resourceHint ??
-    context.nextNearby?.resourceHint;
+function hasMeaningfulTarget(target: string): boolean {
+  const normalized = normalizeIdentifier(target);
 
-  if (rule.applications && !rule.applications.includes(event.application)) {
+  if (!normalized) {
     return false;
   }
 
-  if (
-    rule.domains &&
-    !rule.domains.some((domainToken) => (event.domain ?? "").toLowerCase().includes(domainToken))
-  ) {
+  const tokens = normalized.split("_").filter(Boolean);
+
+  if (tokens.length === 0) {
     return false;
   }
 
-  if (rule.eventTypes && !rule.eventTypes.includes(event.action)) {
-    return false;
-  }
+  const genericTokens = new Set([
+    "button",
+    "card",
+    "dialog",
+    "dropdown",
+    "field",
+    "form",
+    "icon",
+    "input",
+    "link",
+    "list",
+    "menu",
+    "modal",
+    "panel",
+    "row",
+    "section",
+    "tab",
+    "toolbar",
+    "view",
+  ]);
+  const verbTokens = new Set([
+    "approve",
+    "download",
+    "edit",
+    "export",
+    "focus",
+    "notify",
+    "open",
+    "reply",
+    "run",
+    "save",
+    "search",
+    "send",
+    "share",
+    "submit",
+    "update",
+  ]);
 
-  if (rule.pageTypes && !rule.pageTypes.includes(pageType ?? "")) {
-    return false;
-  }
-
-  if (
-    rule.targetIncludes &&
-    !rule.targetIncludes.some((token) => targetValue.includes(token.toLowerCase()))
-  ) {
-    return false;
-  }
-
-  if (rule.resourceHints && !rule.resourceHints.includes(resourceHint ?? "")) {
-    return false;
-  }
-
-  return true;
-}
-
-function selectActionRule(
-  event: ActionlessNormalizedEvent,
-  context: NearbyContext,
-  config: ActionAbstractionConfig,
-): ActionRule | undefined {
-  return [...config.rules]
-    .filter((rule) => eventMatchesRule(event, rule, context))
-    .sort((left, right) => specificity(right) - specificity(left) || right.confidence - left.confidence)[0];
+  return (
+    tokens.some((token) => verbTokens.has(token)) ||
+    tokens.some((token) => !genericTokens.has(token)) && tokens.length >= 2
+  );
 }
 
 function inferFromPageType(pageType: string, resourceHint: string | undefined): string {
+  const specialCases: Record<string, string> = {
+    bigquery_saved_queries: "open_saved_queries",
+    bigquery_sql_workspace: "open_query_workspace",
+    bigquery_workspace: "open_bigquery_workspace",
+    document_edit: "open_document",
+    sheet_edit: "open_sheet",
+  };
+
+  if (specialCases[pageType]) {
+    return specialCases[pageType];
+  }
+
   if (pageType.endsWith("_edit") && resourceHint) {
     return `edit_${resourceHint}`;
   }
@@ -150,6 +151,7 @@ function inferAction(event: ActionlessNormalizedEvent, context: NearbyContext): 
   actionName: string;
   actionConfidence: number;
   actionSource: ActionSource;
+  actionMatchMetadata: ActionMatchMetadata;
 } {
   const target = event.target ?? context.previousNearby?.target ?? context.nextNearby?.target;
   const pageType = event.pageType ?? context.previousNearby?.pageType ?? context.nextNearby?.pageType;
@@ -158,11 +160,16 @@ function inferAction(event: ActionlessNormalizedEvent, context: NearbyContext): 
     context.previousNearby?.resourceHint ??
     context.nextNearby?.resourceHint;
 
-  if (target) {
+  if (target && hasMeaningfulTarget(target)) {
     return {
       actionName: normalizeIdentifier(target),
       actionConfidence: 0.74,
       actionSource: "inferred",
+      actionMatchMetadata: {
+        registryVersion: ACTION_PACK_REGISTRY_VERSION,
+        layer: "generic",
+        strategy: "target_inference",
+      },
     };
   }
 
@@ -171,6 +178,11 @@ function inferAction(event: ActionlessNormalizedEvent, context: NearbyContext): 
       actionName: inferFromPageType(pageType, resourceHint),
       actionConfidence: 0.69,
       actionSource: "inferred",
+      actionMatchMetadata: {
+        registryVersion: ACTION_PACK_REGISTRY_VERSION,
+        layer: "page_type",
+        strategy: "page_type_inference",
+      },
     };
   }
 
@@ -179,6 +191,11 @@ function inferAction(event: ActionlessNormalizedEvent, context: NearbyContext): 
       actionName: `switch_to_${normalizeIdentifier(event.application)}`,
       actionConfidence: 0.62,
       actionSource: "inferred",
+      actionMatchMetadata: {
+        registryVersion: ACTION_PACK_REGISTRY_VERSION,
+        layer: "generic",
+        strategy: "application_switch_inference",
+      },
     };
   }
 
@@ -187,6 +204,11 @@ function inferAction(event: ActionlessNormalizedEvent, context: NearbyContext): 
       actionName: "export_file",
       actionConfidence: 0.67,
       actionSource: "inferred",
+      actionMatchMetadata: {
+        registryVersion: ACTION_PACK_REGISTRY_VERSION,
+        layer: "generic",
+        strategy: "file_download_inference",
+      },
     };
   }
 
@@ -195,13 +217,54 @@ function inferAction(event: ActionlessNormalizedEvent, context: NearbyContext): 
       actionName: `${normalizeIdentifier(event.action)}_${normalizeIdentifier(resourceHint)}`,
       actionConfidence: 0.58,
       actionSource: "inferred",
+      actionMatchMetadata: {
+        registryVersion: ACTION_PACK_REGISTRY_VERSION,
+        layer: "generic",
+        strategy: "resource_hint_inference",
+      },
     };
   }
 
   return {
-    actionName: normalizeIdentifier(event.action),
-    actionConfidence: 0.5,
+    actionName: "unknown_action",
+    actionConfidence: 0.2,
     actionSource: "inferred",
+    actionMatchMetadata: {
+      registryVersion: ACTION_PACK_REGISTRY_VERSION,
+      layer: "unknown",
+      reason: "missing_pack_rule_and_low_signal_fallback",
+    },
+  };
+}
+
+function attachActionMatchMetadata(
+  event: ActionlessNormalizedEvent,
+  action: {
+    actionName: string;
+    actionConfidence: number;
+    actionSource: ActionSource;
+    actionMatchMetadata: ActionMatchMetadata;
+  },
+): NormalizedEvent {
+  const metadata = isRecord(event.metadata) ? event.metadata : {};
+
+  return {
+    ...event,
+    actionName: action.actionName,
+    actionConfidence: action.actionConfidence,
+    actionSource: action.actionSource,
+    metadata: {
+      ...metadata,
+      actionMatch: compactObject({
+        registryVersion: action.actionMatchMetadata.registryVersion,
+        layer: action.actionMatchMetadata.layer,
+        packId: action.actionMatchMetadata.packId,
+        packVersion: action.actionMatchMetadata.packVersion,
+        ruleId: action.actionMatchMetadata.ruleId,
+        strategy: action.actionMatchMetadata.strategy,
+        reason: action.actionMatchMetadata.reason,
+      }),
+    },
   };
 }
 
@@ -211,20 +274,27 @@ export function abstractNormalizedEvents(
 ): NormalizedEvent[] {
   return events.map((event, index) => {
     const context = buildNearbyContext(events, index, config);
-    const matchedRule = selectActionRule(event, context, config);
+    const matchedRule = matchActionPackRule({
+      event,
+      previousNearby: context.previousNearby,
+      nextNearby: context.nextNearby,
+    });
 
     if (matchedRule) {
-      return {
-        ...event,
+      return attachActionMatchMetadata(event, {
         actionName: matchedRule.actionName,
-        actionConfidence: matchedRule.confidence,
-        actionSource: matchedRule.source ?? "rule",
-      };
+        actionConfidence: matchedRule.actionConfidence,
+        actionSource: matchedRule.actionSource,
+        actionMatchMetadata: {
+          registryVersion: ACTION_PACK_REGISTRY_VERSION,
+          layer: matchedRule.layer,
+          packId: matchedRule.packId,
+          packVersion: matchedRule.packVersion,
+          ruleId: matchedRule.ruleId,
+        },
+      });
     }
 
-    return {
-      ...event,
-      ...inferAction(event, context),
-    };
+    return attachActionMatchMetadata(event, inferAction(event, context));
   });
 }
