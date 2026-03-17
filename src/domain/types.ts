@@ -1,4 +1,10 @@
-export type EventSource = "calendar" | "desktop" | "chrome_extension" | "mock";
+export type EventSource =
+  | "calendar"
+  | "desktop"
+  | "chrome_extension"
+  | "workspace"
+  | "git"
+  | "mock";
 
 export type AutomationSuitability = "high" | "medium" | "low";
 export type AutomationDifficulty = "high" | "medium" | "low";

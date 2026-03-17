@@ -149,6 +149,33 @@ test("buildManagedCollectorSpecs adds the optional gws calendar collector when e
   ]);
 });
 
+test("buildManagedCollectorSpecs adds the optional workspace and git collectors when enabled", () => {
+  const specs = buildManagedCollectorSpecs({
+    ingestUrl: "http://127.0.0.1:4318/events",
+    ingestAuthToken: "fixture-token",
+    processPlatform: "linux",
+    enableGWSDrive: true,
+    gwsDrivePollIntervalMs: 30_000,
+    enableGWSSheets: true,
+    gwsSheetsPollIntervalMs: 45_000,
+    gitRepoPath: "/tmp/example-repo",
+    gitPollIntervalMs: 20_000,
+  });
+
+  assert.deepEqual(
+    specs.map((spec) => spec.id),
+    ["gws-drive", "gws-sheets", "git-context"],
+  );
+  assert.deepEqual(specs[0]?.args.slice(-2), ["--poll-interval-ms", "30000"]);
+  assert.deepEqual(specs[1]?.args.slice(-2), ["--poll-interval-ms", "45000"]);
+  assert.deepEqual(specs[2]?.args.slice(-4), [
+    "--repo-path",
+    "/tmp/example-repo",
+    "--poll-interval-ms",
+    "20000",
+  ]);
+});
+
 test("startCollectorSupervisor returns no managed collectors on unsupported platforms", async () => {
   const supervisor = await startCollectorSupervisor({
     ingestUrl: "http://127.0.0.1:4318/events",

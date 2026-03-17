@@ -88,3 +88,127 @@ test("analyzeRawEvents reuses split feedback to fragment future workflow interpr
     [["open_admin", "search_order"], ["update_status"]],
   );
 });
+
+test("analyzeRawEvents includes workspace and git collector context in repeated workflows", () => {
+  const rawEvents = toRawEvents([
+    {
+      source: "git",
+      sourceEventType: "git.repo.commit",
+      timestamp: "2026-03-14T09:00:00.000Z",
+      application: "git",
+      domain: "github.com",
+      action: "git_activity",
+      target: "record_git_commit",
+      metadata: {
+        gitContext: {
+          repoHash: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+          remoteHost: "github.com",
+          dirtyFileCount: 0,
+          lastCommitAt: "2026-03-14T09:00:00.000Z",
+        },
+      },
+    },
+    {
+      source: "workspace",
+      sourceEventType: "workspace.sheets.viewed",
+      timestamp: "2026-03-14T09:00:30.000Z",
+      application: "gws-sheets",
+      domain: "docs.google.com",
+      action: "workspace_activity",
+      target: "open_sheet",
+      metadata: {
+        workspaceContext: {
+          provider: "gws",
+          app: "sheets",
+          itemType: "spreadsheet",
+          itemHash: "1111111111111111111111111111111111111111111111111111111111111111",
+          activityType: "viewed",
+        },
+      },
+    },
+    {
+      source: "workspace",
+      sourceEventType: "workspace.drive.modified",
+      timestamp: "2026-03-14T09:01:00.000Z",
+      application: "gws-drive",
+      domain: "drive.google.com",
+      action: "workspace_activity",
+      target: "update_document",
+      metadata: {
+        workspaceContext: {
+          provider: "gws",
+          app: "drive",
+          itemType: "document",
+          itemHash: "2222222222222222222222222222222222222222222222222222222222222222",
+          activityType: "modified",
+        },
+      },
+    },
+    {
+      source: "git",
+      sourceEventType: "git.repo.commit",
+      timestamp: "2026-03-14T11:00:00.000Z",
+      application: "git",
+      domain: "github.com",
+      action: "git_activity",
+      target: "record_git_commit",
+      metadata: {
+        gitContext: {
+          repoHash: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+          remoteHost: "github.com",
+          dirtyFileCount: 0,
+          lastCommitAt: "2026-03-14T11:00:00.000Z",
+        },
+      },
+    },
+    {
+      source: "workspace",
+      sourceEventType: "workspace.sheets.viewed",
+      timestamp: "2026-03-14T11:00:30.000Z",
+      application: "gws-sheets",
+      domain: "docs.google.com",
+      action: "workspace_activity",
+      target: "open_sheet",
+      metadata: {
+        workspaceContext: {
+          provider: "gws",
+          app: "sheets",
+          itemType: "spreadsheet",
+          itemHash: "1111111111111111111111111111111111111111111111111111111111111111",
+          activityType: "viewed",
+        },
+      },
+    },
+    {
+      source: "workspace",
+      sourceEventType: "workspace.drive.modified",
+      timestamp: "2026-03-14T11:01:00.000Z",
+      application: "gws-drive",
+      domain: "drive.google.com",
+      action: "workspace_activity",
+      target: "update_document",
+      metadata: {
+        workspaceContext: {
+          provider: "gws",
+          app: "drive",
+          itemType: "document",
+          itemHash: "2222222222222222222222222222222222222222222222222222222222222222",
+          activityType: "modified",
+        },
+      },
+    },
+  ]);
+
+  const result = analyzeRawEvents(rawEvents, {
+    minimumWorkflowFrequency: 2,
+    minSessionDurationSeconds: 0,
+  });
+
+  assert.equal(result.workflowClusters.length, 1);
+  assert.deepEqual(result.workflowClusters[0]?.involvedApps, ["git", "gws-sheets", "gws-drive"]);
+  assert.deepEqual(result.workflowClusters[0]?.representativeSequence, [
+    "record_git_commit",
+    "open_sheet",
+    "update_document",
+  ]);
+});
