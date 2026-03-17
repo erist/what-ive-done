@@ -81,6 +81,16 @@ export function renderViewerHtml(): string {
         <section class="panel panel-span-2">
           <div class="section-header">
             <div>
+              <p class="section-title">Comparison View</p>
+              <p class="section-subtitle">Compare the selected day or week against the previous matching window.</p>
+            </div>
+          </div>
+          <div id="comparison-view" class="comparison-shell"></div>
+        </section>
+
+        <section class="panel panel-span-2">
+          <div class="section-header">
+            <div>
               <p class="section-title">Feedback Queue</p>
               <p class="section-subtitle">Review one workflow at a time without touching the CLI.</p>
             </div>
@@ -621,6 +631,57 @@ td strong {
   gap: 16px;
 }
 
+.comparison-shell,
+.comparison-summary-grid,
+.comparison-columns {
+  display: grid;
+  gap: 16px;
+}
+
+.comparison-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.comparison-summary-card,
+.comparison-column {
+  padding: 16px 18px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(29, 36, 31, 0.08);
+}
+
+.comparison-summary-card .value {
+  margin: 8px 0 6px;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.comparison-columns {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.comparison-column h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.comparison-entry-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.comparison-entry {
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: rgba(244, 239, 229, 0.66);
+  border: 1px solid rgba(29, 36, 31, 0.08);
+}
+
+.comparison-entry p {
+  margin: 4px 0 0;
+}
+
 .feedback-workflow-list {
   display: grid;
   gap: 10px;
@@ -952,6 +1013,7 @@ const elements = {
   summaryGrid: document.getElementById("summary-grid"),
   highlightsGrid: document.getElementById("highlights-grid"),
   snapshotList: document.getElementById("snapshot-list"),
+  comparisonView: document.getElementById("comparison-view"),
   feedbackWorkflowList: document.getElementById("feedback-workflow-list"),
   workflowDetail: document.getElementById("workflow-detail"),
   workflowList: document.getElementById("workflow-list"),
@@ -992,6 +1054,22 @@ function formatDuration(seconds) {
   }
 
   return \`\${remainingSeconds}s\`;
+}
+
+function formatSignedNumber(value) {
+  const numeric = Number(value) || 0;
+
+  return numeric > 0 ? \`+\${numeric}\` : String(numeric);
+}
+
+function formatSignedDuration(seconds) {
+  const numeric = Number(seconds) || 0;
+
+  if (numeric === 0) {
+    return "0s";
+  }
+
+  return \`\${numeric > 0 ? "+" : "-"}\${formatDuration(Math.abs(numeric))}\`;
 }
 
 function toBooleanChoice(value) {
@@ -1217,6 +1295,104 @@ function renderSnapshotList(snapshots) {
       </article>
     \`;
   }).join("");
+}
+
+function renderComparisonEntries(entries, emptyMessage) {
+  if (!entries || entries.length === 0) {
+    return \`<div class="empty-state">\${escapeHtml(emptyMessage)}</div>\`;
+  }
+
+  return \`
+    <div class="comparison-entry-list">
+      \${entries.map((entry) => {
+        const previousName = entry.previousWorkflowName
+          ? \`<p class="muted">Previously: \${escapeHtml(entry.previousWorkflowName)}</p>\`
+          : "";
+
+        return \`
+          <article class="comparison-entry">
+            <strong>\${escapeHtml(entry.workflowName)}</strong>
+            \${previousName}
+            <p class="muted">
+              repeats \${escapeHtml(formatSignedNumber(entry.frequencyDelta))} |
+              time \${escapeHtml(formatSignedDuration(entry.totalDurationDeltaSeconds))}
+            </p>
+          </article>
+        \`;
+      }).join("")}
+    </div>
+  \`;
+}
+
+function renderComparisonView(comparison) {
+  if (!comparison) {
+    elements.comparisonView.innerHTML =
+      '<div class="empty-state">Comparison is available only for day and week windows.</div>';
+    return;
+  }
+
+  const summaryCards = [
+    {
+      label: "Compared Against",
+      value: comparison.previousTimeWindow.reportDate,
+      note: \`\${comparison.previousTimeWindow.window} window in \${comparison.previousTimeWindow.timezone}\`,
+    },
+    {
+      label: "Sessions Delta",
+      value: formatSignedNumber(comparison.summary.sessionDelta),
+      note: "Current window sessions minus previous window sessions",
+    },
+    {
+      label: "Tracked Time Delta",
+      value: formatSignedDuration(comparison.summary.trackedDurationDeltaSeconds),
+      note: "Change in total tracked time across matching windows",
+    },
+    {
+      label: "Approved Candidate Time",
+      value: formatSignedDuration(comparison.summary.approvedCandidateTimeDeltaSeconds),
+      note: "Shift in time spent on approved automation candidates",
+    },
+  ];
+
+  elements.comparisonView.innerHTML = \`
+    <div class="comparison-summary-grid">
+      \${summaryCards.map((card) => {
+        return \`
+          <article class="comparison-summary-card">
+            <p class="panel-label">\${escapeHtml(card.label)}</p>
+            <p class="value">\${escapeHtml(card.value)}</p>
+            <p class="note">\${escapeHtml(card.note)}</p>
+          </article>
+        \`;
+      }).join("")}
+    </div>
+    <div class="comparison-columns">
+      <section class="comparison-column">
+        <p class="panel-label">Newly Appeared</p>
+        <h3>Confirmed workflows that were not present before</h3>
+        \${renderComparisonEntries(
+          comparison.newlyAppearedWorkflows,
+          "No newly appeared confirmed workflows in this comparison window.",
+        )}
+      </section>
+      <section class="comparison-column">
+        <p class="panel-label">Disappeared</p>
+        <h3>Confirmed workflows that dropped out of the previous set</h3>
+        \${renderComparisonEntries(
+          comparison.disappearedWorkflows,
+          "No confirmed workflows disappeared in this comparison window.",
+        )}
+      </section>
+      <section class="comparison-column">
+        <p class="panel-label">Automation Effect</p>
+        <h3>Approved candidate workflows with time shifts</h3>
+        \${renderComparisonEntries(
+          comparison.approvedCandidateChanges,
+          "No approved automation candidate changes yet.",
+        )}
+      </section>
+    </div>
+  \`;
 }
 
 function renderFeedbackWorkflowList(workflows) {
@@ -1689,6 +1865,7 @@ async function refreshDashboard() {
     renderSummaryCards(data);
     renderHighlights(data.report.summary);
     renderSnapshotList(data.latestSnapshots);
+    renderComparisonView(data.comparison);
     renderFeedbackWorkflowList(data.reviewableWorkflows);
     renderWorkflowTable(
       elements.workflowList,

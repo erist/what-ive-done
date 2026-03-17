@@ -44,17 +44,17 @@ Implemented today:
 - LLM-safe workflow payload export
 - OpenAI, Gemini, and Claude adapters for summarized workflow analysis
 - saved default LLM provider/model/auth configuration
-- macOS Keychain-backed storage for provider API keys and Gemini OAuth credentials
-- macOS LaunchAgent autostart helpers and CLI commands
+- macOS Keychain-backed and Windows DPAPI-backed storage for provider API keys and Gemini OAuth credentials
+- macOS LaunchAgent and Windows startup-script autostart helpers and CLI commands
+- day-over-day and week-over-week comparison reports in the CLI and browser viewer
+- collector restart backoff diagnostics
+- GitHub Actions CI for typecheck, test, domain-pack fixture regression, and cluster benchmark gates
 
 Not implemented yet:
 
 - Windows click, file operation, and clipboard collectors
-- Windows autostart installation flow
 - packaged desktop app or tray UI
-- browser-based workflow feedback write UI
-- secure credential storage on non-macOS platforms
-- report comparison views such as day-over-day or week-over-week diffs
+- secure credential storage on Linux
 
 ## Runtime Architecture
 
@@ -557,9 +557,9 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 | `agent:run-once` | Run one agent collection and snapshot cycle. |
 | `agent:snapshot:latest` | Show the latest stored snapshots. |
 | `agent:collectors` | Show collector supervision state. |
-| `agent:autostart:status` | Show macOS LaunchAgent autostart status. |
-| `agent:autostart:install` | Install the macOS LaunchAgent helper. |
-| `agent:autostart:uninstall` | Remove the macOS LaunchAgent helper. |
+| `agent:autostart:status` | Show macOS or Windows autostart status. |
+| `agent:autostart:install` | Install the macOS LaunchAgent or Windows startup-script helper. |
+| `agent:autostart:uninstall` | Remove the macOS LaunchAgent or Windows startup-script helper. |
 | `viewer:open` | Open the local browser viewer in the default browser. |
 | `debug:raw:list` | List recent raw events for trace selection. |
 | `debug:normalized:list` | List recent normalized events and semantic actions. |
@@ -576,6 +576,7 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 | `collector:macos:info` | Show macOS collector usage, permissions, and file paths. |
 | `collector:windows:info` | Show Windows collector usage and file paths. |
 | `report` | Print all-time, daily, or weekly workflow reports. |
+| `report:compare` | Compare a day or week report against the previous matching window. |
 | `report:generate` | Generate and store a report snapshot. |
 | `report:snapshot:list` | List stored report snapshots. |
 | `report:snapshot:show` | Show one stored report snapshot. |
@@ -597,7 +598,7 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 | `llm:config:set` | Update the saved default LLM provider/model/auth configuration. |
 | `llm:analyze` | Run summarized workflow analysis through the configured provider or CLI override. |
 | `llm:results` | List stored LLM analysis results. |
-| `credential:status` | Show secure credential backend status. |
+| `credential:status` | Show secure credential backend status for macOS Keychain or Windows DPAPI. |
 | `credential:set` | Store a provider API key in secure OS credential storage. |
 | `credential:delete` | Delete a stored provider API key from secure storage. |
 | `auth:login` | Run Gemini OAuth login and store the resulting credentials securely. |
@@ -623,6 +624,7 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 - `src/collectors/gws-calendar-runner.ts`: optional Calendar collector runner
 - `src/collectors/macos.ts`: macOS collector metadata and script lookup
 - `src/collectors/windows.ts`: Windows collector metadata and script lookup
+- `src/agent/autostart/windows.ts`: Windows startup-script autostart helper
 - `src/calendar/signals.ts`: privacy-safe Calendar signal metadata helpers
 - `collectors/macos/active-window-collector.swift`: macOS active-window collector script
 - `collectors/windows/active-window-collector.ps1`: Windows active-window collector script
@@ -640,7 +642,7 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 - `src/llm/claude.ts`: Anthropic Messages adapter for workflow analysis
 - `src/llm/config.ts`: persisted provider/model/auth configuration helpers
 - `src/auth/google-oauth.ts`: Gemini OAuth login and token refresh flow
-- `src/credentials/store.ts`: secure credential storage abstraction and macOS Keychain integration
+- `src/credentials/store.ts`: secure credential storage abstraction with macOS Keychain and Windows DPAPI backends
 - `src/credentials/llm.ts`: provider API key and OAuth credential helpers
 - `src/server/ingest-server.ts`: local HTTP ingest server
 - `src/server/ingest.ts`: incoming collector payload coercion
@@ -661,5 +663,5 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 - browser feedback currently covers label/review and exclude/hide flows only; merge/split and unknown-action review remain CLI-first
 - Drive/Sheets context is metadata-only and depends on the locally configured `gws` OAuth scopes
 - Git context currently watches one repository path at a time
-- secure credential storage is implemented only for macOS Keychain today
+- secure credential storage is implemented on macOS and Windows only today
 - OpenAI and Claude direct API usage currently use API keys; Gemini supports API keys or OAuth2 login

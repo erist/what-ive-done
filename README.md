@@ -37,15 +37,17 @@ This repository provides a TypeScript CLI plus a resident local agent. Together 
 - practical automation hints for likely automation candidates
 - LLM-safe workflow summary export and configurable provider-based workflow analysis for ChatGPT, Gemini, and Claude
 - saved default LLM provider/model/auth configuration
-- macOS LaunchAgent autostart helpers
+- macOS LaunchAgent and Windows startup-script autostart helpers
+- macOS Keychain and Windows DPAPI-backed secure credential storage
+- day/week comparison reporting in the CLI and browser viewer, including newly appeared/disappeared workflow highlights
+- collector backoff diagnostics and GitHub Actions regression gates
 
 Current limitations:
 
-- Windows autostart installation is not implemented yet
 - the browser viewer covers label/review and exclude/hide flows, but advanced merge/split review is still CLI-first
 - a packaged desktop app or tray UI does not exist yet
 - native desktop collectors still focus on active-window changes
-- report comparison views are not implemented yet
+- secure credential storage is not implemented on Linux yet
 
 ### Quick Start
 
@@ -138,6 +140,7 @@ npm run dev -- init --data-dir ./tmp/local-data
 npm run dev -- collect:mock --data-dir ./tmp/local-data
 npm run dev -- analyze --data-dir ./tmp/local-data
 npm run dev -- report --data-dir ./tmp/local-data --window week --json
+npm run dev -- report:compare --data-dir ./tmp/local-data --window week --json
 ```
 
 Workflow feedback examples:
@@ -161,6 +164,8 @@ npm run dev -- agent:run-once --data-dir ./tmp/live-data
 npm run dev -- agent:snapshot:latest --data-dir ./tmp/live-data
 npm run dev -- agent:collectors --data-dir ./tmp/live-data
 npm run dev -- agent:autostart:status --data-dir ./tmp/live-data
+npm run dev -- agent:autostart:install --data-dir ./tmp/live-data
+npm run dev -- credential:status
 npm run dev -- collector:gws:calendar:info --calendar-id primary --json
 npm run dev -- viewer:open --data-dir ./tmp/live-data
 npm run dev -- debug:raw:list --data-dir ./tmp/live-data --limit 10
@@ -169,6 +174,7 @@ npm run dev -- domain-pack:report --data-dir ./tmp/live-data --limit 10
 npm run dev -- action:coverage --data-dir ./tmp/live-data --limit 10
 npm run dev -- action:suggest --data-dir ./tmp/live-data --limit 10
 npm run dev -- cluster:benchmark --json
+npm run dev -- report:compare --data-dir ./tmp/live-data --window week --json
 npm run dev -- report:snapshot:list --data-dir ./tmp/live-data --json
 npm run dev -- report:snapshot:show --data-dir ./tmp/live-data --window week --latest --json
 ```
@@ -277,15 +283,17 @@ Optional Calendar boundary signals store only hashed event identifiers, hashed m
 - likely automation candidate를 위한 practical automation hint 제안
 - LLM-safe 워크플로우 요약 export와 ChatGPT, Gemini, Claude 기반 구성형 분석
 - 기본 LLM provider/model/auth 설정 저장
-- macOS LaunchAgent autostart helper
+- macOS LaunchAgent와 Windows startup-script autostart helper
+- macOS Keychain과 Windows DPAPI 기반 secure credential storage
+- 새로 나타난 workflow와 사라진 workflow를 보여주는 day/week comparison report/view
+- collector backoff 진단과 GitHub Actions regression gate
 
 현재 제한 사항:
 
-- Windows autostart 설치는 아직 구현되지 않았습니다
 - browser viewer에서 label/review, exclude/hide는 처리할 수 있지만 merge/split 같은 고급 편집은 아직 CLI 중심입니다
 - packaged desktop app이나 tray UI는 아직 없습니다
 - native desktop collector는 현재 active-window 변화 중심입니다
-- report comparison view는 아직 없습니다
+- Linux용 secure credential storage는 아직 없습니다
 
 ### 빠른 시작
 
@@ -378,6 +386,7 @@ npm run dev -- init --data-dir ./tmp/local-data
 npm run dev -- collect:mock --data-dir ./tmp/local-data
 npm run dev -- analyze --data-dir ./tmp/local-data
 npm run dev -- report --data-dir ./tmp/local-data --window week --json
+npm run dev -- report:compare --data-dir ./tmp/local-data --window week --json
 ```
 
 워크플로우 피드백 예시:
@@ -401,6 +410,8 @@ npm run dev -- agent:run-once --data-dir ./tmp/live-data
 npm run dev -- agent:snapshot:latest --data-dir ./tmp/live-data
 npm run dev -- agent:collectors --data-dir ./tmp/live-data
 npm run dev -- agent:autostart:status --data-dir ./tmp/live-data
+npm run dev -- agent:autostart:install --data-dir ./tmp/live-data
+npm run dev -- credential:status
 npm run dev -- collector:gws:calendar:info --calendar-id primary --json
 npm run dev -- viewer:open --data-dir ./tmp/live-data
 npm run dev -- debug:raw:list --data-dir ./tmp/live-data --limit 10
@@ -409,6 +420,7 @@ npm run dev -- domain-pack:report --data-dir ./tmp/live-data --limit 10
 npm run dev -- action:coverage --data-dir ./tmp/live-data --limit 10
 npm run dev -- action:suggest --data-dir ./tmp/live-data --limit 10
 npm run dev -- cluster:benchmark --json
+npm run dev -- report:compare --data-dir ./tmp/live-data --window week --json
 npm run dev -- report:snapshot:list --data-dir ./tmp/live-data --json
 npm run dev -- report:snapshot:show --data-dir ./tmp/live-data --window week --latest --json
 ```

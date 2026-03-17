@@ -98,10 +98,51 @@ test("startCollectorSupervisor restarts a collector after an unexpected exit", a
   assert.ok(stateHistory.includes("failed"));
   assert.ok(stateHistory.includes("restarting"));
   assert.equal(supervisor.getCollectorStates()[0]?.status, "running");
+  assert.equal(supervisor.getCollectorStates()[0]?.failureStreak, 1);
 
   await supervisor.stop();
 
   assert.equal(supervisor.getCollectorStates()[0]?.status, "stopped");
+});
+
+test("startCollectorSupervisor increases restart delay when a collector keeps crashing", async () => {
+  const processes: FakeSpawnedProcess[] = [];
+
+  const supervisor = await startCollectorSupervisor({
+    ingestUrl: "http://127.0.0.1:4318/events",
+    processPlatform: "darwin",
+    restartDelayMs: 10,
+    maxRestartDelayMs: 40,
+    stableUptimeMs: 1_000,
+    spawnProcess: () => {
+      const processHandle = new FakeSpawnedProcess(4_200 + processes.length);
+      processes.push(processHandle);
+      queueMicrotask(() => {
+        processHandle.emit("spawn");
+      });
+      return processHandle;
+    },
+  });
+
+  await delay(0);
+  processes[0]?.emit("exit", 1, null);
+  await delay(15);
+
+  const firstRestartState = supervisor.getCollectorStates()[0];
+  assert.equal(firstRestartState?.restartCount, 1);
+  assert.equal(firstRestartState?.failureStreak, 1);
+
+  processes[1]?.emit("exit", 1, null);
+  await delay(5);
+
+  const secondRestartState = supervisor.getCollectorStates()[0];
+  assert.equal(secondRestartState?.status, "restarting");
+  assert.equal(secondRestartState?.restartCount, 2);
+  assert.equal(secondRestartState?.failureStreak, 2);
+  assert.equal(secondRestartState?.currentRestartDelayMs, 20);
+  assert.ok(secondRestartState?.nextRestartAt);
+
+  await supervisor.stop();
 });
 
 test("startCollectorSupervisor forwards macOS accessibility prompt configuration", async () => {

@@ -35,6 +35,8 @@ export interface CollectorSupervisorOptions {
   gitPollIntervalMs?: number | undefined;
   promptAccessibility?: boolean | undefined;
   restartDelayMs?: number | undefined;
+  maxRestartDelayMs?: number | undefined;
+  stableUptimeMs?: number | undefined;
   verbose?: boolean | undefined;
   onCollectorStateChange?: ((state: AgentCollectorState) => void) | undefined;
   spawnProcess?: SpawnProcess | undefined;
@@ -280,6 +282,8 @@ export async function startCollectorSupervisor(
     promptAccessibility: options.promptAccessibility,
   });
   const restartDelayMs = options.restartDelayMs ?? 5_000;
+  const maxRestartDelayMs = options.maxRestartDelayMs ?? 60_000;
+  const stableUptimeMs = options.stableUptimeMs ?? 60_000;
   const spawnProcess = options.spawnProcess ?? defaultSpawnProcess;
   const log = (message: string, payload?: Record<string, unknown>): void => {
     if (!options.verbose) {
@@ -305,9 +309,11 @@ export async function startCollectorSupervisor(
       status: "starting",
       ingestUrl: spec.ingestUrl,
       restartCount: 0,
+      failureStreak: 0,
     };
     let child: SpawnedProcess | undefined;
     let restartTimer: NodeJS.Timeout | undefined;
+    let stableTimer: NodeJS.Timeout | undefined;
     let stopping = false;
     let restartScheduled = false;
     let stopResolver: (() => void) | undefined;
@@ -319,6 +325,7 @@ export async function startCollectorSupervisor(
     const updateState = (patch: Partial<AgentCollectorState>): void => {
       currentState = {
         ...currentState,
+        lastTransitionAt: patch.lastTransitionAt ?? new Date().toISOString(),
         ...patch,
       };
       emitState(currentState);
@@ -329,22 +336,32 @@ export async function startCollectorSupervisor(
         return;
       }
 
+      const nextFailureStreak = (currentState.failureStreak ?? 0) + 1;
+      const delayMs = Math.min(
+        restartDelayMs * Math.max(1, 2 ** Math.max(0, nextFailureStreak - 1)),
+        maxRestartDelayMs,
+      );
+      const nextRestartAt = new Date(Date.now() + delayMs).toISOString();
       restartScheduled = true;
       updateState({
         status: "restarting",
         pid: undefined,
         restartCount: currentState.restartCount + 1,
+        failureStreak: nextFailureStreak,
+        currentRestartDelayMs: delayMs,
+        nextRestartAt,
       });
       log("collector_restart_scheduled", {
         collectorId: spec.id,
         restartCount: currentState.restartCount + 1,
-        restartDelayMs,
+        restartDelayMs: delayMs,
+        failureStreak: nextFailureStreak,
       });
 
       restartTimer = setTimeout(() => {
         restartScheduled = false;
         launch();
-      }, restartDelayMs);
+      }, delayMs);
     };
 
     const launch = (): void => {
@@ -355,6 +372,8 @@ export async function startCollectorSupervisor(
       updateState({
         status: currentState.restartCount > 0 ? "restarting" : "starting",
         pid: undefined,
+        lastStartAttemptAt: new Date().toISOString(),
+        nextRestartAt: undefined,
         stoppedAt: undefined,
       });
 
@@ -381,20 +400,38 @@ export async function startCollectorSupervisor(
       attachOutputDrain(child);
 
       child.once("spawn", () => {
+        if (stableTimer) {
+          clearTimeout(stableTimer);
+        }
+
         updateState({
           status: "running",
           pid: child?.pid,
           startedAt: new Date().toISOString(),
           stoppedAt: undefined,
           lastError: undefined,
+          currentRestartDelayMs: undefined,
+          nextRestartAt: undefined,
         });
         log("collector_running", {
           collectorId: spec.id,
           pid: child?.pid,
         });
+
+        stableTimer = setTimeout(() => {
+          updateState({
+            failureStreak: 0,
+            currentRestartDelayMs: undefined,
+          });
+        }, stableUptimeMs);
       });
 
       child.once("error", (error: Error) => {
+        if (stableTimer) {
+          clearTimeout(stableTimer);
+          stableTimer = undefined;
+        }
+
         updateState({
           status: "failed",
           pid: undefined,
@@ -409,6 +446,10 @@ export async function startCollectorSupervisor(
 
       child.once("exit", (code: number | null, signal: NodeJS.Signals | null) => {
         child = undefined;
+        if (stableTimer) {
+          clearTimeout(stableTimer);
+          stableTimer = undefined;
+        }
 
         if (stopping) {
           updateState({
@@ -417,6 +458,8 @@ export async function startCollectorSupervisor(
             stoppedAt: new Date().toISOString(),
             lastExitCode: code ?? undefined,
             lastExitSignal: signal,
+            nextRestartAt: undefined,
+            currentRestartDelayMs: undefined,
           });
           log("collector_stopped", {
             collectorId: spec.id,
@@ -459,10 +502,17 @@ export async function startCollectorSupervisor(
         restartTimer = undefined;
       }
 
+      if (stableTimer) {
+        clearTimeout(stableTimer);
+        stableTimer = undefined;
+      }
+
       if (!child) {
         updateState({
           status: "stopped",
           stoppedAt: new Date().toISOString(),
+          nextRestartAt: undefined,
+          currentRestartDelayMs: undefined,
         });
         stopResolver?.();
         return stopPromise;

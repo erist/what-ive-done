@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { generateMockRawEvents } from "../collectors/mock.js";
 import type { RawEvent } from "../domain/types.js";
-import { buildWorkflowReport } from "./report.js";
+import { buildWorkflowReport, buildWorkflowReportComparison } from "./report.js";
 import { resolveReportTimeWindow } from "./windows.js";
 
 function toRawEvents(referenceDate: Date): RawEvent[] {
@@ -235,4 +235,156 @@ test("buildWorkflowReport includes window-title context in representative steps"
   assert.ok(report.workflows[0]?.representativeSteps[0]?.includes("Orders Queue"));
   assert.ok(report.workflows[0]?.representativeSteps[1]?.includes("Admin Internal"));
   assert.ok(report.workflows[0]?.representativeSteps[2]?.includes("Order Status Updates"));
+});
+
+test("buildWorkflowReportComparison highlights new, disappeared, and approved-candidate changes", () => {
+  const previousReport = {
+    timeWindow: {
+      window: "day" as const,
+      reportDate: "2026-03-13",
+      timezone: "UTC",
+      timezoneOffsetMinutes: 0,
+    },
+    totalSessions: 4,
+    totalTrackedDurationSeconds: 900,
+    workflows: [
+      {
+        workflowClusterId: "workflow-existing",
+        workflowSignature: "signature-existing",
+        workflowName: "Review Orders",
+        frequency: 3,
+        frequencyPerWeek: 21,
+        averageDurationSeconds: 120,
+        totalDurationSeconds: 360,
+        estimatedTotalTimeSpentSeconds: 360,
+        representativeSequence: ["review_orders"],
+        representativeSteps: ["Review Orders"],
+        involvedApps: ["chrome"],
+        automationSuitabilityScore: 0.72,
+        confidenceScore: 0.84,
+        userLabeled: true,
+        graph: {
+          nodes: ["Review Orders"],
+          edges: [],
+          text: "Review Orders",
+        },
+        automationSuitability: "medium" as const,
+        recommendedApproach: "Browser automation",
+        automationHints: [],
+        approvedAutomationCandidate: true,
+      },
+      {
+        workflowClusterId: "workflow-disappeared",
+        workflowSignature: "signature-disappeared",
+        workflowName: "Old Workflow",
+        frequency: 2,
+        frequencyPerWeek: 14,
+        averageDurationSeconds: 90,
+        totalDurationSeconds: 180,
+        estimatedTotalTimeSpentSeconds: 180,
+        representativeSequence: ["old_workflow"],
+        representativeSteps: ["Old Workflow"],
+        involvedApps: ["chrome"],
+        automationSuitabilityScore: 0.4,
+        confidenceScore: 0.7,
+        userLabeled: false,
+        graph: {
+          nodes: ["Old Workflow"],
+          edges: [],
+          text: "Old Workflow",
+        },
+        automationSuitability: "low" as const,
+        recommendedApproach: "Manual review",
+        automationHints: [],
+      },
+    ],
+    emergingWorkflows: [],
+    summary: {
+      topRepetitiveWorkflows: [],
+      highestTimeConsumingRepetitiveWorkflows: [],
+      quickWinAutomationCandidates: [],
+      workflowsNeedingHumanJudgment: [],
+    },
+  };
+  const currentReport = {
+    timeWindow: {
+      window: "day" as const,
+      reportDate: "2026-03-14",
+      timezone: "UTC",
+      timezoneOffsetMinutes: 0,
+    },
+    totalSessions: 5,
+    totalTrackedDurationSeconds: 1_200,
+    workflows: [
+      {
+        workflowClusterId: "workflow-existing",
+        workflowSignature: "signature-existing",
+        workflowName: "Review Orders",
+        frequency: 4,
+        frequencyPerWeek: 28,
+        averageDurationSeconds: 150,
+        totalDurationSeconds: 600,
+        estimatedTotalTimeSpentSeconds: 600,
+        representativeSequence: ["review_orders"],
+        representativeSteps: ["Review Orders"],
+        involvedApps: ["chrome"],
+        automationSuitabilityScore: 0.78,
+        confidenceScore: 0.88,
+        userLabeled: true,
+        graph: {
+          nodes: ["Review Orders"],
+          edges: [],
+          text: "Review Orders",
+        },
+        automationSuitability: "medium" as const,
+        recommendedApproach: "Browser automation",
+        automationHints: [],
+        approvedAutomationCandidate: true,
+      },
+      {
+        workflowClusterId: "workflow-new",
+        workflowSignature: "signature-new",
+        workflowName: "New Workflow",
+        frequency: 3,
+        frequencyPerWeek: 21,
+        averageDurationSeconds: 120,
+        totalDurationSeconds: 360,
+        estimatedTotalTimeSpentSeconds: 360,
+        representativeSequence: ["new_workflow"],
+        representativeSteps: ["New Workflow"],
+        involvedApps: ["docs"],
+        automationSuitabilityScore: 0.61,
+        confidenceScore: 0.82,
+        userLabeled: false,
+        graph: {
+          nodes: ["New Workflow"],
+          edges: [],
+          text: "New Workflow",
+        },
+        automationSuitability: "medium" as const,
+        recommendedApproach: "Docs automation",
+        automationHints: [],
+      },
+    ],
+    emergingWorkflows: [],
+    summary: {
+      topRepetitiveWorkflows: [],
+      highestTimeConsumingRepetitiveWorkflows: [],
+      quickWinAutomationCandidates: [],
+      workflowsNeedingHumanJudgment: [],
+    },
+  };
+
+  const comparison = buildWorkflowReportComparison(currentReport, previousReport);
+
+  assert.equal(comparison.summary.sessionDelta, 1);
+  assert.equal(comparison.summary.trackedDurationDeltaSeconds, 300);
+  assert.equal(comparison.summary.approvedCandidateTimeDeltaSeconds, 240);
+  assert.equal(comparison.newlyAppearedWorkflows.length, 1);
+  assert.equal(comparison.newlyAppearedWorkflows[0]?.workflowSignature, "signature-new");
+  assert.equal(comparison.disappearedWorkflows.length, 1);
+  assert.equal(comparison.disappearedWorkflows[0]?.workflowSignature, "signature-disappeared");
+  assert.equal(comparison.approvedCandidateChanges.length, 1);
+  assert.equal(comparison.approvedCandidateChanges[0]?.frequencyDelta, 1);
+  assert.equal(comparison.approvedCandidateChanges[0]?.totalDurationDeltaSeconds, 240);
 });

@@ -86,6 +86,14 @@ export function getAgentHealthReport(dataDir?: string): AgentHealthReport {
     if (collector.status !== "running") {
       issues.push(`collector_${collector.id}_${collector.status}`);
     }
+
+    if ((collector.failureStreak ?? 0) >= 3) {
+      issues.push(`collector_${collector.id}_flapping`);
+    }
+
+    if (collector.nextRestartAt) {
+      issues.push(`collector_${collector.id}_backoff_active`);
+    }
   }
 
   return {
