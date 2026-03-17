@@ -1,0 +1,45 @@
+[
+  {
+    "id": "makestar-admin",
+    "file": "makestar-admin.ndjson",
+    "expectedPackId": "makestar-admin",
+    "expectedMatchRate": 1,
+    "expectedRouteFamilies": [
+      "makestar-admin.orders.list",
+      "makestar-admin.orders.detail",
+      "makestar-admin.products.edit",
+      "makestar-admin.refunds.review"
+    ]
+  },
+  {
+    "id": "google-sheets",
+    "file": "google-sheets.ndjson",
+    "expectedPackId": "google-sheets",
+    "expectedMatchRate": 1,
+    "expectedRouteFamilies": [
+      "google-sheets.sheet.edit",
+      "google-sheets.sheet.edit"
+    ]
+  },
+  {
+    "id": "google-docs",
+    "file": "google-docs.ndjson",
+    "expectedPackId": "google-docs",
+    "expectedMatchRate": 1,
+    "expectedRouteFamilies": [
+      "google-docs.document.edit",
+      "google-docs.document.edit"
+    ]
+  },
+  {
+    "id": "bigquery-console",
+    "file": "bigquery-console.ndjson",
+    "expectedPackId": "bigquery-console",
+    "expectedMatchRate": 1,
+    "expectedRouteFamilies": [
+      "bigquery-console.workspace",
+      "bigquery-console.sql-workspace",
+      "bigquery-console.saved-queries"
+    ]
+  }
+]

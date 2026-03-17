@@ -1,5 +1,6 @@
 import { DEFAULT_NORMALIZATION_CONFIG, type NormalizationConfig } from "../config/analysis.js";
 import type { NormalizedEvent, RawEvent } from "../domain/types.js";
+import { DOMAIN_PACK_REGISTRY_VERSION, matchDomainPack } from "../domain-packs/index.js";
 import { stableId } from "../domain/ids.js";
 import { deriveBrowserCanonicalFields, stripUrlQuery } from "../privacy/browser.js";
 import { abstractNormalizedEvents } from "./actions.js";
@@ -28,6 +29,12 @@ const UUID_SEQUENCE =
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function compactObject<T extends Record<string, unknown>>(value: T): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== undefined),
+  );
 }
 
 function normalizeAction(rawEvent: RawEvent): string {
@@ -173,18 +180,39 @@ export function normalizeRawEvents(
       const routeTemplate = browserFields.routeTemplate ?? rawEvent.routeTemplate;
       const pathPattern = routeTemplate;
       const domain = browserFields.domain ?? rawEvent.domain?.toLowerCase();
-      const resourceHint = deriveResourceHint({
+      const fallbackResourceHint = deriveResourceHint({
         pathPattern,
         titlePattern,
         target: rawEvent.target,
       });
-      const pageType = derivePageType({
+      const fallbackPageType = derivePageType({
         domain,
         pathPattern,
         titlePattern,
-        resourceHint,
+        resourceHint: fallbackResourceHint,
         config,
       });
+      const domainPackMatch = matchDomainPack({
+        rawEvent,
+        domain,
+        canonicalUrl: browserFields.canonicalUrl ?? rawEvent.canonicalUrl,
+        routeTemplate,
+        titlePattern,
+        target: rawEvent.target,
+      });
+      const resourceHint = domainPackMatch?.resourceHint ?? fallbackResourceHint;
+      const pageType = domainPackMatch?.pageType ?? fallbackPageType;
+      const domainPackMetadata = domainPackMatch
+        ? {
+            domainPack: compactObject({
+              registryVersion: DOMAIN_PACK_REGISTRY_VERSION,
+              id: domainPackMatch.packId,
+              version: domainPackMatch.packVersion,
+              routeFamily: domainPackMatch.routeFamily,
+              matchSource: domainPackMatch.matchSource,
+            }),
+          }
+        : {};
 
       return {
         id: stableId("normalized_event", rawEvent.id),
@@ -199,6 +227,9 @@ export function normalizeRawEvents(
         routeTemplate,
         routeKey: browserFields.routeKey ?? rawEvent.routeKey,
         resourceHash: browserFields.resourceHash ?? rawEvent.resourceHash,
+        routeFamily: domainPackMatch?.routeFamily,
+        domainPackId: domainPackMatch?.packId,
+        domainPackVersion: domainPackMatch?.packVersion,
         pathPattern,
         pageType,
         resourceHint,
@@ -207,6 +238,7 @@ export function normalizeRawEvents(
         target: rawEvent.target,
         metadata: {
           ...rawEvent.metadata,
+          ...domainPackMetadata,
           sourceEventType: rawEvent.sourceEventType,
           source: rawEvent.source,
           rawApplication: rawEvent.application,

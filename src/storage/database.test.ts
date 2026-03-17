@@ -415,6 +415,8 @@ test("normalized events persist derived normalization fields", () => {
     assert.equal(normalizedEvents[0]?.canonicalUrl, "https://admin.example.com/product/{id}");
     assert.equal(normalizedEvents[0]?.routeTemplate, "/product/{id}/edit");
     assert.equal(normalizedEvents[0]?.routeKey, "https://admin.example.com/product/{id}");
+    assert.equal(normalizedEvents[0]?.routeFamily, "makestar-admin.products.edit");
+    assert.equal(normalizedEvents[0]?.domainPackId, "makestar-admin");
     assert.equal(normalizedEvents[0]?.pathPattern, "/product/{id}/edit");
     assert.equal(normalizedEvents[0]?.pageType, "product_edit");
     assert.equal(normalizedEvents[0]?.titlePattern, "Admin - Product {id} Edit");

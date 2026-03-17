@@ -22,6 +22,7 @@ Implemented today:
 - local browser viewer served from the same local HTTP server
 - Chrome extension scaffold for browser activity metadata
 - Chrome browser context collection with route taxonomy, document-type hash, tab-order metadata, and signal-only dwell segments
+- versioned domain-pack registry with stable route families and coverage diagnostics
 - golden workflow fixtures and debug trace commands
 - Windows PowerShell active-window collector path
 - macOS Swift active-window collector path with permission checks and one-shot capture
@@ -83,11 +84,17 @@ The resident agent is implemented under `src/agent/`.
 
 1. Raw events are collected from mock data, imported files, the local ingest server, or desktop collectors.
 2. Sensitive fields are sanitized before they are written to SQLite.
-3. Raw events are normalized into stable context fields such as app alias, path pattern, page type, resource hint, and title pattern.
+3. Raw events are normalized into stable context fields such as app alias, path pattern, route family, page type, resource hint, and title pattern.
 4. Normalized events are mapped into semantic action labels with confidence and source metadata.
 5. Events are grouped into sessions with explainable boundary reasons.
 6. Similar sessions are clustered into workflows with representative sequences, variants, confidence, and automation hints.
 7. Reports, snapshots, and safe LLM summary payloads are generated from those workflow clusters.
+
+Normalized browser events now persist a versioned domain-pack match surface:
+
+- `route_family`
+- `domain_pack_id`
+- `domain_pack_version`
 
 Current heuristic defaults in code:
 
@@ -101,17 +108,47 @@ Current heuristic defaults in code:
 Quality debugging now has two fixed surfaces:
 
 - `fixtures/golden/` contains representative workflow fixtures used as regression gates.
+- `fixtures/domain-packs/` contains route-family fixture sets used to verify domain-pack coverage.
 - debug CLI commands expose `raw -> normalized -> action -> session -> workflow cluster` transitions.
 
 Debug flow:
 
 ```bash
 npm run dev -- analyze --data-dir ./tmp/local-data
+npm run dev -- domain-pack:test ./fixtures/domain-packs/google-sheets.ndjson
+npm run dev -- domain-pack:report --data-dir ./tmp/local-data --limit 10
 npm run dev -- debug:raw:list --data-dir ./tmp/local-data --limit 10
 npm run dev -- debug:normalized:list --data-dir ./tmp/local-data --limit 10
 npm run dev -- debug:trace:raw <raw-event-id> --data-dir ./tmp/local-data
 npm run dev -- debug:trace:session <session-id> --data-dir ./tmp/local-data
 npm run dev -- debug:trace:workflow <workflow-id> --data-dir ./tmp/local-data
+```
+
+## Domain Pack Substrate
+
+Domain packs provide a versioned browser rule layer above the privacy-safe Chrome context contract.
+
+- registry entry contract
+  - `id`
+  - `version`
+  - `domainTokens`
+  - deterministic `match(...)`
+- current packs
+  - `makestar-admin`
+  - `google-sheets`
+  - `google-docs`
+  - `bigquery-console`
+- current outputs
+  - stable `routeFamily`
+  - optional `pageType` override
+  - optional `resourceHint` override
+  - match metadata under `metadata.domainPack`
+
+Useful commands:
+
+```bash
+npm run dev -- domain-pack:test ./fixtures/domain-packs/google-sheets.ndjson
+npm run dev -- domain-pack:report --data-dir ./tmp/local-data --limit 10
 ```
 
 ## Ingest Security

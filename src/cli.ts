@@ -34,6 +34,10 @@ import {
   buildSessionTrace,
   buildWorkflowClusterTrace,
 } from "./debug/trace.js";
+import {
+  inspectDomainPackCoverage,
+  rawEventInputsToRawEvents,
+} from "./domain-packs/service.js";
 import { generateMockRawEvents } from "./collectors/mock.js";
 import { importEventsFromFile } from "./importers/events.js";
 import {
@@ -590,12 +594,65 @@ function renderNormalizedEventList(options: {
       rawEventId: event.rawEventId,
       timestamp: event.timestamp,
       application: event.application,
+      domainPackId: event.domainPackId ?? "",
+      routeFamily: event.routeFamily ?? "",
       pageType: event.pageType ?? "",
       resourceHint: event.resourceHint ?? "",
       actionName: event.actionName,
       actionSource: event.actionSource,
     })),
   );
+}
+
+function renderDomainPackInspection(
+  result: ReturnType<typeof inspectDomainPackCoverage>,
+  options: { json?: boolean | undefined; limit?: number | undefined } = {},
+): void {
+  const limit = options.limit ?? 20;
+
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log(
+    JSON.stringify(
+      {
+        totalBrowserEvents: result.coverage.totalBrowserEvents,
+        matchedEvents: result.coverage.matchedEvents,
+        unmatchedEvents: result.coverage.unmatchedEvents,
+        matchRate: result.coverage.matchRate,
+      },
+      null,
+      2,
+    ),
+  );
+
+  if (result.coverage.domains.length > 0) {
+    console.table(
+      result.coverage.domains.map((entry) => ({
+        domain: entry.domain,
+        totalBrowserEvents: entry.totalBrowserEvents,
+        matchedEvents: entry.matchedEvents,
+        unmatchedEvents: entry.unmatchedEvents,
+        matchRate: entry.matchRate.toFixed(2),
+      })),
+    );
+  }
+
+  if (result.events.length > 0) {
+    console.table(
+      result.events.slice(0, limit).map((event) => ({
+        rawEventId: event.rawEventId,
+        timestamp: event.timestamp,
+        domain: event.domain ?? "",
+        routeTemplate: event.routeTemplate ?? "",
+        routeFamily: event.routeFamily ?? "",
+        domainPackId: event.domainPackId ?? "",
+        pageType: event.pageType ?? "",
+      })),
+    );
+  }
 }
 
 function renderWorkflowSummaryPayloads(
@@ -1258,6 +1315,36 @@ program
     }
 
     console.log(JSON.stringify(trace, null, 2));
+  });
+
+program
+  .command("domain-pack:test")
+  .description("Test domain-pack matching against an imported fixture file")
+  .argument("<file-path>", "Path to a JSON or NDJSON fixture file")
+  .option("--limit <count>", "Maximum number of normalized events to print", "20")
+  .option("--json", "Print machine-readable JSON")
+  .action((filePath: string, options: { limit: string; json?: boolean }) => {
+    const rawEvents = rawEventInputsToRawEvents(importEventsFromFile(filePath));
+
+    renderDomainPackInspection(inspectDomainPackCoverage(rawEvents), {
+      limit: Number.parseInt(options.limit, 10),
+      json: options.json,
+    });
+  });
+
+program
+  .command("domain-pack:report")
+  .description("Show route-family match coverage for stored browser events")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--limit <count>", "Maximum number of normalized events to print", "20")
+  .option("--json", "Print machine-readable JSON")
+  .action((options: { dataDir?: string; limit: string; json?: boolean }) => {
+    const rawEvents = withDatabase(options.dataDir, (database) => database.getRawEventsChronological());
+
+    renderDomainPackInspection(inspectDomainPackCoverage(rawEvents), {
+      limit: Number.parseInt(options.limit, 10),
+      json: options.json,
+    });
   });
 
 program

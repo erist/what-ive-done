@@ -59,6 +59,9 @@ interface NormalizedEventRow {
   route_template: string | null;
   route_key: string | null;
   resource_hash: string | null;
+  route_family: string | null;
+  domain_pack_id: string | null;
+  domain_pack_version: number | null;
   path_pattern: string | null;
   page_type: string | null;
   resource_hint: string | null;
@@ -214,6 +217,9 @@ function mapNormalizedEventRow(row: NormalizedEventRow): NormalizedEvent {
     routeTemplate: row.route_template ?? undefined,
     routeKey: row.route_key ?? undefined,
     resourceHash: row.resource_hash ?? undefined,
+    routeFamily: row.route_family ?? undefined,
+    domainPackId: row.domain_pack_id ?? undefined,
+    domainPackVersion: row.domain_pack_version ?? undefined,
     pathPattern: row.path_pattern ?? undefined,
     pageType: row.page_type ?? undefined,
     resourceHint: row.resource_hint ?? undefined,
@@ -606,6 +612,9 @@ export class AppDatabase {
           route_template,
           route_key,
           resource_hash,
+          route_family,
+          domain_pack_id,
+          domain_pack_version,
           path_pattern,
           page_type,
           resource_hint,
@@ -642,6 +651,9 @@ export class AppDatabase {
           route_template,
           route_key,
           resource_hash,
+          route_family,
+          domain_pack_id,
+          domain_pack_version,
           path_pattern,
           page_type,
           resource_hint,
@@ -681,6 +693,9 @@ export class AppDatabase {
           route_template,
           route_key,
           resource_hash,
+          route_family,
+          domain_pack_id,
+          domain_pack_version,
           path_pattern,
           page_type,
           resource_hint,
@@ -733,6 +748,9 @@ export class AppDatabase {
           route_template,
           route_key,
           resource_hash,
+          route_family,
+          domain_pack_id,
+          domain_pack_version,
           path_pattern,
           page_type,
           resource_hint,
@@ -744,7 +762,7 @@ export class AppDatabase {
           target,
           metadata_json,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       for (const event of args.normalizedEvents) {
@@ -761,6 +779,9 @@ export class AppDatabase {
           event.routeTemplate ?? null,
           event.routeKey ?? null,
           event.resourceHash ?? null,
+          event.routeFamily ?? null,
+          event.domainPackId ?? null,
+          event.domainPackVersion ?? null,
           event.pathPattern ?? null,
           event.pageType ?? null,
           event.resourceHint ?? null,

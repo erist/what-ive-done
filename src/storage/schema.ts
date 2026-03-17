@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 
-export const CURRENT_SCHEMA_VERSION = 11;
+export const CURRENT_SCHEMA_VERSION = 12;
 
 export const INITIAL_SCHEMA_SQL = `
   PRAGMA journal_mode = WAL;
@@ -48,6 +48,9 @@ export const INITIAL_SCHEMA_SQL = `
     route_template TEXT,
     route_key TEXT,
     resource_hash TEXT,
+    route_family TEXT,
+    domain_pack_id TEXT,
+    domain_pack_version INTEGER,
     path_pattern TEXT,
     page_type TEXT,
     resource_hint TEXT,
@@ -394,5 +397,11 @@ export function applySchemaMigrations(
     ensureColumn(connection, "normalized_events", "route_template", "route_template TEXT");
     ensureColumn(connection, "normalized_events", "route_key", "route_key TEXT");
     ensureColumn(connection, "normalized_events", "resource_hash", "resource_hash TEXT");
+  }
+
+  if ((existingVersion ?? 0) < 12) {
+    ensureColumn(connection, "normalized_events", "route_family", "route_family TEXT");
+    ensureColumn(connection, "normalized_events", "domain_pack_id", "domain_pack_id TEXT");
+    ensureColumn(connection, "normalized_events", "domain_pack_version", "domain_pack_version INTEGER");
   }
 }
