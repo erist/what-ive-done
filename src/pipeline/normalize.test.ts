@@ -47,6 +47,8 @@ test("normalizeRawEvents derives stable browser context fields", () => {
   assert.equal(event.routeTemplate, "/product/{id}/edit");
   assert.equal(event.routeKey, "https://admin.example.com/product/{id}");
   assert.equal(event.pathPattern, "/product/{id}/edit");
+  assert.equal(event.routeFamily, "makestar-admin.products.edit");
+  assert.equal(event.domainPackId, "makestar-admin");
   assert.equal(event.pageType, "product_edit");
   assert.equal(event.resourceHint, "product");
   assert.equal(event.titlePattern, "Admin - Product {id} Edit");

@@ -66,6 +66,9 @@ export interface NormalizedEvent {
   routeTemplate?: string | undefined;
   routeKey?: string | undefined;
   resourceHash?: string | undefined;
+  routeFamily?: string | undefined;
+  domainPackId?: string | undefined;
+  domainPackVersion?: number | undefined;
   pathPattern?: string | undefined;
   pageType?: string | undefined;
   resourceHint?: string | undefined;
