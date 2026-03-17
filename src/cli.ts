@@ -46,6 +46,9 @@ import {
   inspectActionCoverage,
 } from "./action-packs/service.js";
 import {
+  runClusterBenchmark,
+} from "./pipeline/cluster-benchmark.js";
+import {
   inspectDomainPackCoverage,
   rawEventInputsToRawEvents,
 } from "./domain-packs/service.js";
@@ -68,6 +71,11 @@ import {
 } from "./llm/config.js";
 import { createWorkflowAnalyzer } from "./llm/factory.js";
 import { analyzeRawEvents } from "./pipeline/analyze.js";
+import {
+  DEFAULT_CLUSTER_CONFIDENCE_WEIGHTS,
+  DEFAULT_CLUSTER_SIMILARITY_THRESHOLD,
+  DEFAULT_CLUSTER_SIMILARITY_WEIGHTS,
+} from "./pipeline/cluster.js";
 import { buildWorkflowReport, formatDuration } from "./reporting/report.js";
 import {
   buildWorkflowReportFromDatabase,
@@ -336,6 +344,16 @@ function parseBooleanOption(value: string): boolean {
   }
 
   throw new Error(`Expected a boolean value, received: ${value}`);
+}
+
+function parseNumberOption(value: string, label: string): number {
+  const parsed = Number.parseFloat(value);
+
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`Invalid ${label}: ${value}`);
+  }
+
+  return parsed;
 }
 
 function printDeprecationWarning(
@@ -1645,6 +1663,73 @@ program
 
     console.log(JSON.stringify(payload, null, 2));
   });
+
+program
+  .command("cluster:benchmark")
+  .description("Compare hybrid clustering v2 against the legacy sequence-only baseline")
+  .option(
+    "--similarity-threshold <value>",
+    "Similarity threshold",
+    String(DEFAULT_CLUSTER_SIMILARITY_THRESHOLD),
+  )
+  .option("--sequence-weight <value>", "Hybrid sequence similarity weight", String(DEFAULT_CLUSTER_SIMILARITY_WEIGHTS.sequence))
+  .option("--action-set-weight <value>", "Hybrid action-set similarity weight", String(DEFAULT_CLUSTER_SIMILARITY_WEIGHTS.actionSet))
+  .option("--context-weight <value>", "Hybrid domain/application context weight", String(DEFAULT_CLUSTER_SIMILARITY_WEIGHTS.context))
+  .option("--time-weight <value>", "Hybrid time-of-day similarity weight", String(DEFAULT_CLUSTER_SIMILARITY_WEIGHTS.timeOfDay))
+  .option(
+    "--composite-weight <value>",
+    "Confidence weight for composite similarity",
+    String(DEFAULT_CLUSTER_CONFIDENCE_WEIGHTS.compositeSimilarity),
+  )
+  .option(
+    "--concentration-weight <value>",
+    "Confidence weight for top-variant concentration",
+    String(DEFAULT_CLUSTER_CONFIDENCE_WEIGHTS.topVariantConcentration),
+  )
+  .option(
+    "--repetition-weight <value>",
+    "Confidence weight for repetition",
+    String(DEFAULT_CLUSTER_CONFIDENCE_WEIGHTS.repetition),
+  )
+  .option("--json", "Print machine-readable JSON")
+  .action(
+    (options: {
+      similarityThreshold: string;
+      sequenceWeight: string;
+      actionSetWeight: string;
+      contextWeight: string;
+      timeWeight: string;
+      compositeWeight: string;
+      concentrationWeight: string;
+      repetitionWeight: string;
+      json?: boolean;
+    }) => {
+      const result = runClusterBenchmark({
+        similarityThreshold: parseNumberOption(options.similarityThreshold, "similarity threshold"),
+        similarityWeights: {
+          sequence: parseNumberOption(options.sequenceWeight, "sequence weight"),
+          actionSet: parseNumberOption(options.actionSetWeight, "action-set weight"),
+          context: parseNumberOption(options.contextWeight, "context weight"),
+          timeOfDay: parseNumberOption(options.timeWeight, "time weight"),
+        },
+        confidenceWeights: {
+          compositeSimilarity: parseNumberOption(options.compositeWeight, "composite weight"),
+          topVariantConcentration: parseNumberOption(
+            options.concentrationWeight,
+            "concentration weight",
+          ),
+          repetition: parseNumberOption(options.repetitionWeight, "repetition weight"),
+        },
+      });
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+
+      console.log(JSON.stringify(result, null, 2));
+    },
+  );
 
 program
   .command("report")

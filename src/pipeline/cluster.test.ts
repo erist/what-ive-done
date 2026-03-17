@@ -65,6 +65,45 @@ test("clusterSessions groups near-matching semantic action sequences", () => {
   assert.ok(clusters[0]?.representativeSequence.length);
   assert.equal(clusters[0]?.topVariants.length, 2);
   assert.ok((clusters[0]?.confidenceScore ?? 0) > 0.5);
+  assert.ok((clusters[0]?.confidenceDetails.averageActionSetSimilarity ?? 0) >= 0.75);
   assert.ok((clusters[0]?.automationHints.length ?? 0) > 0);
   assert.ok(clusters[0]?.automationHints[0]?.expectedTimeSavings.includes("week"));
+});
+
+test("clusterSessions keeps same action sequences apart when domain context diverges", () => {
+  const supportSession = createSession({
+    id: "session-2",
+    startTime: "2026-03-12T15:10:00.000Z",
+    endTime: "2026-03-12T15:13:00.000Z",
+    application: "chrome",
+    actions: ["open_admin", "review_order", "search_order", "update_status"],
+  });
+
+  const clusters = clusterSessions(
+    [
+      createSession({
+        id: "session-1",
+        startTime: "2026-03-10T09:00:00.000Z",
+        endTime: "2026-03-10T09:03:00.000Z",
+        application: "chrome",
+        actions: ["open_admin", "search_order", "review_order", "update_status"],
+      }),
+      {
+        ...supportSession,
+        primaryDomain: "support.internal",
+        steps: supportSession.steps.map((step) => ({
+          ...step,
+          domain: "support.internal",
+        })),
+      },
+    ],
+    {
+      similarityThreshold: 0.74,
+      minSessionDurationSeconds: 0,
+      minimumWorkflowFrequency: 1,
+    },
+  );
+
+  assert.equal(clusters.length, 2);
+  assert.notEqual(clusters[0]?.workflowSignature, clusters[1]?.workflowSignature);
 });

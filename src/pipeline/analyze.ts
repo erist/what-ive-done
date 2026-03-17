@@ -2,12 +2,11 @@ import type {
   NormalizedEvent,
   RawEvent,
   Session,
-  SessionStep,
   WorkflowCluster,
   WorkflowFeedbackSummary,
 } from "../domain/types.js";
 import { stableId } from "../domain/ids.js";
-import { clusterSessions } from "./cluster.js";
+import { buildWorkflowSignatureFromSteps, clusterSessions } from "./cluster.js";
 import { normalizeRawEvents } from "./normalize.js";
 import { sessionizeNormalizedEvents } from "./sessionize.js";
 
@@ -28,10 +27,27 @@ export interface AnalyzeOptions {
   feedbackByWorkflowSignature?: Map<string, WorkflowFeedbackSummary> | undefined;
 }
 
-function compactActionSequence(steps: SessionStep[]): string[] {
+function compactActionSequenceForLegacy(steps: Session["steps"]): string[] {
   const actions = steps.map((step) => step.actionName);
 
   return actions.filter((action, index) => action !== actions[index - 1]);
+}
+
+function buildLegacyWorkflowSignature(steps: Session["steps"]): string {
+  return stableId("workflow_signature", compactActionSequenceForLegacy(steps).join(">"));
+}
+
+function resolveWorkflowFeedbackSummary(args: {
+  workflowSignature: string;
+  legacyWorkflowSignature?: string | undefined;
+  feedbackByWorkflowSignature: Map<string, WorkflowFeedbackSummary>;
+}): WorkflowFeedbackSummary | undefined {
+  return (
+    args.feedbackByWorkflowSignature.get(args.workflowSignature) ??
+    (args.legacyWorkflowSignature
+      ? args.feedbackByWorkflowSignature.get(args.legacyWorkflowSignature)
+      : undefined)
+  );
 }
 
 function countMostCommon(values: string[]): string {
@@ -63,8 +79,12 @@ function splitSessionsWithFeedback(
   const splitSessions: Session[] = [];
 
   for (const session of sessions) {
-    const signature = stableId("workflow_signature", compactActionSequence(session.steps).join(">"));
-    const splitAfterActionName = feedbackByWorkflowSignature.get(signature)?.splitAfterActionName;
+    const signature = buildWorkflowSignatureFromSteps(session.steps);
+    const splitAfterActionName = resolveWorkflowFeedbackSummary({
+      workflowSignature: signature,
+      legacyWorkflowSignature: buildLegacyWorkflowSignature(session.steps),
+      feedbackByWorkflowSignature,
+    })?.splitAfterActionName;
 
     if (!splitAfterActionName) {
       splitSessions.push(session);
@@ -125,8 +145,14 @@ function mergeWorkflowClusters(
   const grouped = new Map<string, WorkflowCluster[]>();
 
   for (const cluster of clusters) {
-    const mergeIntoWorkflowSignature =
-      feedbackByWorkflowSignature.get(cluster.workflowSignature)?.mergeIntoWorkflowSignature;
+    const mergeIntoWorkflowSignature = resolveWorkflowFeedbackSummary({
+      workflowSignature: cluster.workflowSignature,
+      legacyWorkflowSignature: stableId(
+        "workflow_signature",
+        cluster.representativeSequence.join(">"),
+      ),
+      feedbackByWorkflowSignature,
+    })?.mergeIntoWorkflowSignature;
     const targetSignature = mergeIntoWorkflowSignature ?? cluster.workflowSignature;
     grouped.set(targetSignature, [...(grouped.get(targetSignature) ?? []), cluster]);
   }
@@ -195,6 +221,52 @@ function mergeWorkflowClusters(
             (sum, cluster) => sum + cluster.confidenceScore * cluster.occurrenceCount,
             0,
           ) / Math.max(1, occurrenceCount),
+        confidenceDetails: {
+          similarityWeights: representative.confidenceDetails.similarityWeights,
+          confidenceWeights: representative.confidenceDetails.confidenceWeights,
+          averageSequenceSimilarity:
+            members.reduce(
+              (sum, cluster) =>
+                sum + cluster.confidenceDetails.averageSequenceSimilarity * cluster.occurrenceCount,
+              0,
+            ) / Math.max(1, occurrenceCount),
+          averageActionSetSimilarity:
+            members.reduce(
+              (sum, cluster) =>
+                sum + cluster.confidenceDetails.averageActionSetSimilarity * cluster.occurrenceCount,
+              0,
+            ) / Math.max(1, occurrenceCount),
+          averageContextSimilarity:
+            members.reduce(
+              (sum, cluster) =>
+                sum + cluster.confidenceDetails.averageContextSimilarity * cluster.occurrenceCount,
+              0,
+            ) / Math.max(1, occurrenceCount),
+          averageTimeOfDaySimilarity:
+            members.reduce(
+              (sum, cluster) =>
+                sum + cluster.confidenceDetails.averageTimeOfDaySimilarity * cluster.occurrenceCount,
+              0,
+            ) / Math.max(1, occurrenceCount),
+          averageCompositeSimilarity:
+            members.reduce(
+              (sum, cluster) =>
+                sum + cluster.confidenceDetails.averageCompositeSimilarity * cluster.occurrenceCount,
+              0,
+            ) / Math.max(1, occurrenceCount),
+          topVariantConcentration:
+            members.reduce(
+              (sum, cluster) =>
+                sum + cluster.confidenceDetails.topVariantConcentration * cluster.occurrenceCount,
+              0,
+            ) / Math.max(1, occurrenceCount),
+          repetitionScore:
+            members.reduce(
+              (sum, cluster) =>
+                sum + cluster.confidenceDetails.repetitionScore * cluster.occurrenceCount,
+              0,
+            ) / Math.max(1, occurrenceCount),
+        },
         topVariants: [...topVariants.values()]
           .map((variant) => ({
             sequence: variant.sequence,
