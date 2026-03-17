@@ -45,6 +45,7 @@ import {
   describeActionMatchMetadata,
   inspectActionCoverage,
 } from "./action-packs/service.js";
+import { saveWorkflowReview } from "./feedback/service.js";
 import {
   runClusterBenchmark,
 } from "./pipeline/cluster-benchmark.js";
@@ -1937,9 +1938,9 @@ program
     });
 
     withDatabase(options.dataDir, (database) => {
-      database.saveWorkflowFeedback({
-        workflowClusterId: workflowId,
-        renameTo: name,
+      saveWorkflowReview(database, {
+        workflowId,
+        name,
       });
     });
 
@@ -1979,13 +1980,13 @@ program
       },
     ) => {
       withDatabase(options.dataDir, (database) => {
-        database.saveWorkflowFeedback({
-          workflowClusterId: workflowId,
-          renameTo: options.name,
-          businessPurpose: options.purpose,
+        saveWorkflowReview(database, {
+          workflowId,
+          name: options.name,
+          purpose: options.purpose,
           repetitive: options.repetitive,
           automationCandidate: options.automationCandidate,
-          automationDifficulty: options.difficulty,
+          difficulty: options.difficulty,
           approvedAutomationCandidate: options.approveCandidate,
         });
       });
@@ -2017,8 +2018,8 @@ program
   .option("--data-dir <path>", "Override application data directory")
   .action((workflowId: string, targetWorkflowId: string, options: { dataDir?: string }) => {
     withDatabase(options.dataDir, (database) => {
-      database.saveWorkflowFeedback({
-        workflowClusterId: workflowId,
+      saveWorkflowReview(database, {
+        workflowId,
         mergeIntoWorkflowId: targetWorkflowId,
       });
     });
@@ -2044,8 +2045,8 @@ program
       options: { dataDir?: string; afterAction: string },
     ) => {
       withDatabase(options.dataDir, (database) => {
-        database.saveWorkflowFeedback({
-          workflowClusterId: workflowId,
+        saveWorkflowReview(database, {
+          workflowId,
           splitAfterActionName: options.afterAction,
         });
       });
@@ -2071,8 +2072,8 @@ program
   .option("--data-dir <path>", "Override application data directory")
   .action((workflowId: string, options: { dataDir?: string }) => {
     withDatabase(options.dataDir, (database) => {
-      database.saveWorkflowFeedback({
-        workflowClusterId: workflowId,
+      saveWorkflowReview(database, {
+        workflowId,
         excluded: true,
       });
     });
@@ -2087,8 +2088,8 @@ program
   .option("--data-dir <path>", "Override application data directory")
   .action((workflowId: string, options: { dataDir?: string }) => {
     withDatabase(options.dataDir, (database) => {
-      database.saveWorkflowFeedback({
-        workflowClusterId: workflowId,
+      saveWorkflowReview(database, {
+        workflowId,
         excluded: false,
       });
     });
@@ -2103,8 +2104,8 @@ program
   .option("--data-dir <path>", "Override application data directory")
   .action((workflowId: string, options: { dataDir?: string }) => {
     withDatabase(options.dataDir, (database) => {
-      database.saveWorkflowFeedback({
-        workflowClusterId: workflowId,
+      saveWorkflowReview(database, {
+        workflowId,
         hidden: true,
       });
     });
@@ -2119,8 +2120,8 @@ program
   .option("--data-dir <path>", "Override application data directory")
   .action((workflowId: string, options: { dataDir?: string }) => {
     withDatabase(options.dataDir, (database) => {
-      database.saveWorkflowFeedback({
-        workflowClusterId: workflowId,
+      saveWorkflowReview(database, {
+        workflowId,
         hidden: false,
       });
     });

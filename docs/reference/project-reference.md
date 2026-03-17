@@ -35,7 +35,7 @@ Implemented today:
 - normalization, semantic action abstraction, sessionization, workflow clustering, and all-time/daily/weekly reporting
 - hybrid clustering benchmark command with legacy-vs-v2 error comparison
 - persisted daily and weekly report snapshots
-- live browser dashboard for agent health, workflow reports, snapshots, and session drill-down
+- live browser dashboard for agent health, workflow reports, snapshots, session drill-down, and minimal feedback write actions
 - workflow rename, label, merge, split, exclude, include, hide, and unhide feedback
 - session listing, session detail, and session deletion with reanalysis
 - practical automation hints in workflow reports
@@ -293,7 +293,9 @@ Current report behavior:
 
 - `report` prints all-time, daily, or weekly workflow reports directly from local data
 - report output includes summary sections, workflow graphs, confidence, and automation hints
-- `/` opens a local browser viewer with live report recomputation, latest snapshots, and session detail drill-down
+- `/` opens a local browser viewer with live report recomputation, latest snapshots, session detail drill-down, a feedback queue, and structured automation hints
+- `GET /api/viewer/workflows/:workflowId` returns the current workflow review payload for the selected report window
+- `POST /api/viewer/workflows/:workflowId` saves viewer-side name/purpose/review/exclude/hide feedback through the same shared workflow feedback logic used by the CLI
 - `report:generate` stores a snapshot for a selected report window and date
 - `report:snapshot:list` and `report:snapshot:show` read stored snapshots
 - `agent:run-once` triggers one snapshot cycle through the control plane
@@ -452,6 +454,15 @@ npm run dev -- workflow:merge <workflow-id> <target-workflow-id> --data-dir ./tm
 npm run dev -- workflow:split <workflow-id> --after-action search_order --data-dir ./tmp/local-data
 npm run dev -- workflow:exclude <workflow-id> --data-dir ./tmp/local-data
 npm run dev -- workflow:hide <workflow-id> --data-dir ./tmp/local-data
+```
+
+Viewer feedback API:
+
+```bash
+curl "http://127.0.0.1:4318/api/viewer/workflows/<workflow-id>?window=week"
+curl -X POST "http://127.0.0.1:4318/api/viewer/workflows/<workflow-id>?window=week" \\
+  -H "Content-Type: application/json" \\
+  -d '{"name":"Review shipping status","purpose":"Confirm order updates","automationCandidate":true,"difficulty":"medium","excluded":false,"hidden":false}'
 ```
 
 List or show sessions:
@@ -632,6 +643,6 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 - short-horizon emerging workflow summaries are heuristic and marked as provisional
 - automatic snapshot refresh requires the resident agent or legacy scheduler process to be running
 - workflow naming remains heuristic
-- report output is CLI-only
+- browser feedback currently covers label/review and exclude/hide flows only; merge/split and unknown-action review remain CLI-first
 - secure credential storage is implemented only for macOS Keychain today
 - OpenAI and Claude direct API usage currently use API keys; Gemini supports API keys or OAuth2 login

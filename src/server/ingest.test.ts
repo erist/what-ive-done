@@ -259,12 +259,15 @@ test("startIngestServer serves the local viewer and live viewer API", async () =
     const dashboardResponse = await fetch(`${server.viewerUrl}api/viewer/dashboard?window=all`);
     const dashboard = (await dashboardResponse.json()) as {
       report: { workflows: unknown[]; emergingWorkflows: unknown[] };
+      reviewableWorkflows: Array<{ id: string; excluded: boolean; hidden: boolean }>;
       sessionSummaries: Array<{ id: string }>;
       latestSnapshots: unknown[];
     };
 
     assert.equal(dashboardResponse.status, 200);
     assert.ok(Array.isArray(dashboard.report.workflows));
+    assert.ok(Array.isArray(dashboard.reviewableWorkflows));
+    assert.ok(dashboard.reviewableWorkflows.length > 0);
     assert.ok(Array.isArray(dashboard.sessionSummaries));
     assert.ok(dashboard.sessionSummaries.length > 0);
     assert.equal(dashboard.latestSnapshots.length, 1);
@@ -288,6 +291,78 @@ test("startIngestServer serves the local viewer and live viewer API", async () =
     assert.equal(sessionResponse.status, 200);
     assert.equal(session.id, firstSessionId);
     assert.ok(session.steps.length > 0);
+
+    const firstWorkflowId = dashboard.reviewableWorkflows[0]?.id;
+    assert.ok(firstWorkflowId);
+
+    const workflowResponse = await fetch(
+      `${server.viewerUrl}api/viewer/workflows/${encodeURIComponent(firstWorkflowId ?? "")}?window=all`,
+    );
+    const workflow = (await workflowResponse.json()) as {
+      id: string;
+      automationHints: unknown[];
+      workflowName: string;
+      excluded: boolean;
+      hidden: boolean;
+    };
+
+    assert.equal(workflowResponse.status, 200);
+    assert.equal(workflow.id, firstWorkflowId);
+    assert.ok(Array.isArray(workflow.automationHints));
+
+    const feedbackResponse = await fetch(
+      `${server.viewerUrl}api/viewer/workflows/${encodeURIComponent(firstWorkflowId ?? "")}?window=all`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "Viewer-reviewed workflow",
+          purpose: "Validate the minimal feedback surface",
+          automationCandidate: true,
+          difficulty: "medium",
+          excluded: true,
+        }),
+      },
+    );
+    const feedbackPayload = (await feedbackResponse.json()) as {
+      status: string;
+      workflow: {
+        workflowName: string;
+        businessPurpose: string;
+        automationCandidate: boolean;
+        automationDifficulty: string;
+        excluded: boolean;
+      };
+    };
+
+    assert.equal(feedbackResponse.status, 200);
+    assert.equal(feedbackPayload.status, "workflow_feedback_saved");
+    assert.equal(feedbackPayload.workflow.workflowName, "Viewer-reviewed workflow");
+    assert.equal(feedbackPayload.workflow.businessPurpose, "Validate the minimal feedback surface");
+    assert.equal(feedbackPayload.workflow.automationCandidate, true);
+    assert.equal(feedbackPayload.workflow.automationDifficulty, "medium");
+    assert.equal(feedbackPayload.workflow.excluded, true);
+
+    const refreshedDashboardResponse = await fetch(`${server.viewerUrl}api/viewer/dashboard?window=all`);
+    const refreshedDashboard = (await refreshedDashboardResponse.json()) as {
+      report: { workflows: Array<{ workflowClusterId: string }> };
+      reviewableWorkflows: Array<{ id: string; workflowName: string; excluded: boolean; visibleInReport: boolean }>;
+    };
+    const refreshedWorkflow = refreshedDashboard.reviewableWorkflows.find(
+      (entry) => entry.id === firstWorkflowId,
+    );
+
+    assert.equal(refreshedDashboardResponse.status, 200);
+    assert.ok(refreshedWorkflow);
+    assert.equal(refreshedWorkflow?.workflowName, "Viewer-reviewed workflow");
+    assert.equal(refreshedWorkflow?.excluded, true);
+    assert.equal(refreshedWorkflow?.visibleInReport, false);
+    assert.equal(
+      refreshedDashboard.report.workflows.some((entry) => entry.workflowClusterId === firstWorkflowId),
+      false,
+    );
   } finally {
     await server.close();
     rmSync(tempDir, { recursive: true, force: true });

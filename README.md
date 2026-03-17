@@ -18,7 +18,7 @@ This repository provides a TypeScript CLI plus a resident local agent. Together 
 - resident local agent runtime with persisted heartbeat and health state
 - agent-managed local ingest server and snapshot scheduler
 - localhost-only ingest hardening with auth token and rate limiting
-- local browser viewer for agent status, live workflow reports, snapshots, and session drill-down
+- local browser viewer for agent status, live workflow reports, snapshots, session drill-down, and common feedback actions
 - Windows and macOS active-window collection paths
 - Chrome extension path for browser metadata ingestion
 - Chrome browser context substrate with SPA route taxonomy, opaque document-type hashes, tab-order metadata, and signal-only dwell segments
@@ -40,7 +40,7 @@ This repository provides a TypeScript CLI plus a resident local agent. Together 
 Current limitations:
 
 - Windows autostart installation is not implemented yet
-- the current browser viewer is read-only and feedback flow is still CLI-first
+- the browser viewer covers label/review and exclude/hide flows, but advanced merge/split review is still CLI-first
 - a packaged desktop app or tray UI does not exist yet
 - native desktop collectors still focus on active-window changes
 - report comparison views are not implemented yet
@@ -102,6 +102,8 @@ Open the local browser viewer directly:
 ```bash
 npm run dev -- viewer:open --data-dir ./tmp/live-data
 ```
+
+Use the browser viewer to rename workflows, save purpose/review fields, exclude/include workflows from reports, hide/unhide incorrect clusters, and inspect structured automation hints without going through the CLI.
 
 Default local viewer URL:
 
@@ -244,7 +246,7 @@ Optional Calendar boundary signals store only hashed event identifiers, hashed m
 - heartbeat와 health state를 기록하는 resident local agent runtime
 - agent가 관리하는 local ingest server와 snapshot scheduler
 - localhost-only binding, auth token, rate limiting이 적용된 ingest 경로
-- agent 상태, live report, snapshot, session detail을 보는 local browser viewer
+- agent 상태, live report, snapshot, session detail, 공통 feedback action을 제공하는 local browser viewer
 - Windows/macOS active-window 수집 경로
 - 브라우저 메타데이터 수집용 Chrome extension 경로
 - SPA route taxonomy, opaque document-type hash, tab-order metadata, signal-only dwell segment를 담는 Chrome browser context substrate
@@ -266,7 +268,7 @@ Optional Calendar boundary signals store only hashed event identifiers, hashed m
 현재 제한 사항:
 
 - Windows autostart 설치는 아직 구현되지 않았습니다
-- 현재 browser viewer는 read-only이며 feedback flow는 아직 CLI 중심입니다
+- browser viewer에서 label/review, exclude/hide는 처리할 수 있지만 merge/split 같은 고급 편집은 아직 CLI 중심입니다
 - packaged desktop app이나 tray UI는 아직 없습니다
 - native desktop collector는 현재 active-window 변화 중심입니다
 - report comparison view는 아직 없습니다
@@ -328,6 +330,8 @@ browser viewer만 열기:
 ```bash
 npm run dev -- viewer:open --data-dir ./tmp/live-data
 ```
+
+browser viewer에서는 workflow 이름과 목적 저장, review field 조정, report 제외/복귀, hide/unhide, structured automation hint 확인까지 CLI 없이 처리할 수 있습니다.
 
 기본 local viewer URL:
 
