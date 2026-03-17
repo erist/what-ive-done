@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 import { generateMockRawEvents } from "../collectors/mock.js";
 import type { RawEvent } from "../domain/types.js";
@@ -18,6 +19,94 @@ function createTestDatabase(tempDir: string): AppDatabase {
   });
 }
 
+function seedSchemaVersion10Database(databasePath: string): void {
+  const connection = new DatabaseSync(databasePath);
+
+  connection.exec(`
+    CREATE TABLE schema_migrations (
+      version INTEGER PRIMARY KEY,
+      applied_at TEXT NOT NULL
+    );
+
+    CREATE TABLE raw_events (
+      id TEXT PRIMARY KEY,
+      source TEXT NOT NULL,
+      source_event_type TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      application TEXT NOT NULL,
+      window_title TEXT,
+      domain TEXT,
+      url TEXT,
+      action TEXT NOT NULL,
+      target TEXT,
+      metadata_json TEXT NOT NULL,
+      sensitive_filtered INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE normalized_events (
+      id TEXT PRIMARY KEY,
+      raw_event_id TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      application TEXT NOT NULL,
+      app_name_normalized TEXT NOT NULL,
+      domain TEXT,
+      url TEXT,
+      path_pattern TEXT,
+      page_type TEXT,
+      resource_hint TEXT,
+      title_pattern TEXT,
+      action TEXT NOT NULL,
+      action_name TEXT NOT NULL,
+      action_confidence REAL NOT NULL DEFAULT 0,
+      action_source TEXT NOT NULL DEFAULT 'inferred',
+      target TEXT,
+      metadata_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+  `);
+
+  connection
+    .prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)")
+    .run(10, "2026-03-14T00:00:00.000Z");
+
+  connection
+    .prepare(`
+      INSERT INTO raw_events (
+        id,
+        source,
+        source_event_type,
+        timestamp,
+        application,
+        window_title,
+        domain,
+        url,
+        action,
+        target,
+        metadata_json,
+        sensitive_filtered,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    .run(
+      "legacy-raw-1",
+      "chrome_extension",
+      "chrome.navigation",
+      "2026-03-14T10:12:23.000Z",
+      "chrome",
+      "Orders",
+      "admin.example.com",
+      "https://admin.example.com/orders/123?tab=history&token=secret#frag",
+      "navigation",
+      "orders_page",
+      JSON.stringify({ sessionCookie: "secret", safe: "value" }),
+      1,
+      "2026-03-14T10:12:23.000Z",
+    );
+
+  connection.close();
+}
+
 test("AppDatabase initializes schema and stores sanitized raw events", () => {
   const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-"));
 
@@ -31,7 +120,7 @@ test("AppDatabase initializes schema and stores sanitized raw events", () => {
       sourceEventType: "chrome.navigation",
       timestamp: "2026-03-14T10:12:23.000Z",
       application: "chrome",
-      url: "https://admin.internal/orders?token=sensitive",
+      url: "https://admin.internal/orders?status=open&token=sensitive",
       action: "page_navigation",
       metadata: {
         clickedButton: "open-order",
@@ -45,11 +134,49 @@ test("AppDatabase initializes schema and stores sanitized raw events", () => {
     assert.equal(events[0]?.application, "chrome");
     assert.equal(
       events[0]?.url,
-      "https://admin.internal/orders?token=%5BREDACTED%5D",
+      "https://admin.internal/orders?status=open",
     );
+    assert.equal(events[0]?.browserSchemaVersion, 2);
+    assert.equal(events[0]?.canonicalUrl, "https://admin.internal/orders");
+    assert.equal(events[0]?.routeTemplate, "/orders");
+    assert.equal(events[0]?.routeKey, "https://admin.internal/orders");
     assert.deepEqual(events[0]?.metadata, {
       clickedButton: "open-order",
       authToken: "[REDACTED]",
+    });
+
+    database.close();
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("AppDatabase upgrades schema v10 browser rows with privacy-safe canonical fields", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-schema-v10-"));
+  const databasePath = join(tempDir, "test.sqlite");
+
+  try {
+    seedSchemaVersion10Database(databasePath);
+
+    const database = new AppDatabase({
+      dataDir: tempDir,
+      databasePath,
+      agentLockPath: join(tempDir, "agent.lock"),
+    });
+    database.initialize();
+
+    const [event] = database.listRawEvents();
+
+    assert.ok(event);
+    assert.equal(event.url, "https://admin.example.com/orders/123?tab=history");
+    assert.equal(event.browserSchemaVersion, 2);
+    assert.equal(event.canonicalUrl, "https://admin.example.com/orders/{id}");
+    assert.equal(event.routeTemplate, "/orders/{id}");
+    assert.equal(event.routeKey, "https://admin.example.com/orders/{id}");
+    assert.equal(event.resourceHash, undefined);
+    assert.deepEqual(event.metadata, {
+      sessionCookie: "[REDACTED]",
+      safe: "value",
     });
 
     database.close();
@@ -282,6 +409,9 @@ test("normalized events persist derived normalization fields", () => {
 
     assert.equal(normalizedEvents.length, 1);
     assert.equal(normalizedEvents[0]?.appNameNormalized, "chrome");
+    assert.equal(normalizedEvents[0]?.canonicalUrl, "https://admin.example.com/product/{id}");
+    assert.equal(normalizedEvents[0]?.routeTemplate, "/product/{id}/edit");
+    assert.equal(normalizedEvents[0]?.routeKey, "https://admin.example.com/product/{id}");
     assert.equal(normalizedEvents[0]?.pathPattern, "/product/{id}/edit");
     assert.equal(normalizedEvents[0]?.pageType, "product_edit");
     assert.equal(normalizedEvents[0]?.titlePattern, "Admin - Product {id} Edit");

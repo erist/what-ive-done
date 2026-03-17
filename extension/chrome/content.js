@@ -18,6 +18,7 @@ function buildTargetIdentifier(element) {
 
 function baseEventPayload() {
   return {
+    browserSchemaVersion: 2,
     timestamp: new Date().toISOString(),
     windowTitle: document.title,
     url: window.location.href

@@ -1,29 +1,8 @@
-import { URL } from "node:url";
-
 import type { RawEventInput } from "../domain/types.js";
+import { deriveBrowserCanonicalFields } from "./browser.js";
 
 const SENSITIVE_KEY_PATTERN =
   /password|passwd|secret|token|cookie|authorization|clipboard|emailbody|documentcontent|keystroke|session|auth/i;
-
-function sanitizeUrl(rawUrl: string | undefined): string | undefined {
-  if (!rawUrl) {
-    return undefined;
-  }
-
-  try {
-    const url = new URL(rawUrl);
-
-    for (const [key] of url.searchParams) {
-      if (SENSITIVE_KEY_PATTERN.test(key)) {
-        url.searchParams.set(key, "[REDACTED]");
-      }
-    }
-
-    return url.toString();
-  } catch {
-    return rawUrl;
-  }
-}
 
 function sanitizeValue(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -61,12 +40,19 @@ export function sanitizeRawEvent(input: RawEventInput): RawEventInput {
   const target = input.target && SENSITIVE_KEY_PATTERN.test(input.target)
     ? "[REDACTED]"
     : input.target;
+  const browserFields = deriveBrowserCanonicalFields(input);
 
   return {
     ...input,
     windowTitle,
+    domain: browserFields.domain ?? input.domain,
     target,
-    url: sanitizeUrl(input.url),
+    url: browserFields.url,
+    browserSchemaVersion: browserFields.browserSchemaVersion,
+    canonicalUrl: browserFields.canonicalUrl,
+    routeTemplate: browserFields.routeTemplate,
+    routeKey: browserFields.routeKey,
+    resourceHash: browserFields.resourceHash,
     metadata: sanitizeMetadata(input.metadata),
   };
 }

@@ -18,6 +18,8 @@
 
 - 권장 branch: `codex/m1-browser-schema-v2`
 - 권장 기간: 3-5일
+- 상태
+  - 완료(2026-03-17)
 - 목표
   - 브라우저 이벤트를 downstream rule engine이 안정적으로 사용할 수 있는 canonical signal로 고정한다.
 - 범위
@@ -35,6 +37,11 @@
   - schema v2 필드 정의
   - migration 또는 compatibility 전략
   - privacy regression test 케이스
+- 구현 메모
+  - shared browser canonicalization 모듈을 추가해 query string default-drop + allowlist 정책을 공통 적용했다.
+  - Chrome extension, ingest, raw storage, normalize 경로 전체에 `browserSchemaVersion`, `canonicalUrl`, `routeTemplate`, `routeKey`, `resourceHash` 를 연결했다.
+  - schema v11 additive migration으로 `raw_events`, `normalized_events` 에 browser v2 컬럼을 추가했고, 기존 stored browser URL을 privacy-safe 값으로 재정리했다.
+  - browser schema v2 fixture와 privacy/canonical convergence/migration regression test를 추가해 M2 fixture contract의 baseline을 고정했다.
 - 완료 기준
   - 같은 route family의 URL variation이 같은 canonical 결과로 수렴한다.
   - 검색어, 토큰, 세션성 파라미터가 저장되지 않는다.

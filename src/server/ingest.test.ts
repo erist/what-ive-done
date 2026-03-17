@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { generateMockRawEvents } from "../collectors/mock.js";
 import { AppDatabase } from "../storage/database.js";
 import { generateReportSnapshot } from "../reporting/service.js";
-import { coerceIncomingEvents } from "./ingest.js";
+import { coerceIncomingEvent, coerceIncomingEvents } from "./ingest.js";
 import { startIngestServer } from "./ingest-server.js";
 
 test("coerceIncomingEvents accepts a single event or events wrapper", () => {
@@ -25,6 +25,32 @@ test("coerceIncomingEvents accepts a single event or events wrapper", () => {
   assert.equal(single[0]?.action, "click");
   assert.equal(wrapped.length, 1);
   assert.equal(wrapped[0]?.action, "navigation");
+});
+
+test("coerceIncomingEvent preserves browser schema v2 payloads while remaining compatible with v1", () => {
+  const v2 = coerceIncomingEvent({
+    sourceEventType: "chrome.navigation",
+    application: "chrome",
+    browserSchemaVersion: 2,
+    canonicalUrl: "https://admin.example.com/orders/{id}",
+    routeTemplate: "/orders/{id}/edit",
+    routeKey: "https://admin.example.com/orders/{id}",
+    resourceHash: "abcdef1234567890",
+    url: "https://admin.example.com/orders/123/edit?tab=history",
+  });
+  const v1 = coerceIncomingEvent({
+    sourceEventType: "chrome.navigation",
+    application: "chrome",
+    url: "https://admin.example.com/orders/123/edit?tab=history",
+  });
+
+  assert.equal(v2.browserSchemaVersion, 2);
+  assert.equal(v2.canonicalUrl, "https://admin.example.com/orders/{id}");
+  assert.equal(v2.routeTemplate, "/orders/{id}/edit");
+  assert.equal(v2.routeKey, "https://admin.example.com/orders/{id}");
+  assert.equal(v2.resourceHash, "abcdef1234567890");
+  assert.equal(v1.browserSchemaVersion, undefined);
+  assert.equal(v1.canonicalUrl, undefined);
 });
 
 test("startIngestServer stores posted events", async () => {

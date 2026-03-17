@@ -10,6 +10,11 @@ export interface IncomingEventPayload {
   windowTitle?: string;
   domain?: string;
   url?: string;
+  browserSchemaVersion?: number;
+  canonicalUrl?: string;
+  routeTemplate?: string;
+  routeKey?: string;
+  resourceHash?: string;
   action?: string;
   target?: string;
   metadata?: Record<string, unknown>;
@@ -31,6 +36,10 @@ function inferAction(sourceEventType: string, explicitAction: unknown): string {
 
 function normalizeOptionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function normalizeOptionalNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function normalizeMetadata(value: unknown): Record<string, unknown> {
@@ -60,6 +69,11 @@ export function coerceIncomingEvent(payload: unknown): RawEventInput {
     windowTitle: normalizeOptionalString(payload.windowTitle),
     domain: normalizeOptionalString(payload.domain),
     url: normalizeOptionalString(payload.url),
+    browserSchemaVersion: normalizeOptionalNumber(payload.browserSchemaVersion),
+    canonicalUrl: normalizeOptionalString(payload.canonicalUrl),
+    routeTemplate: normalizeOptionalString(payload.routeTemplate),
+    routeKey: normalizeOptionalString(payload.routeKey),
+    resourceHash: normalizeOptionalString(payload.resourceHash),
     action: inferAction(sourceEventType, payload.action),
     target: normalizeOptionalString(payload.target),
     metadata: normalizeMetadata(payload.metadata),

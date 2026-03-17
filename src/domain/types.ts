@@ -23,6 +23,11 @@ export interface RawEvent {
   windowTitle?: string | undefined;
   domain?: string | undefined;
   url?: string | undefined;
+  browserSchemaVersion?: number | undefined;
+  canonicalUrl?: string | undefined;
+  routeTemplate?: string | undefined;
+  routeKey?: string | undefined;
+  resourceHash?: string | undefined;
   action: string;
   target?: string | undefined;
   metadata: Record<string, unknown>;
@@ -38,6 +43,11 @@ export interface RawEventInput {
   windowTitle?: string | undefined;
   domain?: string | undefined;
   url?: string | undefined;
+  browserSchemaVersion?: number | undefined;
+  canonicalUrl?: string | undefined;
+  routeTemplate?: string | undefined;
+  routeKey?: string | undefined;
+  resourceHash?: string | undefined;
   action: string;
   target?: string | undefined;
   metadata?: Record<string, unknown> | undefined;
@@ -51,6 +61,11 @@ export interface NormalizedEvent {
   appNameNormalized: string;
   domain?: string | undefined;
   url?: string | undefined;
+  browserSchemaVersion?: number | undefined;
+  canonicalUrl?: string | undefined;
+  routeTemplate?: string | undefined;
+  routeKey?: string | undefined;
+  resourceHash?: string | undefined;
   pathPattern?: string | undefined;
   pageType?: string | undefined;
   resourceHint?: string | undefined;

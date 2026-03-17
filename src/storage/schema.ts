@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 
-export const CURRENT_SCHEMA_VERSION = 10;
+export const CURRENT_SCHEMA_VERSION = 11;
 
 export const INITIAL_SCHEMA_SQL = `
   PRAGMA journal_mode = WAL;
@@ -20,6 +20,11 @@ export const INITIAL_SCHEMA_SQL = `
     window_title TEXT,
     domain TEXT,
     url TEXT,
+    browser_schema_version INTEGER,
+    canonical_url TEXT,
+    route_template TEXT,
+    route_key TEXT,
+    resource_hash TEXT,
     action TEXT NOT NULL,
     target TEXT,
     metadata_json TEXT NOT NULL,
@@ -38,6 +43,11 @@ export const INITIAL_SCHEMA_SQL = `
     app_name_normalized TEXT NOT NULL,
     domain TEXT,
     url TEXT,
+    browser_schema_version INTEGER,
+    canonical_url TEXT,
+    route_template TEXT,
+    route_key TEXT,
+    resource_hash TEXT,
     path_pattern TEXT,
     page_type TEXT,
     resource_hint TEXT,
@@ -370,5 +380,19 @@ export function applySchemaMigrations(
 
   if ((existingVersion ?? 0) < 10) {
     ensureColumn(connection, "session_steps", "title_pattern", "title_pattern TEXT");
+  }
+
+  if ((existingVersion ?? 0) < 11) {
+    ensureColumn(connection, "raw_events", "browser_schema_version", "browser_schema_version INTEGER");
+    ensureColumn(connection, "raw_events", "canonical_url", "canonical_url TEXT");
+    ensureColumn(connection, "raw_events", "route_template", "route_template TEXT");
+    ensureColumn(connection, "raw_events", "route_key", "route_key TEXT");
+    ensureColumn(connection, "raw_events", "resource_hash", "resource_hash TEXT");
+
+    ensureColumn(connection, "normalized_events", "browser_schema_version", "browser_schema_version INTEGER");
+    ensureColumn(connection, "normalized_events", "canonical_url", "canonical_url TEXT");
+    ensureColumn(connection, "normalized_events", "route_template", "route_template TEXT");
+    ensureColumn(connection, "normalized_events", "route_key", "route_key TEXT");
+    ensureColumn(connection, "normalized_events", "resource_hash", "resource_hash TEXT");
   }
 }
