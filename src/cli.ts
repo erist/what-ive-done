@@ -16,6 +16,12 @@ import {
   runGoogleOAuthInteractiveLogin,
 } from "./auth/google-oauth.js";
 import { getAvailableCollectors } from "./collectors/index.js";
+import {
+  DEFAULT_GWS_CALENDAR_ID,
+  DEFAULT_GWS_CALENDAR_POLL_INTERVAL_MS,
+  getGWSCalendarCollectorInfo,
+  getGWSCalendarCollectorStatus,
+} from "./collectors/gws-calendar.js";
 import { getMacOSActiveWindowCollectorInfo, resolveMacOSCollectorRunner } from "./collectors/macos.js";
 import { getWindowsActiveWindowCollectorInfo } from "./collectors/windows.js";
 import {
@@ -987,7 +993,8 @@ program
   .command("doctor")
   .description("Validate local runtime prerequisites")
   .option("--data-dir <path>", "Override application data directory")
-  .action((options: { dataDir?: string }) => {
+  .option("--gws-calendar-id <id>", "Calendar id to inspect for gws Calendar collector diagnostics", DEFAULT_GWS_CALENDAR_ID)
+  .action((options: { dataDir?: string; gwsCalendarId: string }) => {
     const paths = resolveAppPaths(options.dataDir);
     const result = {
       node: process.version,
@@ -997,6 +1004,9 @@ program
       databasePath: paths.databasePath,
       agentLockPath: paths.agentLockPath,
       ingestSecurity: describeIngestSecurity(options.dataDir),
+      gwsCalendar: getGWSCalendarCollectorStatus({
+        calendarId: options.gwsCalendarId,
+      }),
     };
 
     console.log(JSON.stringify(result, null, 2));
@@ -1012,6 +1022,13 @@ program
   .option("--ingest-auth-token <token>", "Override and persist the shared ingest auth token")
   .option("--collector-poll-interval-ms <ms>", "Collector polling interval in milliseconds", "1000")
   .option("--collector-restart-delay-ms <ms>", "Collector restart delay after failures", "5000")
+  .option("--gws-calendar", "Enable the optional gws Calendar boundary collector")
+  .option("--gws-calendar-id <id>", "Calendar id for the gws Calendar collector", DEFAULT_GWS_CALENDAR_ID)
+  .option(
+    "--gws-calendar-poll-interval-ms <ms>",
+    "gws Calendar polling interval in milliseconds",
+    String(DEFAULT_GWS_CALENDAR_POLL_INTERVAL_MS),
+  )
   .option(
     "--no-prompt-accessibility",
     "Don't ask macOS to show the Accessibility permission prompt when the collector starts",
@@ -1036,6 +1053,9 @@ program
       ingestAuthToken?: string;
       collectorPollIntervalMs: string;
       collectorRestartDelayMs: string;
+      gwsCalendar?: boolean;
+      gwsCalendarId: string;
+      gwsCalendarPollIntervalMs: string;
       promptAccessibility: boolean;
       snapshotWindows: ReportWindow[];
       snapshotIntervalSeconds: string;
@@ -1052,6 +1072,9 @@ program
       ingestAuthToken: options.ingestAuthToken,
       collectorPollIntervalMs: Number.parseInt(options.collectorPollIntervalMs, 10),
       collectorRestartDelayMs: Number.parseInt(options.collectorRestartDelayMs, 10),
+      enableGWSCalendar: options.gwsCalendar,
+      gwsCalendarId: options.gwsCalendarId,
+      gwsCalendarPollIntervalMs: Number.parseInt(options.gwsCalendarPollIntervalMs, 10),
       promptAccessibility: options.promptAccessibility,
       enableCollectors: options.collectors,
       snapshotWindows: options.snapshotWindows,
@@ -1584,6 +1607,36 @@ program
     const payload = collectorRunner.getPermissionStatus({
       promptAccessibility: options.promptAccessibility,
     });
+
+    if (options.json) {
+      console.log(JSON.stringify(payload, null, 2));
+      return;
+    }
+
+    console.log(JSON.stringify(payload, null, 2));
+  });
+
+program
+  .command("collector:gws:calendar:info")
+  .description("Print usage details and diagnostics for the optional gws Calendar collector")
+  .option("--calendar-id <id>", "Calendar id to monitor", DEFAULT_GWS_CALENDAR_ID)
+  .option("--json", "Print machine-readable JSON")
+  .action((options: { calendarId: string; json?: boolean }) => {
+    const info = getGWSCalendarCollectorInfo();
+    const standaloneCommand = info.scriptPath?.endsWith(".ts")
+      ? `node --import tsx "${info.scriptPath}" --ingest-url "http://127.0.0.1:4318/events" --calendar-id "${options.calendarId}"`
+      : `node "${info.scriptPath}" --ingest-url "http://127.0.0.1:4318/events" --calendar-id "${options.calendarId}"`;
+    const payload = {
+      ...info,
+      diagnostics: getGWSCalendarCollectorStatus({
+        calendarId: options.calendarId,
+      }),
+      examples: {
+        checkPrerequisites: `npm run dev -- doctor --gws-calendar-id "${options.calendarId}"`,
+        runInAgent: `npm run dev -- agent:run --gws-calendar --gws-calendar-id "${options.calendarId}"`,
+        runStandalone: standaloneCommand,
+      },
+    };
 
     if (options.json) {
       console.log(JSON.stringify(payload, null, 2));

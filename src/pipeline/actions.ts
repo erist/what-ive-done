@@ -2,6 +2,7 @@ import {
   DEFAULT_ACTION_ABSTRACTION_CONFIG,
   type ActionAbstractionConfig,
 } from "../config/analysis.js";
+import { parseCalendarSignalMetadata } from "../calendar/signals.js";
 import type { ActionSource, NormalizedEvent } from "../domain/types.js";
 import { ACTION_PACK_REGISTRY_VERSION, matchActionPackRule } from "../action-packs/index.js";
 import type {
@@ -153,6 +154,21 @@ function inferAction(event: ActionlessNormalizedEvent, context: NearbyContext): 
   actionSource: ActionSource;
   actionMatchMetadata: ActionMatchMetadata;
 } {
+  const calendarSignal = parseCalendarSignalMetadata(event.metadata.calendarSignal);
+
+  if (calendarSignal?.signalOnly) {
+    return {
+      actionName: "calendar_signal",
+      actionConfidence: 1,
+      actionSource: "rule",
+      actionMatchMetadata: {
+        registryVersion: ACTION_PACK_REGISTRY_VERSION,
+        layer: "generic",
+        strategy: "calendar_signal",
+      },
+    };
+  }
+
   const target = event.target ?? context.previousNearby?.target ?? context.nextNearby?.target;
   const pageType = event.pageType ?? context.previousNearby?.pageType ?? context.nextNearby?.pageType;
   const resourceHint =

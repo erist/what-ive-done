@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { PassThrough } from "node:stream";
 
+import { DEFAULT_GWS_CALENDAR_ID, DEFAULT_GWS_CALENDAR_POLL_INTERVAL_MS, getGWSCalendarCollectorInfo } from "../collectors/gws-calendar.js";
 import { getMacOSActiveWindowCollectorInfo } from "../collectors/macos.js";
 import { getWindowsActiveWindowCollectorInfo } from "../collectors/windows.js";
 import type { AgentCollectorState } from "./types.js";
@@ -20,6 +21,9 @@ export interface CollectorSupervisorOptions {
   ingestAuthToken?: string | undefined;
   processPlatform?: NodeJS.Platform | undefined;
   pollIntervalMs?: number | undefined;
+  enableGWSCalendar?: boolean | undefined;
+  gwsCalendarId?: string | undefined;
+  gwsCalendarPollIntervalMs?: number | undefined;
   promptAccessibility?: boolean | undefined;
   restartDelayMs?: number | undefined;
   verbose?: boolean | undefined;
@@ -65,60 +69,86 @@ export function buildManagedCollectorSpecs(options: {
   ingestAuthToken?: string | undefined;
   processPlatform?: NodeJS.Platform | undefined;
   pollIntervalMs?: number | undefined;
+  enableGWSCalendar?: boolean | undefined;
+  gwsCalendarId?: string | undefined;
+  gwsCalendarPollIntervalMs?: number | undefined;
   promptAccessibility?: boolean | undefined;
 }): CollectorProcessSpec[] {
   const processPlatform = options.processPlatform ?? process.platform;
   const pollIntervalMs = options.pollIntervalMs ?? 1_000;
+  const specs: CollectorProcessSpec[] = [];
 
   if (processPlatform === "darwin") {
     const info = getMacOSActiveWindowCollectorInfo();
 
-    return [
-      {
-        id: info.id,
-        platform: info.platform,
-        runtime: info.runtime,
-        command: "swift",
-        args: [
-          info.scriptPath!,
-          "--ingest-url",
-          options.ingestUrl,
-          ...(options.ingestAuthToken ? ["--ingest-auth-token", options.ingestAuthToken] : []),
-          "--poll-interval-ms",
-          String(pollIntervalMs),
-          ...(options.promptAccessibility ? ["--prompt-accessibility"] : []),
-        ],
-        ingestUrl: options.ingestUrl,
-        ingestAuthToken: options.ingestAuthToken,
-      },
-    ];
+    specs.push({
+      id: info.id,
+      platform: info.platform,
+      runtime: info.runtime,
+      command: "swift",
+      args: [
+        info.scriptPath!,
+        "--ingest-url",
+        options.ingestUrl,
+        ...(options.ingestAuthToken ? ["--ingest-auth-token", options.ingestAuthToken] : []),
+        "--poll-interval-ms",
+        String(pollIntervalMs),
+        ...(options.promptAccessibility ? ["--prompt-accessibility"] : []),
+      ],
+      ingestUrl: options.ingestUrl,
+      ingestAuthToken: options.ingestAuthToken,
+    });
   }
 
   if (processPlatform === "win32") {
     const info = getWindowsActiveWindowCollectorInfo();
 
-    return [
-      {
-        id: info.id,
-        platform: info.platform,
-        runtime: info.runtime,
-        command: "powershell.exe",
-        args: [
-          "-File",
-          info.scriptPath!,
-          "-IngestUrl",
-          options.ingestUrl,
-          ...(options.ingestAuthToken ? ["-IngestAuthToken", options.ingestAuthToken] : []),
-          "-PollIntervalMs",
-          String(pollIntervalMs),
-        ],
-        ingestUrl: options.ingestUrl,
-        ingestAuthToken: options.ingestAuthToken,
-      },
-    ];
+    specs.push({
+      id: info.id,
+      platform: info.platform,
+      runtime: info.runtime,
+      command: "powershell.exe",
+      args: [
+        "-File",
+        info.scriptPath!,
+        "-IngestUrl",
+        options.ingestUrl,
+        ...(options.ingestAuthToken ? ["-IngestAuthToken", options.ingestAuthToken] : []),
+        "-PollIntervalMs",
+        String(pollIntervalMs),
+      ],
+      ingestUrl: options.ingestUrl,
+      ingestAuthToken: options.ingestAuthToken,
+    });
   }
 
-  return [];
+  if (options.enableGWSCalendar) {
+    const info = getGWSCalendarCollectorInfo();
+    const runnerArgs = info.scriptPath?.endsWith(".ts")
+      ? ["--import", "tsx", info.scriptPath]
+      : [info.scriptPath!];
+
+    specs.push({
+      id: info.id,
+      platform: info.platform,
+      runtime: info.runtime,
+      command: process.execPath,
+      args: [
+        ...runnerArgs,
+        "--ingest-url",
+        options.ingestUrl,
+        ...(options.ingestAuthToken ? ["--ingest-auth-token", options.ingestAuthToken] : []),
+        "--calendar-id",
+        options.gwsCalendarId ?? DEFAULT_GWS_CALENDAR_ID,
+        "--poll-interval-ms",
+        String(options.gwsCalendarPollIntervalMs ?? DEFAULT_GWS_CALENDAR_POLL_INTERVAL_MS),
+      ],
+      ingestUrl: options.ingestUrl,
+      ingestAuthToken: options.ingestAuthToken,
+    });
+  }
+
+  return specs;
 }
 
 function attachOutputDrain(processHandle: SpawnedProcess): void {
@@ -149,6 +179,9 @@ export async function startCollectorSupervisor(
     ingestAuthToken: options.ingestAuthToken,
     processPlatform: options.processPlatform,
     pollIntervalMs: options.pollIntervalMs,
+    enableGWSCalendar: options.enableGWSCalendar,
+    gwsCalendarId: options.gwsCalendarId,
+    gwsCalendarPollIntervalMs: options.gwsCalendarPollIntervalMs,
     promptAccessibility: options.promptAccessibility,
   });
   const restartDelayMs = options.restartDelayMs ?? 5_000;

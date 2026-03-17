@@ -2,6 +2,7 @@ import {
   DEFAULT_SESSION_SEGMENTATION_CONFIG,
   type SessionSegmentationConfig,
 } from "../config/analysis.js";
+import { parseCalendarSignalMetadata, type CalendarSignalMetadata } from "../calendar/signals.js";
 import type {
   NormalizedEvent,
   Session,
@@ -15,6 +16,8 @@ export interface SessionizeOptions {
   contextShiftThresholdMs?: number;
   interruptionResetThresholdMs?: number;
   significantContextScore?: number;
+  rollingWindowMs?: number;
+  rollingMinimumGapMs?: number;
 }
 
 interface MutableSession {
@@ -27,6 +30,16 @@ interface BoundaryDecision {
   shouldSplit: boolean;
   reason?: SessionBoundaryReason | undefined;
   details?: Record<string, unknown> | undefined;
+}
+
+interface PendingCalendarSignal {
+  timestamp: string;
+  signal: CalendarSignalMetadata;
+}
+
+interface RollingSummaryEntry {
+  value?: string | undefined;
+  count: number;
 }
 
 function countMostCommon(values: string[]): string {
@@ -47,6 +60,28 @@ function countMostCommonOptional(values: string[]): string | undefined {
   return countMostCommon(values);
 }
 
+function mostCommonEntry(values: string[]): RollingSummaryEntry {
+  if (values.length === 0) {
+    return {
+      count: 0,
+    };
+  }
+
+  const counts = new Map<string, number>();
+
+  for (const value of values) {
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+
+  const [value, count] =
+    [...counts.entries()].sort((left, right) => right[1] - left[1])[0] ?? [];
+
+  return {
+    value,
+    count: count ?? 0,
+  };
+}
+
 function contextShift(previous: NormalizedEvent, current: NormalizedEvent): {
   score: number;
   changedFields: string[];
@@ -61,6 +96,15 @@ function contextShift(previous: NormalizedEvent, current: NormalizedEvent): {
 
   if (previous.domain && current.domain && previous.domain !== current.domain) {
     changedFields.push("domain");
+    score += 1;
+  }
+
+  if (
+    previous.routeFamily &&
+    current.routeFamily &&
+    previous.routeFamily !== current.routeFamily
+  ) {
+    changedFields.push("route_family");
     score += 1;
   }
 
@@ -154,6 +198,101 @@ function shouldStartNewSession(
   };
 }
 
+function buildRollingSummary(
+  currentSessionEvents: NormalizedEvent[],
+  current: NormalizedEvent,
+  options: SessionSegmentationConfig,
+): {
+  windowEventCount: number;
+  dominantApplication: RollingSummaryEntry;
+  dominantDomain: RollingSummaryEntry;
+  dominantRouteFamily: RollingSummaryEntry;
+} {
+  const currentTime = new Date(current.timestamp).getTime();
+  const recentEvents = currentSessionEvents.filter(
+    (event) => currentTime - new Date(event.timestamp).getTime() <= options.rollingWindowMs,
+  );
+
+  return {
+    windowEventCount: recentEvents.length,
+    dominantApplication: mostCommonEntry(recentEvents.map((event) => event.application)),
+    dominantDomain: mostCommonEntry(
+      recentEvents.map((event) => event.domain).filter((value): value is string => Boolean(value)),
+    ),
+    dominantRouteFamily: mostCommonEntry(
+      recentEvents.map((event) => event.routeFamily).filter((value): value is string => Boolean(value)),
+    ),
+  };
+}
+
+function shouldSuppressBoundaryWithRollingContext(args: {
+  boundary: BoundaryDecision;
+  previous: NormalizedEvent;
+  current: NormalizedEvent;
+  currentSessionEvents: NormalizedEvent[];
+  options: SessionSegmentationConfig;
+}): boolean {
+  if (
+    args.boundary.reason !== "context_shift" &&
+    args.boundary.reason !== "reset_after_interruption"
+  ) {
+    return false;
+  }
+
+  const gapMs = new Date(args.current.timestamp).getTime() - new Date(args.previous.timestamp).getTime();
+
+  if (gapMs < args.options.rollingMinimumGapMs) {
+    return false;
+  }
+
+  const summary = buildRollingSummary(args.currentSessionEvents, args.current, args.options);
+
+  if (summary.windowEventCount < 3) {
+    return false;
+  }
+
+  const applicationDominance = summary.dominantApplication.count / summary.windowEventCount;
+  const domainDominance = summary.dominantDomain.count / summary.windowEventCount;
+  const routeFamilyDominance = summary.dominantRouteFamily.count / summary.windowEventCount;
+  const matchesDominantApplication =
+    summary.dominantApplication.value === args.current.application && applicationDominance >= 0.6;
+  const matchesDominantDomain =
+    summary.dominantDomain.value !== undefined &&
+    summary.dominantDomain.value === args.current.domain &&
+    domainDominance >= 0.6;
+  const matchesDominantRouteFamily =
+    summary.dominantRouteFamily.value !== undefined &&
+    summary.dominantRouteFamily.value === args.current.routeFamily &&
+    routeFamilyDominance >= 0.6;
+
+  return matchesDominantApplication && (matchesDominantDomain || matchesDominantRouteFamily);
+}
+
+function buildCalendarSignalBoundary(args: {
+  previous: NormalizedEvent;
+  current: NormalizedEvent;
+  pendingSignals: PendingCalendarSignal[];
+}): BoundaryDecision {
+  return {
+    shouldSplit: true,
+    reason: "calendar_signal",
+    details: {
+      signalCount: args.pendingSignals.length,
+      signalTypes: args.pendingSignals.map((entry) => entry.signal.signalType),
+      signals: args.pendingSignals.map((entry) => ({
+        timestamp: entry.timestamp,
+        signalType: entry.signal.signalType,
+        eventIdHash: entry.signal.eventIdHash,
+        summaryHash: entry.signal.summaryHash,
+        startAt: entry.signal.startAt,
+        endAt: entry.signal.endAt,
+      })),
+      previousActionName: args.previous.actionName,
+      currentActionName: args.current.actionName,
+    },
+  };
+}
+
 function toSession(session: MutableSession): Session {
   const { events } = session;
   const startTime = events[0]?.timestamp ?? new Date().toISOString();
@@ -206,22 +345,41 @@ export function sessionizeNormalizedEvents(
     significantContextScore:
       options.significantContextScore ??
       DEFAULT_SESSION_SEGMENTATION_CONFIG.significantContextScore,
+    rollingWindowMs:
+      options.rollingWindowMs ?? DEFAULT_SESSION_SEGMENTATION_CONFIG.rollingWindowMs,
+    rollingMinimumGapMs:
+      options.rollingMinimumGapMs ?? DEFAULT_SESSION_SEGMENTATION_CONFIG.rollingMinimumGapMs,
   };
 
   const sortedEvents = [...normalizedEvents].sort((left, right) =>
     left.timestamp.localeCompare(right.timestamp),
   );
-  const sessions: MutableSession[] = [
-    {
-      events: [sortedEvents[0] as NormalizedEvent],
-      sessionBoundaryReason: "stream_start",
-      sessionBoundaryDetails: {
-        reason: "first_event",
-      },
-    },
-  ];
+  const sessions: MutableSession[] = [];
+  const pendingCalendarSignals: PendingCalendarSignal[] = [];
 
-  for (const event of sortedEvents.slice(1)) {
+  for (const event of sortedEvents) {
+    const calendarSignal = parseCalendarSignalMetadata(event.metadata.calendarSignal);
+
+    if (calendarSignal?.signalOnly) {
+      pendingCalendarSignals.push({
+        timestamp: event.timestamp,
+        signal: calendarSignal,
+      });
+      continue;
+    }
+
+    if (sessions.length === 0) {
+      sessions.push({
+        events: [event],
+        sessionBoundaryReason: "stream_start",
+        sessionBoundaryDetails: {
+          reason: "first_event",
+        },
+      });
+      pendingCalendarSignals.length = 0;
+      continue;
+    }
+
     const currentSession = sessions[sessions.length - 1];
     const previousEvent = currentSession?.events[currentSession.events.length - 1];
 
@@ -236,7 +394,29 @@ export function sessionizeNormalizedEvents(
       continue;
     }
 
-    const boundary = shouldStartNewSession(previousEvent, event, effectiveOptions);
+    const boundary =
+      pendingCalendarSignals.length > 0
+        ? buildCalendarSignalBoundary({
+            previous: previousEvent,
+            current: event,
+            pendingSignals: [...pendingCalendarSignals],
+          })
+        : shouldStartNewSession(previousEvent, event, effectiveOptions);
+
+    if (
+      boundary.shouldSplit &&
+      pendingCalendarSignals.length === 0 &&
+      shouldSuppressBoundaryWithRollingContext({
+        boundary,
+        previous: previousEvent,
+        current: event,
+        currentSessionEvents: currentSession.events,
+        options: effectiveOptions,
+      })
+    ) {
+      currentSession.events.push(event);
+      continue;
+    }
 
     if (boundary.shouldSplit) {
       sessions.push({
@@ -244,10 +424,12 @@ export function sessionizeNormalizedEvents(
         sessionBoundaryReason: boundary.reason ?? "context_shift",
         sessionBoundaryDetails: boundary.details ?? {},
       });
+      pendingCalendarSignals.length = 0;
       continue;
     }
 
     currentSession.events.push(event);
+    pendingCalendarSignals.length = 0;
   }
 
   return sessions.map((session) => toSession(session));

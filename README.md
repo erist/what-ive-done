@@ -26,7 +26,8 @@ This repository provides a TypeScript CLI plus a resident local agent. Together 
 - versioned action-pack registry with unknown-action coverage ops and offline suggestion prompts
 - golden workflow fixtures and debug trace CLI for quality regression
 - deterministic event normalization and semantic action abstraction
-- explainable session segmentation with boundary reasons
+- rolling-context session segmentation with explainable boundary reasons
+- optional `gws` Calendar boundary collector with meeting start/end signals and doctor diagnostics
 - near-match workflow clustering with variants and confidence scores
 - all-time, daily, and weekly workflow-centric reports
 - stored daily and weekly report snapshots
@@ -83,6 +84,13 @@ Run the resident agent:
 npm run dev -- agent:run --data-dir ./tmp/live-data --verbose
 ```
 
+Enable optional Calendar boundary signals through `gws`:
+
+```bash
+npm run dev -- doctor --gws-calendar-id primary
+npm run dev -- agent:run --data-dir ./tmp/live-data --gws-calendar --gws-calendar-id primary
+```
+
 Run the resident agent and open the local browser viewer:
 
 ```bash
@@ -130,13 +138,16 @@ npm run dev -- workflow:split <workflow-id> --after-action search_order --data-d
 
 ```bash
 npm run dev -- doctor
+npm run dev -- doctor --gws-calendar-id primary
 npm run dev -- ingest:token --data-dir ./tmp/live-data
 npm run dev -- agent:run --data-dir ./tmp/live-data
+npm run dev -- agent:run --data-dir ./tmp/live-data --gws-calendar --gws-calendar-id primary
 npm run dev -- agent:health --data-dir ./tmp/live-data
 npm run dev -- agent:run-once --data-dir ./tmp/live-data
 npm run dev -- agent:snapshot:latest --data-dir ./tmp/live-data
 npm run dev -- agent:collectors --data-dir ./tmp/live-data
 npm run dev -- agent:autostart:status --data-dir ./tmp/live-data
+npm run dev -- collector:gws:calendar:info --calendar-id primary --json
 npm run dev -- viewer:open --data-dir ./tmp/live-data
 npm run dev -- debug:raw:list --data-dir ./tmp/live-data --limit 10
 npm run dev -- debug:normalized:list --data-dir ./tmp/live-data --limit 10
@@ -198,6 +209,8 @@ The project stores behavioral metadata only. It must not collect raw keystrokes,
 
 Chrome browser context expansion stores only normalized route taxonomy, opaque document-type hashes, tab-order counters, and dwell durations. Raw DOM text, form values, and hash-fragment strings are not persisted.
 
+Optional Calendar boundary signals store only hashed event identifiers, hashed meeting summaries, meeting start/end timestamps, and attendee counts. Raw meeting titles, descriptions, attendee identities, and body content are not persisted.
+
 ### Docs
 
 - [CLI Quickstart](./CLI_QUICKSTART.md)
@@ -213,6 +226,7 @@ Chrome browser context expansion stores only normalized route taxonomy, opaque d
 - Chrome for live browser collection
 - Windows PowerShell for the Windows active-window collector
 - Xcode or Xcode Command Line Tools with Swift for the macOS active-window collector
+- optional `gws` CLI with Calendar OAuth scope when using Calendar boundary signals
 - provider API key env vars such as `OPENAI_API_KEY`, `GEMINI_API_KEY`/`GOOGLE_API_KEY`, or `ANTHROPIC_API_KEY` when no key is stored in secure storage
 
 <a id="ko"></a>
@@ -236,7 +250,8 @@ Chrome browser context expansion stores only normalized route taxonomy, opaque d
 - `unknown_action` coverage 운영과 offline suggestion prompt를 위한 versioned action-pack registry
 - golden workflow fixture와 debug trace CLI
 - deterministic event normalization과 semantic action abstraction
-- boundary reason이 있는 session segmentation
+- rolling-context 기반 boundary reason이 있는 session segmentation
+- optional `gws` Calendar collector와 meeting start/end signal, doctor 진단
 - near-match workflow clustering, variant, confidence 계산
 - all-time/day/week workflow-centric 리포트
 - daily/weekly report snapshot 저장
@@ -293,6 +308,13 @@ resident agent 실행:
 npm run dev -- agent:run --data-dir ./tmp/live-data --verbose
 ```
 
+`gws`를 통한 optional Calendar boundary signal 켜기:
+
+```bash
+npm run dev -- doctor --gws-calendar-id primary
+npm run dev -- agent:run --data-dir ./tmp/live-data --gws-calendar --gws-calendar-id primary
+```
+
 resident agent를 실행하면서 browser viewer까지 바로 열기:
 
 ```bash
@@ -340,13 +362,16 @@ npm run dev -- workflow:split <workflow-id> --after-action search_order --data-d
 
 ```bash
 npm run dev -- doctor
+npm run dev -- doctor --gws-calendar-id primary
 npm run dev -- ingest:token --data-dir ./tmp/live-data
 npm run dev -- agent:run --data-dir ./tmp/live-data
+npm run dev -- agent:run --data-dir ./tmp/live-data --gws-calendar --gws-calendar-id primary
 npm run dev -- agent:health --data-dir ./tmp/live-data
 npm run dev -- agent:run-once --data-dir ./tmp/live-data
 npm run dev -- agent:snapshot:latest --data-dir ./tmp/live-data
 npm run dev -- agent:collectors --data-dir ./tmp/live-data
 npm run dev -- agent:autostart:status --data-dir ./tmp/live-data
+npm run dev -- collector:gws:calendar:info --calendar-id primary --json
 npm run dev -- viewer:open --data-dir ./tmp/live-data
 npm run dev -- debug:raw:list --data-dir ./tmp/live-data --limit 10
 npm run dev -- debug:normalized:list --data-dir ./tmp/live-data --limit 10
@@ -408,6 +433,8 @@ npm run dev -- auth:login gemini --data-dir ./tmp/local-data
 
 Chrome browser context 확장에서도 저장되는 것은 정규화된 route taxonomy, opaque document-type hash, tab-order 카운터, dwell duration뿐입니다. raw DOM 텍스트, form 값, hash fragment 원문은 저장하지 않습니다.
 
+optional Calendar boundary signal에서도 저장되는 것은 hash 처리된 event id, hash 처리된 meeting summary, meeting start/end timestamp, attendee 수뿐입니다. raw meeting title, description, attendee identity, 본문은 저장하지 않습니다.
+
 ### 문서
 
 - [CLI Quickstart](./CLI_QUICKSTART.md)
@@ -423,4 +450,5 @@ Chrome browser context 확장에서도 저장되는 것은 정규화된 route ta
 - 실시간 브라우저 수집용 Chrome
 - Windows active-window collector 실행용 Windows PowerShell
 - macOS active-window collector 실행용 Xcode 또는 Xcode Command Line Tools의 Swift
+- Calendar boundary signal을 쓸 때는 Calendar scope가 있는 optional `gws` CLI
 - secure storage에 키가 없을 때 `OPENAI_API_KEY`, `GEMINI_API_KEY`/`GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`

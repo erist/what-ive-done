@@ -1,4 +1,4 @@
-export type EventSource = "desktop" | "chrome_extension" | "mock";
+export type EventSource = "calendar" | "desktop" | "chrome_extension" | "mock";
 
 export type AutomationSuitability = "high" | "medium" | "low";
 export type AutomationDifficulty = "high" | "medium" | "low";
@@ -9,6 +9,7 @@ export type ActionSource = "rule" | "inferred" | "user_labeled";
 
 export type SessionBoundaryReason =
   | "stream_start"
+  | "calendar_signal"
   | "idle_gap"
   | "context_shift"
   | "idle_and_context_shift"

@@ -85,3 +85,107 @@ test("sessionizeNormalizedEvents splits interrupted workflows that restart with 
   assert.equal(sessions[1]?.sessionBoundaryReason, "reset_after_interruption");
   assert.equal(sessions[1]?.steps[0]?.actionName, "edit_product");
 });
+
+test("sessionizeNormalizedEvents keeps a dominant rolling context in one session after a brief interruption", () => {
+  const normalizedEvents = normalizeRawEvents([
+    createRawEvent({
+      id: "raw-1",
+      timestamp: "2026-03-14T10:00:00.000Z",
+      url: "https://admin.example.com/orders",
+      target: "orders_report",
+    }),
+    createRawEvent({
+      id: "raw-2",
+      timestamp: "2026-03-14T10:00:30.000Z",
+      sourceEventType: "browser.click",
+      action: "click",
+      domain: "admin.example.com",
+      target: "search_order",
+    }),
+    createRawEvent({
+      id: "raw-3",
+      timestamp: "2026-03-14T10:01:00.000Z",
+      sourceEventType: "browser.click",
+      action: "click",
+      domain: "admin.example.com",
+      target: "status_dropdown",
+    }),
+    createRawEvent({
+      id: "raw-4",
+      timestamp: "2026-03-14T10:01:30.000Z",
+      source: "desktop",
+      sourceEventType: "app.switch",
+      application: "Slack",
+      action: "switch",
+      target: "send_status_reply",
+    }),
+    createRawEvent({
+      id: "raw-5",
+      timestamp: "2026-03-14T10:02:40.000Z",
+      url: "https://admin.example.com/orders",
+      target: "orders_report",
+    }),
+  ]);
+
+  const sessions = sessionizeNormalizedEvents(normalizedEvents);
+
+  assert.equal(sessions.length, 1);
+  assert.deepEqual(
+    sessions[0]?.steps.map((step) => step.actionName),
+    ["open_admin", "search_order", "update_status", "send_slack_report", "open_admin"],
+  );
+});
+
+test("sessionizeNormalizedEvents uses calendar signal events as explicit boundaries without adding them as steps", () => {
+  const normalizedEvents = normalizeRawEvents([
+    createRawEvent({
+      id: "raw-1",
+      timestamp: "2026-03-14T10:00:00.000Z",
+      url: "https://admin.example.com/orders",
+      target: "orders_report",
+    }),
+    createRawEvent({
+      id: "raw-2",
+      timestamp: "2026-03-14T10:00:30.000Z",
+      sourceEventType: "browser.click",
+      action: "click",
+      domain: "admin.example.com",
+      target: "search_order",
+    }),
+    createRawEvent({
+      id: "raw-3",
+      timestamp: "2026-03-14T10:05:00.000Z",
+      source: "calendar",
+      sourceEventType: "calendar.meeting.start",
+      application: "gws-calendar",
+      action: "calendar_signal",
+      target: "meeting_start",
+      metadata: {
+        calendarSignal: {
+          signalType: "meeting_start",
+          eventIdHash: "abcdef1234567890",
+          summaryHash: "0123456789abcdef",
+          startAt: "2026-03-14T10:05:00.000Z",
+          endAt: "2026-03-14T10:30:00.000Z",
+          attendeesCount: 5,
+          signalOnly: true,
+        },
+      },
+    }),
+    createRawEvent({
+      id: "raw-4",
+      timestamp: "2026-03-14T10:35:00.000Z",
+      url: "https://admin.example.com/product/123/edit",
+      target: "product_form",
+    }),
+  ]);
+
+  const sessions = sessionizeNormalizedEvents(normalizedEvents);
+
+  assert.equal(sessions.length, 2);
+  assert.equal(sessions[1]?.sessionBoundaryReason, "calendar_signal");
+  assert.deepEqual(
+    sessions.map((session) => session.steps.map((step) => step.actionName)),
+    [["open_admin", "search_order"], ["edit_product"]],
+  );
+});
