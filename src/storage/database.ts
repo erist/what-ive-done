@@ -495,6 +495,49 @@ export class AppDatabase {
     return rows.map((row) => mapRawEventRow(row));
   }
 
+  getRawEventById(rawEventId: string): RawEvent | undefined {
+    const row = this.connection
+      .prepare(`
+        SELECT
+          id,
+          source,
+          source_event_type,
+          timestamp,
+          application,
+          window_title,
+          domain,
+          url,
+          action,
+          target,
+          metadata_json,
+          sensitive_filtered,
+          created_at
+        FROM raw_events
+        WHERE id = ?
+      `)
+      .get(rawEventId) as RawEventRow | undefined;
+
+    if (!row) {
+      return undefined;
+    }
+
+    return {
+      id: row.id,
+      source: row.source as RawEvent["source"],
+      sourceEventType: row.source_event_type,
+      timestamp: row.timestamp,
+      application: row.application,
+      windowTitle: row.window_title ?? undefined,
+      domain: row.domain ?? undefined,
+      url: row.url ?? undefined,
+      action: row.action,
+      target: row.target ?? undefined,
+      metadata: JSON.parse(row.metadata_json) as Record<string, unknown>,
+      sensitiveFiltered: row.sensitive_filtered === 1,
+      createdAt: row.created_at,
+    };
+  }
+
   getRawEventsChronological(): RawEvent[] {
     const rows = this.connection
       .prepare(`
@@ -590,6 +633,112 @@ export class AppDatabase {
       .all(limit) as unknown as NormalizedEventRow[];
 
     return rows.map((row) => mapNormalizedEventRow(row));
+  }
+
+  getNormalizedEventById(normalizedEventId: string): NormalizedEvent | undefined {
+    const row = this.connection
+      .prepare(`
+        SELECT
+          id,
+          raw_event_id,
+          timestamp,
+          application,
+          app_name_normalized,
+          domain,
+          url,
+          path_pattern,
+          page_type,
+          resource_hint,
+          title_pattern,
+          action,
+          action_name,
+          action_confidence,
+          action_source,
+          target,
+          metadata_json,
+          created_at
+        FROM normalized_events
+        WHERE id = ?
+      `)
+      .get(normalizedEventId) as NormalizedEventRow | undefined;
+
+    if (!row) {
+      return undefined;
+    }
+
+    return {
+      id: row.id,
+      rawEventId: row.raw_event_id,
+      timestamp: row.timestamp,
+      application: row.application,
+      appNameNormalized: row.app_name_normalized ?? row.application,
+      domain: row.domain ?? undefined,
+      url: row.url ?? undefined,
+      pathPattern: row.path_pattern ?? undefined,
+      pageType: row.page_type ?? undefined,
+      resourceHint: row.resource_hint ?? undefined,
+      titlePattern: row.title_pattern ?? undefined,
+      action: row.action,
+      actionName: row.action_name ?? row.action,
+      actionConfidence: row.action_confidence ?? 0,
+      actionSource: row.action_source ?? "inferred",
+      target: row.target ?? undefined,
+      metadata: JSON.parse(row.metadata_json) as Record<string, unknown>,
+      createdAt: row.created_at,
+    };
+  }
+
+  getNormalizedEventByRawEventId(rawEventId: string): NormalizedEvent | undefined {
+    const row = this.connection
+      .prepare(`
+        SELECT
+          id,
+          raw_event_id,
+          timestamp,
+          application,
+          app_name_normalized,
+          domain,
+          url,
+          path_pattern,
+          page_type,
+          resource_hint,
+          title_pattern,
+          action,
+          action_name,
+          action_confidence,
+          action_source,
+          target,
+          metadata_json,
+          created_at
+        FROM normalized_events
+        WHERE raw_event_id = ?
+      `)
+      .get(rawEventId) as NormalizedEventRow | undefined;
+
+    if (!row) {
+      return undefined;
+    }
+
+    return {
+      id: row.id,
+      rawEventId: row.raw_event_id,
+      timestamp: row.timestamp,
+      application: row.application,
+      appNameNormalized: row.app_name_normalized ?? row.application,
+      domain: row.domain ?? undefined,
+      url: row.url ?? undefined,
+      pathPattern: row.path_pattern ?? undefined,
+      pageType: row.page_type ?? undefined,
+      resourceHint: row.resource_hint ?? undefined,
+      titlePattern: row.title_pattern ?? undefined,
+      action: row.action,
+      actionName: row.action_name ?? row.action,
+      actionConfidence: row.action_confidence ?? 0,
+      actionSource: row.action_source ?? "inferred",
+      target: row.target ?? undefined,
+      metadata: JSON.parse(row.metadata_json) as Record<string, unknown>,
+      createdAt: row.created_at,
+    };
   }
 
   replaceAnalysisArtifacts(args: {
@@ -1183,8 +1332,42 @@ export class AppDatabase {
     };
   }
 
+  getSessionByNormalizedEventId(normalizedEventId: string): Session | undefined {
+    const row = this.connection
+      .prepare(`
+        SELECT session_id
+        FROM session_steps
+        WHERE normalized_event_id = ?
+        LIMIT 1
+      `)
+      .get(normalizedEventId) as { session_id: string } | undefined;
+
+    if (!row) {
+      return undefined;
+    }
+
+    return this.getSessionById(row.session_id);
+  }
+
   getWorkflowClusterById(workflowClusterId: string): WorkflowCluster | undefined {
     return this.listWorkflowClusters().find((cluster) => cluster.id === workflowClusterId);
+  }
+
+  getWorkflowClusterBySessionId(sessionId: string): WorkflowCluster | undefined {
+    const row = this.connection
+      .prepare(`
+        SELECT workflow_cluster_id
+        FROM workflow_cluster_sessions
+        WHERE session_id = ?
+        LIMIT 1
+      `)
+      .get(sessionId) as { workflow_cluster_id: string } | undefined;
+
+    if (!row) {
+      return undefined;
+    }
+
+    return this.getWorkflowClusterById(row.workflow_cluster_id);
   }
 
   deleteSessionSourceEvents(sessionId: string): number {

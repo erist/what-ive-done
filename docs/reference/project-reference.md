@@ -18,8 +18,10 @@ Implemented today:
 - deterministic mock workflow generator
 - JSON and NDJSON raw-event import
 - local HTTP ingest server
+- localhost-only ingest auth token and request rate limiting
 - local browser viewer served from the same local HTTP server
 - Chrome extension scaffold for browser activity metadata
+- golden workflow fixtures and debug trace commands
 - Windows PowerShell active-window collector path
 - macOS Swift active-window collector path with permission checks and one-shot capture
 - resident local agent runtime with persisted heartbeat and health state
@@ -92,6 +94,40 @@ Current heuristic defaults in code:
 - context-shift split: 75 seconds with significant context change
 - minimum workflow session duration: 45 seconds
 - minimum workflow frequency: 3 similar sessions within 7 days
+
+## Debugging and Quality Gates
+
+Quality debugging now has two fixed surfaces:
+
+- `fixtures/golden/` contains representative workflow fixtures used as regression gates.
+- debug CLI commands expose `raw -> normalized -> action -> session -> workflow cluster` transitions.
+
+Debug flow:
+
+```bash
+npm run dev -- analyze --data-dir ./tmp/local-data
+npm run dev -- debug:raw:list --data-dir ./tmp/local-data --limit 10
+npm run dev -- debug:normalized:list --data-dir ./tmp/local-data --limit 10
+npm run dev -- debug:trace:raw <raw-event-id> --data-dir ./tmp/local-data
+npm run dev -- debug:trace:session <session-id> --data-dir ./tmp/local-data
+npm run dev -- debug:trace:workflow <workflow-id> --data-dir ./tmp/local-data
+```
+
+## Ingest Security
+
+Browser ingest is now protected by three defaults:
+
+- localhost-only bind enforcement
+- shared auth token for browser and collector POST requests
+- request rate limiting for abnormal bursts
+
+Useful commands:
+
+```bash
+npm run dev -- ingest:token --data-dir ./tmp/live-data --rotate
+npm run dev -- doctor --data-dir ./tmp/live-data
+npm run dev -- server:run --data-dir ./tmp/live-data --verbose
+```
 
 ## Report Scope
 
@@ -168,7 +204,8 @@ npm run dev -- agent:snapshot:latest --data-dir ./tmp/local-data
 Run the resident agent:
 
 ```bash
-npm run dev -- agent:run --data-dir ./tmp/live-data
+npm run dev -- ingest:token --data-dir ./tmp/live-data --rotate
+npm run dev -- agent:run --data-dir ./tmp/live-data --verbose
 ```
 
 Run the resident agent and open the local browser viewer:
@@ -218,7 +255,7 @@ npm run dev -- report:snapshot:show --data-dir ./tmp/local-data --window week --
 Run the standalone local HTTP server for collectors and the browser viewer:
 
 ```bash
-npm run dev -- server:run --data-dir ./tmp/live-data --open
+npm run dev -- server:run --data-dir ./tmp/live-data --open --verbose
 ```
 
 One-command demo:
@@ -311,12 +348,13 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 
 | Command | Description |
 | --- | --- |
-| `doctor` | Print runtime information and default storage paths. |
+| `doctor` | Print runtime information, storage paths, and ingest security status. |
 | `init` | Initialize local SQLite storage. |
 | `collect:mock` | Insert deterministic sample events for testing. |
 | `collect:macos:once` | Capture the current macOS frontmost app once and store it. |
 | `import:events` | Import raw events from a JSON or NDJSON file. |
 | `analyze` | Normalize events, build sessions, and detect workflows. |
+| `ingest:token` | Print or rotate the shared local ingest auth token. |
 | `agent:run` | Run the resident local agent. |
 | `agent:status` | Show agent status and runtime state. |
 | `agent:stop` | Stop the running agent. |
@@ -328,6 +366,11 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 | `agent:autostart:install` | Install the macOS LaunchAgent helper. |
 | `agent:autostart:uninstall` | Remove the macOS LaunchAgent helper. |
 | `viewer:open` | Open the local browser viewer in the default browser. |
+| `debug:raw:list` | List recent raw events for trace selection. |
+| `debug:normalized:list` | List recent normalized events and semantic actions. |
+| `debug:trace:raw` | Trace one raw event through the interpretation pipeline. |
+| `debug:trace:session` | Trace one session back to raw events and its cluster. |
+| `debug:trace:workflow` | Trace one workflow cluster to member sessions and boundaries. |
 | `collector:list` | List available collectors and scripts. |
 | `collector:macos:check` | Check macOS collector permission status. |
 | `collector:macos:info` | Show macOS collector usage, permissions, and file paths. |
@@ -396,11 +439,13 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 - `src/credentials/llm.ts`: provider API key and OAuth credential helpers
 - `src/server/ingest-server.ts`: local HTTP ingest server
 - `src/server/ingest.ts`: incoming collector payload coercion
+- `src/server/security.ts`: ingest auth token, localhost-only enforcement, and rate limiting
+- `src/debug/trace.ts`: raw/session/workflow trace builders for the debug CLI
 - `extension/chrome`: Chrome extension scaffold for live browser collection
 
 ## Known Limitations
 
-- browser ingestion currently uses a local HTTP endpoint without authentication
+- browser ingestion requires a shared local auth token and still depends on local extension setup
 - browser collection is for local development and proof-of-concept validation
 - the Windows and macOS native collectors currently capture only active-window changes
 - macOS window title capture depends on Accessibility permission

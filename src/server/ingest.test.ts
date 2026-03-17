@@ -10,6 +10,8 @@ import { generateReportSnapshot } from "../reporting/service.js";
 import { coerceIncomingEvent, coerceIncomingEvents } from "./ingest.js";
 import { startIngestServer } from "./ingest-server.js";
 
+const TEST_AUTH_TOKEN = "test-ingest-auth-token";
+
 test("coerceIncomingEvents accepts a single event or events wrapper", () => {
   const single = coerceIncomingEvents({
     sourceEventType: "browser.click",
@@ -59,6 +61,7 @@ test("startIngestServer stores posted events", async () => {
     dataDir: tempDir,
     host: "127.0.0.1",
     port: 0,
+    authToken: TEST_AUTH_TOKEN,
   });
 
   try {
@@ -66,6 +69,7 @@ test("startIngestServer stores posted events", async () => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "X-What-Ive-Done-Token": TEST_AUTH_TOKEN,
       },
       body: JSON.stringify({
         events: [
@@ -122,6 +126,7 @@ test("startIngestServer serves the local viewer and live viewer API", async () =
     dataDir: tempDir,
     host: "127.0.0.1",
     port: 0,
+    authToken: TEST_AUTH_TOKEN,
   });
 
   try {
@@ -143,6 +148,14 @@ test("startIngestServer serves the local viewer and live viewer API", async () =
     assert.ok(Array.isArray(dashboard.sessionSummaries));
     assert.ok(dashboard.sessionSummaries.length > 0);
     assert.equal(dashboard.latestSnapshots.length, 1);
+    const healthResponse = await fetch(`http://${server.host}:${server.port}/health`);
+    const health = (await healthResponse.json()) as {
+      security: { authRequired: boolean; localOnly: boolean; authTokenPreview: string };
+    };
+
+    assert.equal(health.security.authRequired, true);
+    assert.equal(health.security.localOnly, true);
+    assert.equal(typeof health.security.authTokenPreview, "string");
 
     const firstSessionId = dashboard.sessionSummaries[0]?.id;
     assert.ok(firstSessionId);
@@ -159,4 +172,86 @@ test("startIngestServer serves the local viewer and live viewer API", async () =
     await server.close();
     rmSync(tempDir, { recursive: true, force: true });
   }
+});
+
+test("startIngestServer rejects browser ingest requests without an auth token", async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-ingest-auth-"));
+  const server = await startIngestServer({
+    dataDir: tempDir,
+    host: "127.0.0.1",
+    port: 0,
+    authToken: TEST_AUTH_TOKEN,
+  });
+
+  try {
+    const response = await fetch(`http://${server.host}:${server.port}/events`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sourceEventType: "chrome.navigation",
+        application: "chrome",
+        url: "https://example.com/orders",
+      }),
+    });
+
+    assert.equal(response.status, 401);
+  } finally {
+    await server.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("startIngestServer rate limits abnormal ingest bursts", async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-ingest-rate-limit-"));
+  const server = await startIngestServer({
+    dataDir: tempDir,
+    host: "127.0.0.1",
+    port: 0,
+    authToken: TEST_AUTH_TOKEN,
+    rateLimitMaxRequests: 1,
+    rateLimitWindowMs: 60_000,
+  });
+
+  try {
+    const headers = {
+      "Content-Type": "application/json",
+      "X-What-Ive-Done-Token": TEST_AUTH_TOKEN,
+    };
+    const body = JSON.stringify({
+      sourceEventType: "chrome.navigation",
+      application: "chrome",
+      url: "https://example.com/orders",
+    });
+    const firstResponse = await fetch(`http://${server.host}:${server.port}/events`, {
+      method: "POST",
+      headers,
+      body,
+    });
+    const secondResponse = await fetch(`http://${server.host}:${server.port}/events`, {
+      method: "POST",
+      headers,
+      body,
+    });
+
+    assert.equal(firstResponse.status, 202);
+    assert.equal(secondResponse.status, 429);
+    assert.ok(secondResponse.headers.get("Retry-After"));
+  } finally {
+    await server.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("startIngestServer rejects non-local bind hosts", async () => {
+  await assert.rejects(
+    () =>
+      startIngestServer({
+        host: "0.0.0.0",
+        port: 0,
+        authToken: TEST_AUTH_TOKEN,
+      }),
+    /localhost only/u,
+  );
 });

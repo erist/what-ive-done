@@ -75,6 +75,14 @@ test("startAgentRuntime publishes heartbeat state and clears the lock on stop", 
         host: "127.0.0.1",
         port: 4318,
         viewerUrl: "http://127.0.0.1:4318/",
+        authToken: "test-ingest-token",
+        security: {
+          localOnly: true,
+          authRequired: true,
+          authTokenPreview: "test...oken",
+          rateLimitWindowMs: 60_000,
+          rateLimitMaxRequests: 180,
+        },
         close: async () => {
           ingestServerClosed = true;
         },
@@ -146,6 +154,9 @@ test("startAgentRuntime publishes heartbeat state and clears the lock on stop", 
       initialStatus.state?.ingestServer?.viewerUrl,
       "http://127.0.0.1:4318/",
     );
+    assert.equal(initialStatus.state?.ingestServer?.authRequired, true);
+    assert.equal(initialStatus.state?.ingestServer?.localOnly, true);
+    assert.equal(initialStatus.state?.ingestServer?.authTokenPreview, "test...oken");
 
     await runtime.stop("test");
 

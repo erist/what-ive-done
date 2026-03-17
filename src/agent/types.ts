@@ -22,6 +22,11 @@ export type AgentCollectorStatus =
 export interface AgentIngestServerState {
   status: AgentServiceStatus;
   host: string;
+  localOnly?: boolean | undefined;
+  authRequired?: boolean | undefined;
+  authTokenPreview?: string | undefined;
+  rateLimitWindowMs?: number | undefined;
+  rateLimitMaxRequests?: number | undefined;
   port?: number | undefined;
   viewerUrl?: string | undefined;
   healthUrl?: string | undefined;

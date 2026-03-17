@@ -10,10 +10,12 @@ import type { AgentCollectorState, AgentRuntimeState, AgentSnapshotSchedulerStat
 
 export interface StartCollectorSupervisorOptions {
   ingestUrl: string;
+  ingestAuthToken?: string | undefined;
   processPlatform?: NodeJS.Platform | undefined;
   pollIntervalMs?: number | undefined;
   promptAccessibility?: boolean | undefined;
   restartDelayMs?: number | undefined;
+  verbose?: boolean | undefined;
   onCollectorStateChange?: ((state: AgentCollectorState) => void) | undefined;
 }
 
@@ -30,6 +32,9 @@ export interface StartAgentRuntimeOptions {
   handleSignals?: boolean | undefined;
   ingestHost?: string | undefined;
   ingestPort?: number | undefined;
+  ingestAuthToken?: string | undefined;
+  ingestRateLimitWindowMs?: number | undefined;
+  ingestRateLimitMaxRequests?: number | undefined;
   collectorPollIntervalMs?: number | undefined;
   collectorRestartDelayMs?: number | undefined;
   promptAccessibility?: boolean | undefined;
@@ -37,6 +42,7 @@ export interface StartAgentRuntimeOptions {
   snapshotWindows?: ReportWindow[] | undefined;
   snapshotIntervalMs?: number | undefined;
   enableSnapshotScheduler?: boolean | undefined;
+  verbose?: boolean | undefined;
   ingestServerFactory?: ((options: IngestServerOptions) => Promise<RunningIngestServer>) | undefined;
   collectorSupervisorFactory?:
     | ((options: StartCollectorSupervisorOptions) => Promise<RunningCollectorSupervisor>)
@@ -85,6 +91,8 @@ export async function startAgentRuntime(
     ingestServer: {
       status: "starting",
       host: options.ingestHost ?? "127.0.0.1",
+      localOnly: true,
+      authRequired: true,
       port: options.ingestPort,
     },
     collectors: [],
@@ -135,6 +143,10 @@ export async function startAgentRuntime(
       dataDir: options.dataDir,
       host: options.ingestHost,
       port: options.ingestPort,
+      authToken: options.ingestAuthToken,
+      rateLimitWindowMs: options.ingestRateLimitWindowMs,
+      rateLimitMaxRequests: options.ingestRateLimitMaxRequests,
+      verbose: options.verbose,
     });
 
     state = {
@@ -142,6 +154,11 @@ export async function startAgentRuntime(
       ingestServer: {
         status: "running",
         host: ingestServer.host,
+        localOnly: ingestServer.security.localOnly,
+        authRequired: ingestServer.security.authRequired,
+        authTokenPreview: ingestServer.security.authTokenPreview,
+        rateLimitWindowMs: ingestServer.security.rateLimitWindowMs,
+        rateLimitMaxRequests: ingestServer.security.rateLimitMaxRequests,
         port: ingestServer.port,
         viewerUrl: ingestServer.viewerUrl,
         healthUrl: `http://${ingestServer.host}:${ingestServer.port}/health`,
@@ -154,10 +171,12 @@ export async function startAgentRuntime(
     if (options.enableCollectors !== false) {
       collectorSupervisor = await collectorSupervisorFactory({
         ingestUrl: `http://${ingestServer.host}:${ingestServer.port}/events`,
+        ingestAuthToken: ingestServer.authToken,
         processPlatform: process.platform,
         pollIntervalMs: options.collectorPollIntervalMs,
         promptAccessibility: options.promptAccessibility,
         restartDelayMs: options.collectorRestartDelayMs,
+        verbose: options.verbose,
         onCollectorStateChange: mergeCollectorState,
       });
 
@@ -214,6 +233,11 @@ export async function startAgentRuntime(
       ingestServer: {
         status: ingestServer ? "stopped" : "failed",
         host: ingestServer?.host ?? options.ingestHost ?? "127.0.0.1",
+        localOnly: true,
+        authRequired: true,
+        authTokenPreview: state.ingestServer?.authTokenPreview,
+        rateLimitWindowMs: state.ingestServer?.rateLimitWindowMs,
+        rateLimitMaxRequests: state.ingestServer?.rateLimitMaxRequests,
         port: ingestServer?.port ?? options.ingestPort,
         error: error instanceof Error ? error.message : String(error),
       },

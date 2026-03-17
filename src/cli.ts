@@ -29,6 +29,11 @@ import {
   setLLMApiKey,
 } from "./credentials/llm.js";
 import { resolveCredentialStore } from "./credentials/store.js";
+import {
+  buildRawEventTrace,
+  buildSessionTrace,
+  buildWorkflowClusterTrace,
+} from "./debug/trace.js";
 import { generateMockRawEvents } from "./collectors/mock.js";
 import { importEventsFromFile } from "./importers/events.js";
 import {
@@ -56,6 +61,13 @@ import {
 } from "./reporting/service.js";
 import { parseReportWindow, parseReportWindowList, resolveReportTimeWindow } from "./reporting/windows.js";
 import { startIngestServer } from "./server/ingest-server.js";
+import {
+  buildIngestSecurityState,
+  DEFAULT_INGEST_RATE_LIMIT_MAX_REQUESTS,
+  DEFAULT_INGEST_RATE_LIMIT_WINDOW_MS,
+  getIngestAuthToken,
+  rotateIngestAuthToken,
+} from "./server/security.js";
 import { AppDatabase } from "./storage/database.js";
 import type {
   ReportEntry,
@@ -77,6 +89,42 @@ function withDatabase<T>(dataDir: string | undefined, fn: (database: AppDatabase
   } finally {
     database.close();
   }
+}
+
+function describeIngestSecurity(dataDir?: string): {
+  authTokenConfigured: boolean;
+  authTokenPreview?: string | undefined;
+  localOnly: true;
+  authRequired: true;
+  rateLimitWindowMs: number;
+  rateLimitMaxRequests: number;
+} {
+  return withDatabase(dataDir, (database) => {
+    const authToken = getIngestAuthToken(database);
+
+    if (!authToken) {
+      return {
+        authTokenConfigured: false,
+        localOnly: true as const,
+        authRequired: true as const,
+        rateLimitWindowMs: DEFAULT_INGEST_RATE_LIMIT_WINDOW_MS,
+        rateLimitMaxRequests: DEFAULT_INGEST_RATE_LIMIT_MAX_REQUESTS,
+      };
+    }
+
+    const security = buildIngestSecurityState({
+      authToken,
+    });
+
+    return {
+      authTokenConfigured: true,
+      authTokenPreview: security.authTokenPreview,
+      localOnly: security.localOnly,
+      authRequired: security.authRequired,
+      rateLimitWindowMs: security.rateLimitWindowMs,
+      rateLimitMaxRequests: security.rateLimitMaxRequests,
+    };
+  });
 }
 
 function renderReportTable(reportEntries: ReportEntry[]): void {
@@ -311,7 +359,14 @@ function resolveViewerUrl(
 }
 
 async function runServerCommand(
-  options: { dataDir?: string; host: string; port: string; open?: boolean },
+  options: {
+    dataDir?: string;
+    host: string;
+    port: string;
+    ingestAuthToken?: string;
+    verbose?: boolean;
+    open?: boolean;
+  },
   invokedAs: "server:run" | "serve",
 ): Promise<void> {
   if (invokedAs === "serve") {
@@ -324,6 +379,8 @@ async function runServerCommand(
     dataDir: options.dataDir,
     host: options.host,
     port: Number.parseInt(options.port, 10),
+    authToken: options.ingestAuthToken,
+    verbose: options.verbose,
   });
   const opened = options.open ? openSystemBrowser(server.viewerUrl) : false;
 
@@ -336,6 +393,7 @@ async function runServerCommand(
         viewerUrl: server.viewerUrl,
         healthUrl: `http://${server.host}:${server.port}/health`,
         eventsUrl: `http://${server.host}:${server.port}/events`,
+        security: server.security,
         viewerOpened: opened,
       },
       null,
@@ -483,6 +541,59 @@ function renderSessionDetail(sessionId: string, dataDir?: string, json = false):
       domain: step.domain ?? "",
       action: step.action,
       target: step.target ?? "",
+    })),
+  );
+}
+
+function renderRawEventList(options: {
+  dataDir?: string | undefined;
+  limit?: number | undefined;
+  json?: boolean | undefined;
+}): void {
+  const events = withDatabase(options.dataDir, (database) => database.listRawEvents(options.limit ?? 25));
+
+  if (options.json) {
+    console.log(JSON.stringify(events, null, 2));
+    return;
+  }
+
+  console.table(
+    events.map((event) => ({
+      id: event.id,
+      timestamp: event.timestamp,
+      source: event.source,
+      sourceEventType: event.sourceEventType,
+      application: event.application,
+      domain: event.domain ?? "",
+      target: event.target ?? "",
+    })),
+  );
+}
+
+function renderNormalizedEventList(options: {
+  dataDir?: string | undefined;
+  limit?: number | undefined;
+  json?: boolean | undefined;
+}): void {
+  const events = withDatabase(options.dataDir, (database) =>
+    database.listNormalizedEvents(options.limit ?? 25),
+  );
+
+  if (options.json) {
+    console.log(JSON.stringify(events, null, 2));
+    return;
+  }
+
+  console.table(
+    events.map((event) => ({
+      id: event.id,
+      rawEventId: event.rawEventId,
+      timestamp: event.timestamp,
+      application: event.application,
+      pageType: event.pageType ?? "",
+      resourceHint: event.resourceHint ?? "",
+      actionName: event.actionName,
+      actionSource: event.actionSource,
     })),
   );
 }
@@ -699,8 +810,9 @@ program
 program
   .command("doctor")
   .description("Validate local runtime prerequisites")
-  .action(() => {
-    const paths = resolveAppPaths();
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    const paths = resolveAppPaths(options.dataDir);
     const result = {
       node: process.version,
       platform: process.platform,
@@ -708,6 +820,7 @@ program
       dataDir: paths.dataDir,
       databasePath: paths.databasePath,
       agentLockPath: paths.agentLockPath,
+      ingestSecurity: describeIngestSecurity(options.dataDir),
     };
 
     console.log(JSON.stringify(result, null, 2));
@@ -720,6 +833,7 @@ program
   .option("--heartbeat-interval-ms <ms>", "Heartbeat interval in milliseconds", "30000")
   .option("--ingest-host <host>", "Host to bind the local ingest server", "127.0.0.1")
   .option("--ingest-port <port>", "Port to bind the local ingest server", "4318")
+  .option("--ingest-auth-token <token>", "Override and persist the shared ingest auth token")
   .option("--collector-poll-interval-ms <ms>", "Collector polling interval in milliseconds", "1000")
   .option("--collector-restart-delay-ms <ms>", "Collector restart delay after failures", "5000")
   .option(
@@ -736,12 +850,14 @@ program
   .option("--no-collectors", "Disable collector supervision inside the agent")
   .option("--no-snapshot-scheduler", "Disable snapshot scheduling inside the agent")
   .option("--open-viewer", "Open the local viewer in the default browser after startup")
+  .option("--verbose", "Enable verbose ingest and collector logging")
   .action(
     async (options: {
       dataDir?: string;
       heartbeatIntervalMs: string;
       ingestHost: string;
       ingestPort: string;
+      ingestAuthToken?: string;
       collectorPollIntervalMs: string;
       collectorRestartDelayMs: string;
       promptAccessibility: boolean;
@@ -749,6 +865,7 @@ program
       snapshotIntervalSeconds: string;
       collectors: boolean;
       snapshotScheduler: boolean;
+      verbose?: boolean;
       openViewer?: boolean;
     }) => {
     const runtime = await startAgentRuntime({
@@ -756,6 +873,7 @@ program
       heartbeatIntervalMs: Number.parseInt(options.heartbeatIntervalMs, 10),
       ingestHost: options.ingestHost,
       ingestPort: Number.parseInt(options.ingestPort, 10),
+      ingestAuthToken: options.ingestAuthToken,
       collectorPollIntervalMs: Number.parseInt(options.collectorPollIntervalMs, 10),
       collectorRestartDelayMs: Number.parseInt(options.collectorRestartDelayMs, 10),
       promptAccessibility: options.promptAccessibility,
@@ -763,6 +881,7 @@ program
       snapshotWindows: options.snapshotWindows,
       snapshotIntervalMs: Number.parseInt(options.snapshotIntervalSeconds, 10) * 1000,
       enableSnapshotScheduler: options.snapshotScheduler,
+      verbose: options.verbose,
     });
 
     const status = getAgentStatusSnapshot(options.dataDir);
@@ -779,6 +898,44 @@ program
     await runtime.waitForStop();
     },
   );
+
+program
+  .command("ingest:token")
+  .description("Show or rotate the shared local ingest auth token")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--rotate", "Rotate the stored auth token before printing it")
+  .option("--value <token>", "Persist this token instead of generating one when used with --rotate")
+  .action((options: { dataDir?: string; rotate?: boolean; value?: string }) => {
+    const token = withDatabase(options.dataDir, (database) =>
+      options.rotate ? rotateIngestAuthToken(database, options.value) : getIngestAuthToken(database),
+    );
+
+    if (!token) {
+      console.log(
+        JSON.stringify(
+          {
+            configured: false,
+            message: "No ingest auth token is configured yet. Start the server/agent once or run ingest:token --rotate.",
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+
+    console.log(
+      JSON.stringify(
+        {
+          configured: true,
+          rotated: options.rotate ?? false,
+          authToken: token,
+        },
+        null,
+        2,
+      ),
+    );
+  });
 
 program
   .command("agent:status")
@@ -1026,6 +1183,81 @@ program
         2,
       ),
     );
+  });
+
+program
+  .command("debug:raw:list")
+  .description("List recent raw events for debug tracing")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--limit <count>", "Maximum number of raw events to print", "25")
+  .option("--json", "Print machine-readable JSON")
+  .action((options: { dataDir?: string; limit: string; json?: boolean }) => {
+    renderRawEventList({
+      dataDir: options.dataDir,
+      limit: Number.parseInt(options.limit, 10),
+      json: options.json,
+    });
+  });
+
+program
+  .command("debug:normalized:list")
+  .description("List recent normalized events and semantic actions")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--limit <count>", "Maximum number of normalized events to print", "25")
+  .option("--json", "Print machine-readable JSON")
+  .action((options: { dataDir?: string; limit: string; json?: boolean }) => {
+    renderNormalizedEventList({
+      dataDir: options.dataDir,
+      limit: Number.parseInt(options.limit, 10),
+      json: options.json,
+    });
+  });
+
+program
+  .command("debug:trace:raw")
+  .description("Trace one raw event through normalized, session, and workflow stages")
+  .argument("<raw-event-id>", "Raw event id")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((rawEventId: string, options: { dataDir?: string }) => {
+    const trace = withDatabase(options.dataDir, (database) => buildRawEventTrace(database, rawEventId));
+
+    if (!trace) {
+      throw new Error(`Raw event not found: ${rawEventId}`);
+    }
+
+    console.log(JSON.stringify(trace, null, 2));
+  });
+
+program
+  .command("debug:trace:session")
+  .description("Trace one analyzed session back to raw events and its workflow cluster")
+  .argument("<session-id>", "Session id")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((sessionId: string, options: { dataDir?: string }) => {
+    const trace = withDatabase(options.dataDir, (database) => buildSessionTrace(database, sessionId));
+
+    if (!trace) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    console.log(JSON.stringify(trace, null, 2));
+  });
+
+program
+  .command("debug:trace:workflow")
+  .description("Trace one workflow cluster to its member sessions and boundaries")
+  .argument("<workflow-id>", "Workflow cluster id")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((workflowId: string, options: { dataDir?: string }) => {
+    const trace = withDatabase(options.dataDir, (database) =>
+      buildWorkflowClusterTrace(database, workflowId),
+    );
+
+    if (!trace) {
+      throw new Error(`Workflow cluster not found: ${workflowId}`);
+    }
+
+    console.log(JSON.stringify(trace, null, 2));
   });
 
 program
@@ -2082,8 +2314,18 @@ program
   .option("--data-dir <path>", "Override application data directory")
   .option("--host <host>", "Host to bind", "127.0.0.1")
   .option("--port <port>", "Port to bind", "4318")
+  .option("--ingest-auth-token <token>", "Override and persist the shared ingest auth token")
+  .option("--verbose", "Enable verbose ingest request logging")
   .option("--open", "Open the local viewer in the default browser after startup")
-  .action((options: { dataDir?: string; host: string; port: string; open?: boolean }) =>
+  .action(
+    (options: {
+      dataDir?: string;
+      host: string;
+      port: string;
+      ingestAuthToken?: string;
+      verbose?: boolean;
+      open?: boolean;
+    }) =>
     runServerCommand(options, "server:run"),
   );
 
@@ -2094,9 +2336,18 @@ program
   .option("--data-dir <path>", "Override application data directory")
   .option("--host <host>", "Host to bind", "127.0.0.1")
   .option("--port <port>", "Port to bind", "4318")
+  .option("--ingest-auth-token <token>", "Override and persist the shared ingest auth token")
+  .option("--verbose", "Enable verbose ingest request logging")
   .option("--open", "Open the local viewer in the default browser after startup")
-  .action((options: { dataDir?: string; host: string; port: string; open?: boolean }) =>
-    runServerCommand(options, "serve"),
+  .action(
+    (options: {
+      dataDir?: string;
+      host: string;
+      port: string;
+      ingestAuthToken?: string;
+      verbose?: boolean;
+      open?: boolean;
+    }) => runServerCommand(options, "serve"),
   );
 
 program
