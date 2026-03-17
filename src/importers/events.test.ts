@@ -19,6 +19,11 @@ function loadFixtureRawEvents(relativePath: string): RawEvent[] {
     windowTitle: event.windowTitle,
     domain: event.domain,
     url: event.url,
+    browserSchemaVersion: event.browserSchemaVersion,
+    canonicalUrl: event.canonicalUrl,
+    routeTemplate: event.routeTemplate,
+    routeKey: event.routeKey,
+    resourceHash: event.resourceHash,
     action: event.action,
     target: event.target,
     metadata: event.metadata ?? {},
@@ -79,4 +84,16 @@ test("macos fixture import produces one workflow cluster", () => {
   assert.equal(result.sessions.length, 3);
   assert.equal(result.workflowClusters.length, 1);
   assert.equal(result.workflowClusters[0]?.frequency, 3);
+});
+
+test("browser schema v2 fixture preserves a stable canonical contract", () => {
+  const rawEvents = loadFixtureRawEvents("../../fixtures/browser-schema-v2-sample.ndjson");
+  const result = analyzeRawEvents(rawEvents);
+
+  assert.equal(rawEvents.length, 3);
+  assert.equal(result.normalizedEvents.length, 3);
+  assert.equal(new Set(result.normalizedEvents.map((event) => event.canonicalUrl)).size, 1);
+  assert.equal(new Set(result.normalizedEvents.map((event) => event.routeTemplate)).size, 1);
+  assert.equal(result.normalizedEvents[0]?.canonicalUrl, "https://admin.example.com/orders/{id}");
+  assert.equal(result.normalizedEvents[0]?.routeTemplate, "/orders/{id}/edit");
 });

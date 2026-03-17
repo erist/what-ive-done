@@ -14,6 +14,11 @@ function createRawEvent(input: Partial<RawEvent> & Pick<RawEvent, "id" | "timest
     windowTitle: input.windowTitle,
     domain: input.domain,
     url: input.url,
+    browserSchemaVersion: input.browserSchemaVersion,
+    canonicalUrl: input.canonicalUrl,
+    routeTemplate: input.routeTemplate,
+    routeKey: input.routeKey,
+    resourceHash: input.resourceHash,
     action: input.action ?? "navigation",
     target: input.target,
     metadata: input.metadata ?? {},
@@ -38,10 +43,43 @@ test("normalizeRawEvents derives stable browser context fields", () => {
   assert.equal(event.appNameNormalized, "chrome");
   assert.equal(event.domain, "admin.example.com");
   assert.equal(event.url, "https://admin.example.com/product/123/edit");
+  assert.equal(event.canonicalUrl, "https://admin.example.com/product/{id}");
+  assert.equal(event.routeTemplate, "/product/{id}/edit");
+  assert.equal(event.routeKey, "https://admin.example.com/product/{id}");
   assert.equal(event.pathPattern, "/product/{id}/edit");
   assert.equal(event.pageType, "product_edit");
   assert.equal(event.resourceHint, "product");
   assert.equal(event.titlePattern, "Admin - Product {id} Edit");
+});
+
+test("normalizeRawEvents converges browser URL variants into one canonical route family", () => {
+  const events = normalizeRawEvents([
+    createRawEvent({
+      id: "raw-3",
+      timestamp: "2026-03-14T10:12:23.000Z",
+      url: "https://admin.example.com/orders/123/edit?tab=history#summary",
+      target: "edit_order",
+    }),
+    createRawEvent({
+      id: "raw-4",
+      timestamp: "2026-03-14T10:12:24.000Z",
+      url: "https://admin.example.com/orders/456/edit?tab=history",
+      target: "edit_order",
+    }),
+    createRawEvent({
+      id: "raw-5",
+      timestamp: "2026-03-14T10:12:25.000Z",
+      url: "https://admin.example.com/orders/789/edit?search=alice",
+      target: "edit_order",
+    }),
+  ]);
+
+  assert.equal(new Set(events.map((event) => event.canonicalUrl)).size, 1);
+  assert.equal(new Set(events.map((event) => event.routeTemplate)).size, 1);
+  assert.equal(new Set(events.map((event) => event.routeKey)).size, 1);
+  assert.equal(events[0]?.canonicalUrl, "https://admin.example.com/orders/{id}");
+  assert.equal(events[0]?.routeTemplate, "/orders/{id}/edit");
+  assert.equal(events[2]?.url, "https://admin.example.com/orders/789/edit");
 });
 
 test("normalizeRawEvents normalizes title identifiers even without a URL", () => {

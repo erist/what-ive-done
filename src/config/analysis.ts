@@ -9,8 +9,14 @@ export interface PageTypeRule {
   resourceHint?: string | undefined;
 }
 
+export interface BrowserCanonicalizationConfig {
+  schemaVersion: number;
+  canonicalPathDepth: number;
+  allowlistedQueryParameters: string[];
+}
+
 export interface NormalizationConfig {
-  stripQueryParameters: boolean;
+  browser: BrowserCanonicalizationConfig;
   appAliases: Record<string, string>;
   pageTypeRules: PageTypeRule[];
 }
@@ -41,7 +47,21 @@ export interface SessionSegmentationConfig {
 }
 
 export const DEFAULT_NORMALIZATION_CONFIG: NormalizationConfig = {
-  stripQueryParameters: true,
+  browser: {
+    schemaVersion: 2,
+    canonicalPathDepth: 2,
+    allowlistedQueryParameters: [
+      "filter",
+      "mode",
+      "page",
+      "section",
+      "sort",
+      "status",
+      "tab",
+      "type",
+      "view",
+    ],
+  },
   appAliases: {
     chrome: "chrome",
     "google chrome": "chrome",

@@ -21,7 +21,7 @@
 6. workflow-centric reporting
 7. automation hints
 
-## 2. 2026-03-15 기준 구현 상태
+## 2. 2026-03-17 기준 구현 상태
 
 ### 2.1 완료된 기반
 
@@ -61,12 +61,35 @@
 - workflow-centric summary/report/graph 출력 추가
 - practical automation hints 추가
 
-### 2.4 현재 산출물
+### 2.4 완료된 browser contract 안정화(M1)
+
+- browser schema v2 필드 추가
+  - `browserSchemaVersion`
+  - `canonicalUrl`
+  - `routeTemplate`
+  - `routeKey`
+  - `resourceHash`
+- shared browser canonicalization 경로 추가
+  - query string default-drop + allowlist 정책
+  - `scheme + host + path[0:2]` canonical URL 도출
+  - ID/UUID/long hex segment normalization
+- Chrome extension -> ingest -> raw storage -> normalize 경로 전체에 v2 contract 연결
+- schema v11 additive migration 추가
+  - `raw_events`, `normalized_events` 에 browser v2 컬럼 추가
+  - 기존 stored browser URL 재정리로 privacy-safe canonical field 재계산
+- browser fixture와 privacy/migration regression test 추가
+  - browser schema v2 fixture import
+  - query allowlist/drop 검증
+  - canonical convergence 검증
+  - schema v10 -> v11 upgrade 검증
+
+### 2.5 현재 산출물
 
 현재 분석 산출물은 아래를 모두 포함한다.
 
 - raw events
 - normalized events
+- privacy-safe browser canonical signals
 - semantic actions
 - sessions with boundary reasons
 - workflow clusters with representative sequence, variants, confidence, involved apps
@@ -80,6 +103,7 @@
 
 - admin/product/order/refund 외 도메인 규칙이 아직 충분히 넓지 않다
 - 브라우저가 아닌 desktop-only context의 title-based normalization 품질은 더 튜닝이 필요하다
+- browser query allowlist는 최소 안전 집합만 열어 둔 상태라, 도메인별 세밀한 filter 보존 정책은 후속 확장이 필요하다
 
 ### 3.2 Feedback UX 리스크
 
@@ -89,6 +113,7 @@
 ### 3.3 Debug surface 리스크
 
 - 내부 전환 정보는 데이터 모델에 담겼지만, dedicated debug commands와 시각화는 더 보강 가능하다
+- browser canonicalization 결과를 raw -> normalized -> action 체인으로 바로 추적하는 trace surface는 아직 부족하다
 
 ### 3.4 Runtime 운영 리스크
 
@@ -123,46 +148,44 @@ UI가 붙기 전까지는 CLI가 control surface 역할을 맡는다.
 
 ## 5. 권장 후속 작업
 
-### Phase 1. Rule coverage 확장
+### Phase 1. Golden Fixtures + Debug Trace + Ingest Hardening(M2)
 
-- normalization rules를 더 많은 internal admin 경로에 적용
-- title-only desktop contexts에 대한 fallback 개선
-- app alias 사전 확장
-
-완료 기준:
-
-- noisy titles와 URL variation이 더 적은 수의 stable page type으로 수렴한다
-
-### Phase 2. Dedicated debug commands
-
-- normalized event list/detail
-- session boundary trace
-- workflow cluster trace
-- feedback application trace
+- browser 대표 route family fixture 고정
+- raw -> normalized -> action -> session -> cluster trace CLI 추가
+- browser ingest localhost-only/auth/rate limit hardening
 
 완료 기준:
 
-- 품질 문제를 CLI만으로 추적할 수 있다
+- 오탐 또는 누락 한 건을 5분 안에 trace 명령으로 설명할 수 있다
+- browser fixture가 M1 canonical contract를 기준으로 regression gate 역할을 한다
+- ingest server가 최소 보호 장치 없이 열리지 않는다
 
-### Phase 3. Feedback UI surface
+### Phase 2. Chrome Context Expansion(M3)
 
-- workflow label/purpose/candidate 입력 화면
-- merge/split 보조 flow
-- labeled/unlabeled 상태 강조
-
-완료 기준:
-
-- 비개발자도 feedback loop를 무리 없이 사용할 수 있다
-
-### Phase 4. Runtime hardening
-
-- Windows autostart 전략 구현 또는 문서화
-- legacy/manual 명령의 역할 재정리
-- richer diagnostics와 retry/backoff 정책 보강
+- dwell, tab order, SPA route taxonomy, document hash 수집
+- 새 browser context field의 privacy-safe storage 경로 확장
 
 완료 기준:
 
-- agent 운영 경로가 더 명확해지고 플랫폼별 setup gap이 줄어든다
+- route family 해석 전 단계에서 더 풍부한 browser context substrate가 확보된다
+
+### Phase 3. Domain Pack + Semantic Action Coverage(M4-M5)
+
+- domain pack registry와 초기 pack 구현
+- semantic action pack과 `unknown_action` coverage 운영 경로 추가
+
+완료 기준:
+
+- 같은 도메인 안에서도 주요 workflow가 route family와 semantic action 수준으로 읽힌다
+
+### Phase 4. Feedback UI + Runtime Hardening(M8, M10 일부)
+
+- workflow feedback UI surface 추가
+- Windows/runtime 운영 gap과 diagnostics 보강
+
+완료 기준:
+
+- 비개발자도 feedback loop를 사용할 수 있고, agent 운영 경로가 더 명확해진다
 
 ## 6. 의도적으로 뒤로 미루는 항목
 
@@ -175,13 +198,14 @@ UI가 붙기 전까지는 CLI가 control surface 역할을 맡는다.
 
 ## 7. 추천 결론
 
-현재 이 프로젝트의 기반 런타임은 이미 존재한다.
-그래서 다음으로 가장 가치가 큰 일은 resident agent 자체를 또 확장하는 것보다,
-그 위에서 **workflow interpretation quality** 와 **feedback usability** 를 더 끌어올리는 것이다.
+현재 이 프로젝트는 resident agent runtime과 workflow analysis baseline 위에,
+M1 browser contract를 통해 privacy-safe canonical browser signal까지 확보했다.
+그래서 다음으로 가장 가치가 큰 일은 collector 자체를 더 늘리기보다,
+이 고정된 contract를 기준으로 **fixture/debug/hardening** 을 먼저 잠그는 것이다.
 
 가장 현실적인 다음 순서는 아래와 같다.
 
-1. rule coverage 확장
-2. debug surface 강화
-3. feedback UI 개선
-4. Windows/runtime hardening 정리
+1. M2 fixture/debug/hardening 완료
+2. M3 browser context expansion
+3. M4-M5 domain/action coverage 확장
+4. feedback UI와 runtime hardening 정리

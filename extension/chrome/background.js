@@ -21,6 +21,7 @@ function sanitizeUrl(urlString) {
     const url = new URL(urlString);
     url.username = "";
     url.password = "";
+    url.hash = "";
     return url.toString();
   } catch {
     return undefined;
@@ -55,6 +56,7 @@ async function postEvents(events) {
 function buildChromeContext(tab) {
   return {
     application: "chrome",
+    browserSchemaVersion: 2,
     windowTitle: tab?.title,
     url: sanitizeUrl(tab?.url),
     domain: safeDomain(tab?.url)
@@ -121,6 +123,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sourceEventType: message.event.sourceEventType,
       timestamp: message.event.timestamp || new Date().toISOString(),
       application: "chrome",
+      browserSchemaVersion: message.event.browserSchemaVersion || 2,
       windowTitle: message.event.windowTitle,
       url: sanitizeUrl(message.event.url),
       domain: safeDomain(message.event.url),

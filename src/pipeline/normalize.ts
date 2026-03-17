@@ -1,6 +1,7 @@
 import { DEFAULT_NORMALIZATION_CONFIG, type NormalizationConfig } from "../config/analysis.js";
 import type { NormalizedEvent, RawEvent } from "../domain/types.js";
 import { stableId } from "../domain/ids.js";
+import { deriveBrowserCanonicalFields, stripUrlQuery } from "../privacy/browser.js";
 import { abstractNormalizedEvents } from "./actions.js";
 
 const ACTION_BY_SOURCE_EVENT_TYPE: Record<string, string> = {
@@ -20,9 +21,6 @@ const ACTION_BY_SOURCE_EVENT_TYPE: Record<string, string> = {
   "tab.navigation": "page_navigation",
 };
 
-const UUID_LIKE_SEGMENT = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const LONG_HEX_SEGMENT = /^[0-9a-f]{12,}$/i;
-const NUMERIC_SEGMENT = /^\d+$/;
 const NUMBER_SEQUENCE = /\b\d{2,}\b/g;
 const UUID_SEQUENCE =
   /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi;
@@ -37,39 +35,6 @@ function normalizeAppName(application: string, config: NormalizationConfig): str
   return config.appAliases[normalized] ?? normalized.replace(/\s+/g, "_");
 }
 
-function normalizePathSegment(segment: string): string {
-  if (NUMERIC_SEGMENT.test(segment)) {
-    return "{id}";
-  }
-
-  if (UUID_LIKE_SEGMENT.test(segment)) {
-    return "{uuid}";
-  }
-
-  if (LONG_HEX_SEGMENT.test(segment)) {
-    return "{id}";
-  }
-
-  return segment.toLowerCase();
-}
-
-function normalizePathPattern(url: URL | undefined): string | undefined {
-  if (!url) {
-    return undefined;
-  }
-
-  const segments = url.pathname
-    .split("/")
-    .filter((segment) => segment.length > 0)
-    .map((segment) => normalizePathSegment(segment));
-
-  if (segments.length === 0) {
-    return "/";
-  }
-
-  return `/${segments.join("/")}`;
-}
-
 function normalizeTitlePattern(title: string | undefined): string | undefined {
   if (!title) {
     return undefined;
@@ -81,34 +46,6 @@ function normalizeTitlePattern(title: string | undefined): string | undefined {
     .replace(/#\d+/g, "#{id}")
     .replace(NUMBER_SEQUENCE, "{id}")
     .replace(/\s+/g, " ");
-}
-
-function tryParseUrl(rawEvent: RawEvent): URL | undefined {
-  if (!rawEvent.url) {
-    return undefined;
-  }
-
-  try {
-    return new URL(rawEvent.url);
-  } catch {
-    return undefined;
-  }
-}
-
-function normalizeUrl(url: URL | undefined, config: NormalizationConfig): string | undefined {
-  if (!url) {
-    return undefined;
-  }
-
-  const normalized = new URL(url.toString());
-
-  normalized.hash = "";
-
-  if (config.stripQueryParameters) {
-    normalized.search = "";
-  }
-
-  return normalized.toString();
 }
 
 function singularize(value: string): string {
@@ -210,10 +147,6 @@ function derivePageType(args: {
   return undefined;
 }
 
-function deriveDomain(rawEvent: RawEvent, parsedUrl: URL | undefined): string | undefined {
-  return rawEvent.domain?.toLowerCase() ?? parsedUrl?.hostname.toLowerCase();
-}
-
 export function normalizeRawEvents(
   rawEvents: RawEvent[],
   config: NormalizationConfig = DEFAULT_NORMALIZATION_CONFIG,
@@ -221,12 +154,13 @@ export function normalizeRawEvents(
   const baseEvents = [...rawEvents]
     .sort((left, right) => left.timestamp.localeCompare(right.timestamp))
     .map((rawEvent) => {
-      const parsedUrl = tryParseUrl(rawEvent);
+      const browserFields = deriveBrowserCanonicalFields(rawEvent, config);
       const appNameNormalized = normalizeAppName(rawEvent.application, config);
-      const url = normalizeUrl(parsedUrl, config);
+      const url = stripUrlQuery(browserFields.url ?? rawEvent.url) ?? rawEvent.canonicalUrl;
       const titlePattern = normalizeTitlePattern(rawEvent.windowTitle);
-      const pathPattern = normalizePathPattern(parsedUrl);
-      const domain = deriveDomain(rawEvent, parsedUrl);
+      const routeTemplate = browserFields.routeTemplate ?? rawEvent.routeTemplate;
+      const pathPattern = routeTemplate;
+      const domain = browserFields.domain ?? rawEvent.domain?.toLowerCase();
       const resourceHint = deriveResourceHint({
         pathPattern,
         titlePattern,
@@ -248,6 +182,11 @@ export function normalizeRawEvents(
         appNameNormalized,
         domain,
         url,
+        browserSchemaVersion: browserFields.browserSchemaVersion ?? rawEvent.browserSchemaVersion,
+        canonicalUrl: browserFields.canonicalUrl ?? rawEvent.canonicalUrl,
+        routeTemplate,
+        routeKey: browserFields.routeKey ?? rawEvent.routeKey,
+        resourceHash: browserFields.resourceHash ?? rawEvent.resourceHash,
         pathPattern,
         pageType,
         resourceHint,
@@ -261,6 +200,8 @@ export function normalizeRawEvents(
           rawApplication: rawEvent.application,
           rawDomain: rawEvent.domain,
           rawUrl: rawEvent.url,
+          rawCanonicalUrl: rawEvent.canonicalUrl,
+          rawRouteTemplate: rawEvent.routeTemplate,
           rawWindowTitle: rawEvent.windowTitle,
         },
         createdAt: new Date().toISOString(),

@@ -34,6 +34,11 @@ interface RawEventRow {
   window_title: string | null;
   domain: string | null;
   url: string | null;
+  browser_schema_version: number | null;
+  canonical_url: string | null;
+  route_template: string | null;
+  route_key: string | null;
+  resource_hash: string | null;
   action: string;
   target: string | null;
   metadata_json: string;
@@ -49,6 +54,11 @@ interface NormalizedEventRow {
   app_name_normalized: string | null;
   domain: string | null;
   url: string | null;
+  browser_schema_version: number | null;
+  canonical_url: string | null;
+  route_template: string | null;
+  route_key: string | null;
+  resource_hash: string | null;
   path_pattern: string | null;
   page_type: string | null;
   resource_hint: string | null;
@@ -167,6 +177,57 @@ interface ReportSnapshotRow {
   generated_at: string;
 }
 
+function mapRawEventRow(row: RawEventRow): RawEvent {
+  return {
+    id: row.id,
+    source: row.source as RawEvent["source"],
+    sourceEventType: row.source_event_type,
+    timestamp: row.timestamp,
+    application: row.application,
+    windowTitle: row.window_title ?? undefined,
+    domain: row.domain ?? undefined,
+    url: row.url ?? undefined,
+    browserSchemaVersion: row.browser_schema_version ?? undefined,
+    canonicalUrl: row.canonical_url ?? undefined,
+    routeTemplate: row.route_template ?? undefined,
+    routeKey: row.route_key ?? undefined,
+    resourceHash: row.resource_hash ?? undefined,
+    action: row.action,
+    target: row.target ?? undefined,
+    metadata: JSON.parse(row.metadata_json) as Record<string, unknown>,
+    sensitiveFiltered: row.sensitive_filtered === 1,
+    createdAt: row.created_at,
+  };
+}
+
+function mapNormalizedEventRow(row: NormalizedEventRow): NormalizedEvent {
+  return {
+    id: row.id,
+    rawEventId: row.raw_event_id,
+    timestamp: row.timestamp,
+    application: row.application,
+    appNameNormalized: row.app_name_normalized ?? row.application,
+    domain: row.domain ?? undefined,
+    url: row.url ?? undefined,
+    browserSchemaVersion: row.browser_schema_version ?? undefined,
+    canonicalUrl: row.canonical_url ?? undefined,
+    routeTemplate: row.route_template ?? undefined,
+    routeKey: row.route_key ?? undefined,
+    resourceHash: row.resource_hash ?? undefined,
+    pathPattern: row.path_pattern ?? undefined,
+    pageType: row.page_type ?? undefined,
+    resourceHint: row.resource_hint ?? undefined,
+    titlePattern: row.title_pattern ?? undefined,
+    action: row.action,
+    actionName: row.action_name ?? row.action,
+    actionConfidence: row.action_confidence ?? 0,
+    actionSource: row.action_source ?? "inferred",
+    target: row.target ?? undefined,
+    metadata: JSON.parse(row.metadata_json) as Record<string, unknown>,
+    createdAt: row.created_at,
+  };
+}
+
 export class AppDatabase {
   readonly paths: AppPaths;
   readonly connection: DatabaseSync;
@@ -186,6 +247,10 @@ export class AppDatabase {
 
     applySchemaMigrations(this.connection, existingVersion.version);
 
+    if ((existingVersion.version ?? 0) < 11) {
+      this.refreshStoredRawEvents();
+    }
+
     if (existingVersion.version === CURRENT_SCHEMA_VERSION) {
       return;
     }
@@ -197,6 +262,96 @@ export class AppDatabase {
 
   close(): void {
     this.connection.close();
+  }
+
+  private refreshStoredRawEvents(): void {
+    const rows = this.connection
+      .prepare(`
+        SELECT
+          id,
+          source,
+          source_event_type,
+          timestamp,
+          application,
+          window_title,
+          domain,
+          url,
+          browser_schema_version,
+          canonical_url,
+          route_template,
+          route_key,
+          resource_hash,
+          action,
+          target,
+          metadata_json,
+          sensitive_filtered,
+          created_at
+        FROM raw_events
+      `)
+      .all() as unknown as RawEventRow[];
+
+    if (rows.length === 0) {
+      return;
+    }
+
+    const updateRawEvent = this.connection.prepare(`
+      UPDATE raw_events
+      SET
+        window_title = ?,
+        domain = ?,
+        url = ?,
+        browser_schema_version = ?,
+        canonical_url = ?,
+        route_template = ?,
+        route_key = ?,
+        resource_hash = ?,
+        target = ?,
+        metadata_json = ?
+      WHERE id = ?
+    `);
+
+    this.connection.exec("BEGIN");
+
+    try {
+      for (const row of rows) {
+        const sanitized = sanitizeRawEvent({
+          source: row.source as RawEvent["source"],
+          sourceEventType: row.source_event_type,
+          timestamp: row.timestamp,
+          application: row.application,
+          windowTitle: row.window_title ?? undefined,
+          domain: row.domain ?? undefined,
+          url: row.url ?? row.canonical_url ?? undefined,
+          browserSchemaVersion: row.browser_schema_version ?? undefined,
+          canonicalUrl: row.canonical_url ?? undefined,
+          routeTemplate: row.route_template ?? undefined,
+          routeKey: row.route_key ?? undefined,
+          resourceHash: row.resource_hash ?? undefined,
+          action: row.action,
+          target: row.target ?? undefined,
+          metadata: JSON.parse(row.metadata_json) as Record<string, unknown>,
+        });
+
+        updateRawEvent.run(
+          sanitized.windowTitle ?? null,
+          sanitized.domain ?? null,
+          sanitized.url ?? null,
+          sanitized.browserSchemaVersion ?? null,
+          sanitized.canonicalUrl ?? null,
+          sanitized.routeTemplate ?? null,
+          sanitized.routeKey ?? null,
+          sanitized.resourceHash ?? null,
+          sanitized.target ?? null,
+          JSON.stringify(sanitized.metadata ?? {}),
+          row.id,
+        );
+      }
+
+      this.connection.exec("COMMIT");
+    } catch (error) {
+      this.connection.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   getSetting<T>(key: string): T | undefined {
@@ -250,6 +405,11 @@ export class AppDatabase {
       windowTitle: sanitized.windowTitle,
       domain: sanitized.domain,
       url: sanitized.url,
+      browserSchemaVersion: sanitized.browserSchemaVersion,
+      canonicalUrl: sanitized.canonicalUrl,
+      routeTemplate: sanitized.routeTemplate,
+      routeKey: sanitized.routeKey,
+      resourceHash: sanitized.resourceHash,
       action: sanitized.action,
       target: sanitized.target,
       metadata: sanitized.metadata ?? {},
@@ -268,12 +428,17 @@ export class AppDatabase {
           window_title,
           domain,
           url,
+          browser_schema_version,
+          canonical_url,
+          route_template,
+          route_key,
+          resource_hash,
           action,
           target,
           metadata_json,
           sensitive_filtered,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         record.id,
@@ -284,6 +449,11 @@ export class AppDatabase {
         record.windowTitle ?? null,
         record.domain ?? null,
         record.url ?? null,
+        record.browserSchemaVersion ?? null,
+        record.canonicalUrl ?? null,
+        record.routeTemplate ?? null,
+        record.routeKey ?? null,
+        record.resourceHash ?? null,
         record.action,
         record.target ?? null,
         JSON.stringify(record.metadata),
@@ -306,6 +476,11 @@ export class AppDatabase {
           window_title,
           domain,
           url,
+          browser_schema_version,
+          canonical_url,
+          route_template,
+          route_key,
+          resource_hash,
           action,
           target,
           metadata_json,
@@ -317,21 +492,7 @@ export class AppDatabase {
       `)
       .all(limit) as unknown as RawEventRow[];
 
-    return rows.map((row) => ({
-      id: row.id,
-      source: row.source as RawEvent["source"],
-      sourceEventType: row.source_event_type,
-      timestamp: row.timestamp,
-      application: row.application,
-      windowTitle: row.window_title ?? undefined,
-      domain: row.domain ?? undefined,
-      url: row.url ?? undefined,
-      action: row.action,
-      target: row.target ?? undefined,
-      metadata: JSON.parse(row.metadata_json) as Record<string, unknown>,
-      sensitiveFiltered: row.sensitive_filtered === 1,
-      createdAt: row.created_at,
-    }));
+    return rows.map((row) => mapRawEventRow(row));
   }
 
   getRawEventsChronological(): RawEvent[] {
@@ -346,6 +507,11 @@ export class AppDatabase {
           window_title,
           domain,
           url,
+          browser_schema_version,
+          canonical_url,
+          route_template,
+          route_key,
+          resource_hash,
           action,
           target,
           metadata_json,
@@ -356,21 +522,7 @@ export class AppDatabase {
       `)
       .all() as unknown as RawEventRow[];
 
-    return rows.map((row) => ({
-      id: row.id,
-      source: row.source as RawEvent["source"],
-      sourceEventType: row.source_event_type,
-      timestamp: row.timestamp,
-      application: row.application,
-      windowTitle: row.window_title ?? undefined,
-      domain: row.domain ?? undefined,
-      url: row.url ?? undefined,
-      action: row.action,
-      target: row.target ?? undefined,
-      metadata: JSON.parse(row.metadata_json) as Record<string, unknown>,
-      sensitiveFiltered: row.sensitive_filtered === 1,
-      createdAt: row.created_at,
-    }));
+    return rows.map((row) => mapRawEventRow(row));
   }
 
   getRawEventsInRange(startInclusive: string, endExclusive: string): RawEvent[] {
@@ -385,6 +537,11 @@ export class AppDatabase {
           window_title,
           domain,
           url,
+          browser_schema_version,
+          canonical_url,
+          route_template,
+          route_key,
+          resource_hash,
           action,
           target,
           metadata_json,
@@ -396,21 +553,7 @@ export class AppDatabase {
       `)
       .all(startInclusive, endExclusive) as unknown as RawEventRow[];
 
-    return rows.map((row) => ({
-      id: row.id,
-      source: row.source as RawEvent["source"],
-      sourceEventType: row.source_event_type,
-      timestamp: row.timestamp,
-      application: row.application,
-      windowTitle: row.window_title ?? undefined,
-      domain: row.domain ?? undefined,
-      url: row.url ?? undefined,
-      action: row.action,
-      target: row.target ?? undefined,
-      metadata: JSON.parse(row.metadata_json) as Record<string, unknown>,
-      sensitiveFiltered: row.sensitive_filtered === 1,
-      createdAt: row.created_at,
-    }));
+    return rows.map((row) => mapRawEventRow(row));
   }
 
   listNormalizedEvents(limit = 50): NormalizedEvent[] {
@@ -424,6 +567,11 @@ export class AppDatabase {
           app_name_normalized,
           domain,
           url,
+          browser_schema_version,
+          canonical_url,
+          route_template,
+          route_key,
+          resource_hash,
           path_pattern,
           page_type,
           resource_hint,
@@ -441,26 +589,7 @@ export class AppDatabase {
       `)
       .all(limit) as unknown as NormalizedEventRow[];
 
-    return rows.map((row) => ({
-      id: row.id,
-      rawEventId: row.raw_event_id,
-      timestamp: row.timestamp,
-      application: row.application,
-      appNameNormalized: row.app_name_normalized ?? row.application,
-      domain: row.domain ?? undefined,
-      url: row.url ?? undefined,
-      pathPattern: row.path_pattern ?? undefined,
-      pageType: row.page_type ?? undefined,
-      resourceHint: row.resource_hint ?? undefined,
-      titlePattern: row.title_pattern ?? undefined,
-      action: row.action,
-      actionName: row.action_name ?? row.action,
-      actionConfidence: row.action_confidence ?? 0,
-      actionSource: row.action_source ?? "inferred",
-      target: row.target ?? undefined,
-      metadata: JSON.parse(row.metadata_json) as Record<string, unknown>,
-      createdAt: row.created_at,
-    }));
+    return rows.map((row) => mapNormalizedEventRow(row));
   }
 
   replaceAnalysisArtifacts(args: {
@@ -487,6 +616,11 @@ export class AppDatabase {
           app_name_normalized,
           domain,
           url,
+          browser_schema_version,
+          canonical_url,
+          route_template,
+          route_key,
+          resource_hash,
           path_pattern,
           page_type,
           resource_hint,
@@ -498,7 +632,7 @@ export class AppDatabase {
           target,
           metadata_json,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       for (const event of args.normalizedEvents) {
@@ -510,6 +644,11 @@ export class AppDatabase {
           event.appNameNormalized,
           event.domain ?? null,
           event.url ?? null,
+          event.browserSchemaVersion ?? null,
+          event.canonicalUrl ?? null,
+          event.routeTemplate ?? null,
+          event.routeKey ?? null,
+          event.resourceHash ?? null,
           event.pathPattern ?? null,
           event.pageType ?? null,
           event.resourceHint ?? null,
