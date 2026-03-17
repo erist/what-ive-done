@@ -1,6 +1,7 @@
 param(
     [string]$OutputPath = "",
     [string]$IngestUrl = "",
+    [string]$IngestAuthToken = "",
     [int]$PollIntervalMs = 1000
 )
 
@@ -88,7 +89,12 @@ function Publish-Event {
         } | ConvertTo-Json -Depth 6 -Compress
 
         try {
-            Invoke-RestMethod -Uri $IngestUrl -Method Post -ContentType "application/json" -Body $payload | Out-Null
+            $headers = @{}
+            if ($IngestAuthToken) {
+                $headers["X-What-Ive-Done-Token"] = $IngestAuthToken
+            }
+
+            Invoke-RestMethod -Uri $IngestUrl -Method Post -ContentType "application/json" -Headers $headers -Body $payload | Out-Null
         } catch {
             Write-Warning "Failed to POST event to $IngestUrl. $_"
         }
@@ -104,6 +110,9 @@ if ($OutputPath) {
 }
 if ($IngestUrl) {
     Write-Host "Ingest URL: $IngestUrl"
+    if ($IngestAuthToken) {
+        Write-Host "Ingest auth token: configured"
+    }
 }
 
 while ($true) {

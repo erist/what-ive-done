@@ -57,6 +57,14 @@ export function getAgentHealthReport(dataDir?: string): AgentHealthReport {
     issues.push("ingest_server_not_running");
   }
 
+  if (runtime.status === "running" && runtime.state?.ingestServer?.authRequired !== true) {
+    issues.push("ingest_server_auth_not_enabled");
+  }
+
+  if (runtime.status === "running" && runtime.state?.ingestServer?.localOnly !== true) {
+    issues.push("ingest_server_not_local_only");
+  }
+
   if (
     runtime.status === "running" &&
     runtime.state?.snapshotScheduler &&

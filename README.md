@@ -17,9 +17,11 @@ This repository provides a TypeScript CLI plus a resident local agent. Together 
 - local-only storage and analysis in SQLite
 - resident local agent runtime with persisted heartbeat and health state
 - agent-managed local ingest server and snapshot scheduler
+- localhost-only ingest hardening with auth token and rate limiting
 - local browser viewer for agent status, live workflow reports, snapshots, and session drill-down
 - Windows and macOS active-window collection paths
 - Chrome extension path for browser metadata ingestion
+- golden workflow fixtures and debug trace CLI for quality regression
 - deterministic event normalization and semantic action abstraction
 - explainable session segmentation with boundary reasons
 - near-match workflow clustering with variants and confidence scores
@@ -60,15 +62,22 @@ Recommended agent-first flow:
 
 ```bash
 npm run dev -- init --data-dir ./tmp/agent-data
+npm run dev -- ingest:token --data-dir ./tmp/agent-data --rotate
 npm run dev -- collect:mock --data-dir ./tmp/agent-data
 npm run dev -- agent:run-once --data-dir ./tmp/agent-data
 npm run dev -- agent:snapshot:latest --data-dir ./tmp/agent-data
 ```
 
+Browser ingest token for the Chrome extension:
+
+```bash
+npm run dev -- ingest:token --data-dir ./tmp/live-data
+```
+
 Run the resident agent:
 
 ```bash
-npm run dev -- agent:run --data-dir ./tmp/live-data
+npm run dev -- agent:run --data-dir ./tmp/live-data --verbose
 ```
 
 Run the resident agent and open the local browser viewer:
@@ -118,6 +127,7 @@ npm run dev -- workflow:split <workflow-id> --after-action search_order --data-d
 
 ```bash
 npm run dev -- doctor
+npm run dev -- ingest:token --data-dir ./tmp/live-data
 npm run dev -- agent:run --data-dir ./tmp/live-data
 npm run dev -- agent:health --data-dir ./tmp/live-data
 npm run dev -- agent:run-once --data-dir ./tmp/live-data
@@ -125,6 +135,8 @@ npm run dev -- agent:snapshot:latest --data-dir ./tmp/live-data
 npm run dev -- agent:collectors --data-dir ./tmp/live-data
 npm run dev -- agent:autostart:status --data-dir ./tmp/live-data
 npm run dev -- viewer:open --data-dir ./tmp/live-data
+npm run dev -- debug:raw:list --data-dir ./tmp/live-data --limit 10
+npm run dev -- debug:normalized:list --data-dir ./tmp/live-data --limit 10
 npm run dev -- report:snapshot:list --data-dir ./tmp/live-data --json
 npm run dev -- report:snapshot:show --data-dir ./tmp/live-data --window week --latest --json
 ```
@@ -132,7 +144,23 @@ npm run dev -- report:snapshot:show --data-dir ./tmp/live-data --window week --l
 Lower-level server command when needed:
 
 ```bash
-npm run dev -- server:run --data-dir ./tmp/live-data --host 127.0.0.1 --port 4318 --open
+npm run dev -- server:run --data-dir ./tmp/live-data --host 127.0.0.1 --port 4318 --open --verbose
+```
+
+Quality tracing flow:
+
+```bash
+npm run dev -- analyze --data-dir ./tmp/local-data
+npm run dev -- debug:raw:list --data-dir ./tmp/local-data --limit 10
+npm run dev -- debug:trace:raw <raw-event-id> --data-dir ./tmp/local-data
+npm run dev -- debug:trace:session <session-id> --data-dir ./tmp/local-data
+npm run dev -- debug:trace:workflow <workflow-id> --data-dir ./tmp/local-data
+```
+
+Golden regression fixtures live under:
+
+```text
+fixtures/golden/
 ```
 
 ### LLM Configuration
@@ -185,9 +213,11 @@ The project stores behavioral metadata only. It must not collect raw keystrokes,
 - SQLite 기반 로컬 전용 저장 및 분석
 - heartbeat와 health state를 기록하는 resident local agent runtime
 - agent가 관리하는 local ingest server와 snapshot scheduler
+- localhost-only binding, auth token, rate limiting이 적용된 ingest 경로
 - agent 상태, live report, snapshot, session detail을 보는 local browser viewer
 - Windows/macOS active-window 수집 경로
 - 브라우저 메타데이터 수집용 Chrome extension 경로
+- golden workflow fixture와 debug trace CLI
 - deterministic event normalization과 semantic action abstraction
 - boundary reason이 있는 session segmentation
 - near-match workflow clustering, variant, confidence 계산
@@ -228,15 +258,22 @@ npm run dev -- demo --data-dir ./tmp/demo-data
 
 ```bash
 npm run dev -- init --data-dir ./tmp/agent-data
+npm run dev -- ingest:token --data-dir ./tmp/agent-data --rotate
 npm run dev -- collect:mock --data-dir ./tmp/agent-data
 npm run dev -- agent:run-once --data-dir ./tmp/agent-data
 npm run dev -- agent:snapshot:latest --data-dir ./tmp/agent-data
 ```
 
+Chrome extension에 넣을 ingest token 확인:
+
+```bash
+npm run dev -- ingest:token --data-dir ./tmp/live-data
+```
+
 resident agent 실행:
 
 ```bash
-npm run dev -- agent:run --data-dir ./tmp/live-data
+npm run dev -- agent:run --data-dir ./tmp/live-data --verbose
 ```
 
 resident agent를 실행하면서 browser viewer까지 바로 열기:
@@ -286,6 +323,7 @@ npm run dev -- workflow:split <workflow-id> --after-action search_order --data-d
 
 ```bash
 npm run dev -- doctor
+npm run dev -- ingest:token --data-dir ./tmp/live-data
 npm run dev -- agent:run --data-dir ./tmp/live-data
 npm run dev -- agent:health --data-dir ./tmp/live-data
 npm run dev -- agent:run-once --data-dir ./tmp/live-data
@@ -293,6 +331,8 @@ npm run dev -- agent:snapshot:latest --data-dir ./tmp/live-data
 npm run dev -- agent:collectors --data-dir ./tmp/live-data
 npm run dev -- agent:autostart:status --data-dir ./tmp/live-data
 npm run dev -- viewer:open --data-dir ./tmp/live-data
+npm run dev -- debug:raw:list --data-dir ./tmp/live-data --limit 10
+npm run dev -- debug:normalized:list --data-dir ./tmp/live-data --limit 10
 npm run dev -- report:snapshot:list --data-dir ./tmp/live-data --json
 npm run dev -- report:snapshot:show --data-dir ./tmp/live-data --window week --latest --json
 ```
@@ -300,7 +340,23 @@ npm run dev -- report:snapshot:show --data-dir ./tmp/live-data --window week --l
 필요하면 lower-level server 명령도 사용할 수 있습니다:
 
 ```bash
-npm run dev -- server:run --data-dir ./tmp/live-data --host 127.0.0.1 --port 4318 --open
+npm run dev -- server:run --data-dir ./tmp/live-data --host 127.0.0.1 --port 4318 --open --verbose
+```
+
+품질 trace 흐름:
+
+```bash
+npm run dev -- analyze --data-dir ./tmp/local-data
+npm run dev -- debug:raw:list --data-dir ./tmp/local-data --limit 10
+npm run dev -- debug:trace:raw <raw-event-id> --data-dir ./tmp/local-data
+npm run dev -- debug:trace:session <session-id> --data-dir ./tmp/local-data
+npm run dev -- debug:trace:workflow <workflow-id> --data-dir ./tmp/local-data
+```
+
+golden regression fixture 위치:
+
+```text
+fixtures/golden/
 ```
 
 ### LLM 설정

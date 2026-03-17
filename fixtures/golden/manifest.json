@@ -1,0 +1,47 @@
+[
+  {
+    "id": "admin-order-review",
+    "file": "admin-order-review.ndjson",
+    "description": "Repeated admin order review and status update workflow",
+    "expectedSessions": 3,
+    "expectedWorkflowClusters": 1,
+    "expectedWorkflowName": "Search Order workflow",
+    "expectedRepresentativeSequence": ["open_admin", "search_order", "update_status"]
+  },
+  {
+    "id": "admin-product-edit",
+    "file": "admin-product-edit.ndjson",
+    "description": "Repeated admin product edit workflow",
+    "expectedSessions": 3,
+    "expectedWorkflowClusters": 1,
+    "expectedWorkflowName": "Edit Product workflow",
+    "expectedRepresentativeSequence": ["edit_product"]
+  },
+  {
+    "id": "admin-refund-review",
+    "file": "admin-refund-review.ndjson",
+    "description": "Repeated admin refund approval workflow",
+    "expectedSessions": 3,
+    "expectedWorkflowClusters": 1,
+    "expectedWorkflowName": "Update Status workflow",
+    "expectedRepresentativeSequence": ["open_admin", "update_status", "notify_customer"]
+  },
+  {
+    "id": "admin-report-export",
+    "file": "admin-report-export.ndjson",
+    "description": "Repeated browser-based export workflow",
+    "expectedSessions": 3,
+    "expectedWorkflowClusters": 1,
+    "expectedWorkflowName": "Export Excel workflow",
+    "expectedRepresentativeSequence": ["open_admin", "export_excel"]
+  },
+  {
+    "id": "desktop-ops-handoff",
+    "file": "desktop-ops-handoff.ndjson",
+    "description": "Repeated desktop handoff across Outlook, Excel, and Slack",
+    "expectedSessions": 3,
+    "expectedWorkflowClusters": 1,
+    "expectedWorkflowName": "Send Email Response workflow",
+    "expectedRepresentativeSequence": ["send_email_response", "save_sheet", "send_slack_report"]
+  }
+]

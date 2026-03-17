@@ -28,21 +28,25 @@ class FakeSpawnedProcess extends EventEmitter implements SpawnedProcess {
 test("buildManagedCollectorSpecs maps darwin and win32 runtimes", () => {
   const darwinSpecs = buildManagedCollectorSpecs({
     ingestUrl: "http://127.0.0.1:4318/events",
+    ingestAuthToken: "fixture-token",
     processPlatform: "darwin",
     pollIntervalMs: 250,
     promptAccessibility: true,
   });
   const windowsSpecs = buildManagedCollectorSpecs({
     ingestUrl: "http://127.0.0.1:4318/events",
+    ingestAuthToken: "fixture-token",
     processPlatform: "win32",
     pollIntervalMs: 500,
   });
 
   assert.equal(darwinSpecs.length, 1);
   assert.equal(darwinSpecs[0]?.command, "swift");
-  assert.deepEqual(darwinSpecs[0]?.args.slice(-5), [
+  assert.deepEqual(darwinSpecs[0]?.args.slice(-7), [
     "--ingest-url",
     "http://127.0.0.1:4318/events",
+    "--ingest-auth-token",
+    "fixture-token",
     "--poll-interval-ms",
     "250",
     "--prompt-accessibility",
@@ -50,9 +54,11 @@ test("buildManagedCollectorSpecs maps darwin and win32 runtimes", () => {
 
   assert.equal(windowsSpecs.length, 1);
   assert.equal(windowsSpecs[0]?.command, "powershell.exe");
-  assert.deepEqual(windowsSpecs[0]?.args.slice(-4), [
+  assert.deepEqual(windowsSpecs[0]?.args.slice(-6), [
     "-IngestUrl",
     "http://127.0.0.1:4318/events",
+    "-IngestAuthToken",
+    "fixture-token",
     "-PollIntervalMs",
     "500",
   ]);

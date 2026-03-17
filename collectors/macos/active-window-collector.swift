@@ -9,6 +9,7 @@ private let permissionSettingsPath = "System Settings > Privacy & Security > Acc
 private struct Options {
     var outputPath: String?
     var ingestURL: URL?
+    var ingestAuthToken: String?
     var pollIntervalMs = 1000
     var once = false
     var checkPermissions = false
@@ -124,6 +125,7 @@ private func printUsage() {
     Options:
       --output-path <path>         Append NDJSON events to a file.
       --ingest-url <url>           POST events to the local ingest server.
+      --ingest-auth-token <token>  Send the shared ingest auth token.
       --poll-interval-ms <ms>      Poll interval in milliseconds. Default: 1000.
       --once                       Capture one snapshot and exit.
       --stdout                     Print NDJSON events to stdout.
@@ -165,6 +167,12 @@ private func parseArguments() throws -> Options {
                 throw CollectorError.invalidURL(args[index])
             }
             options.ingestURL = url
+        case "--ingest-auth-token":
+            index += 1
+            guard index < args.count else {
+                throw CollectorError.missingValue(argument)
+            }
+            options.ingestAuthToken = args[index]
         case "--poll-interval-ms":
             index += 1
             guard index < args.count else {
@@ -340,10 +348,13 @@ private func appendLine(_ line: String, to path: String) throws {
     try handle.write(contentsOf: data)
 }
 
-private func postEvent(_ eventPayload: [String: Any], to ingestURL: URL) throws {
+private func postEvent(_ eventPayload: [String: Any], to ingestURL: URL, authToken: String?) throws {
     var request = URLRequest(url: ingestURL)
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    if let authToken, !authToken.isEmpty {
+        request.setValue(authToken, forHTTPHeaderField: "X-What-Ive-Done-Token")
+    }
     request.httpBody = try JSONSerialization.data(withJSONObject: ["events": [eventPayload]], options: [])
 
     let semaphore = DispatchSemaphore(value: 0)
@@ -380,7 +391,7 @@ private func publishSnapshot(_ snapshot: Snapshot, options: Options) throws {
     }
 
     if let ingestURL = options.ingestURL {
-        try postEvent(snapshot.eventPayload, to: ingestURL)
+        try postEvent(snapshot.eventPayload, to: ingestURL, authToken: options.ingestAuthToken)
     }
 }
 
@@ -416,6 +427,9 @@ private func runCollector(options: Options) throws {
     }
     if let ingestURL = options.ingestURL {
         printError("Ingest URL: \(ingestURL.absoluteString)")
+        if options.ingestAuthToken != nil {
+            printError("Ingest auth token: configured")
+        }
     }
     if options.stdout {
         printError("Stdout output: enabled")

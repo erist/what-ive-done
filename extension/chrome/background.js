@@ -28,18 +28,25 @@ function sanitizeUrl(urlString) {
 }
 
 async function getIngestEndpoint() {
-  const result = await chrome.storage.sync.get("ingestEndpoint");
-  return result.ingestEndpoint || DEFAULT_INGEST_ENDPOINT;
+  const result = await chrome.storage.sync.get(["ingestEndpoint", "ingestAuthToken"]);
+  return {
+    endpoint: result.ingestEndpoint || DEFAULT_INGEST_ENDPOINT,
+    authToken:
+      typeof result.ingestAuthToken === "string" && result.ingestAuthToken.trim().length > 0
+        ? result.ingestAuthToken.trim()
+        : undefined
+  };
 }
 
 async function postEvents(events) {
-  const endpoint = await getIngestEndpoint();
+  const { endpoint, authToken } = await getIngestEndpoint();
 
   try {
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        ...(authToken ? { "X-What-Ive-Done-Token": authToken } : {})
       },
       body: JSON.stringify({ events })
     });

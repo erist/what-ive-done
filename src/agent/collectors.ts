@@ -12,14 +12,17 @@ export interface CollectorProcessSpec {
   command: string;
   args: string[];
   ingestUrl: string;
+  ingestAuthToken?: string | undefined;
 }
 
 export interface CollectorSupervisorOptions {
   ingestUrl: string;
+  ingestAuthToken?: string | undefined;
   processPlatform?: NodeJS.Platform | undefined;
   pollIntervalMs?: number | undefined;
   promptAccessibility?: boolean | undefined;
   restartDelayMs?: number | undefined;
+  verbose?: boolean | undefined;
   onCollectorStateChange?: ((state: AgentCollectorState) => void) | undefined;
   spawnProcess?: SpawnProcess | undefined;
 }
@@ -59,6 +62,7 @@ const defaultSpawnProcess: SpawnProcess = (command, args, options) =>
 
 export function buildManagedCollectorSpecs(options: {
   ingestUrl: string;
+  ingestAuthToken?: string | undefined;
   processPlatform?: NodeJS.Platform | undefined;
   pollIntervalMs?: number | undefined;
   promptAccessibility?: boolean | undefined;
@@ -79,11 +83,13 @@ export function buildManagedCollectorSpecs(options: {
           info.scriptPath!,
           "--ingest-url",
           options.ingestUrl,
+          ...(options.ingestAuthToken ? ["--ingest-auth-token", options.ingestAuthToken] : []),
           "--poll-interval-ms",
           String(pollIntervalMs),
           ...(options.promptAccessibility ? ["--prompt-accessibility"] : []),
         ],
         ingestUrl: options.ingestUrl,
+        ingestAuthToken: options.ingestAuthToken,
       },
     ];
   }
@@ -102,10 +108,12 @@ export function buildManagedCollectorSpecs(options: {
           info.scriptPath!,
           "-IngestUrl",
           options.ingestUrl,
+          ...(options.ingestAuthToken ? ["-IngestAuthToken", options.ingestAuthToken] : []),
           "-PollIntervalMs",
           String(pollIntervalMs),
         ],
         ingestUrl: options.ingestUrl,
+        ingestAuthToken: options.ingestAuthToken,
       },
     ];
   }
@@ -121,17 +129,38 @@ function attachOutputDrain(processHandle: SpawnedProcess): void {
   stderr.on("data", () => undefined);
 }
 
+function redactCollectorArgs(args: string[]): string[] {
+  return args.map((value, index) => {
+    const previous = args[index - 1];
+
+    if (previous === "--ingest-auth-token" || previous === "-IngestAuthToken") {
+      return "<redacted>";
+    }
+
+    return value;
+  });
+}
+
 export async function startCollectorSupervisor(
   options: CollectorSupervisorOptions,
 ): Promise<RunningCollectorSupervisor> {
   const specs = buildManagedCollectorSpecs({
     ingestUrl: options.ingestUrl,
+    ingestAuthToken: options.ingestAuthToken,
     processPlatform: options.processPlatform,
     pollIntervalMs: options.pollIntervalMs,
     promptAccessibility: options.promptAccessibility,
   });
   const restartDelayMs = options.restartDelayMs ?? 5_000;
   const spawnProcess = options.spawnProcess ?? defaultSpawnProcess;
+  const log = (message: string, payload?: Record<string, unknown>): void => {
+    if (!options.verbose) {
+      return;
+    }
+
+    const suffix = payload ? ` ${JSON.stringify(payload)}` : "";
+    console.error(`[collector-supervisor] ${message}${suffix}`);
+  };
   const states = new Map<string, AgentCollectorState>();
   const stopHandles: Array<() => Promise<void>> = [];
 
@@ -178,6 +207,11 @@ export async function startCollectorSupervisor(
         pid: undefined,
         restartCount: currentState.restartCount + 1,
       });
+      log("collector_restart_scheduled", {
+        collectorId: spec.id,
+        restartCount: currentState.restartCount + 1,
+        restartDelayMs,
+      });
 
       restartTimer = setTimeout(() => {
         restartScheduled = false;
@@ -201,6 +235,11 @@ export async function startCollectorSupervisor(
           stdio: ["ignore", "pipe", "pipe"],
           env: process.env,
         });
+        log("collector_spawned", {
+          collectorId: spec.id,
+          command: spec.command,
+          args: redactCollectorArgs(spec.args),
+        });
       } catch (error) {
         updateState({
           status: "failed",
@@ -221,6 +260,10 @@ export async function startCollectorSupervisor(
           stoppedAt: undefined,
           lastError: undefined,
         });
+        log("collector_running", {
+          collectorId: spec.id,
+          pid: child?.pid,
+        });
       });
 
       child.once("error", (error: Error) => {
@@ -229,6 +272,10 @@ export async function startCollectorSupervisor(
           pid: undefined,
           lastError: error.message,
           stoppedAt: new Date().toISOString(),
+        });
+        log("collector_error", {
+          collectorId: spec.id,
+          message: error.message,
         });
       });
 
@@ -242,6 +289,9 @@ export async function startCollectorSupervisor(
             stoppedAt: new Date().toISOString(),
             lastExitCode: code ?? undefined,
             lastExitSignal: signal,
+          });
+          log("collector_stopped", {
+            collectorId: spec.id,
           });
           stopResolver?.();
           return;
@@ -258,6 +308,11 @@ export async function startCollectorSupervisor(
               ? `Collector exited with code ${String(code)}`
               : `Collector exited with signal ${signal ?? "unknown"}`,
         });
+        log("collector_exited", {
+          collectorId: spec.id,
+          code,
+          signal,
+        });
         scheduleRestart();
       });
     };
@@ -267,6 +322,9 @@ export async function startCollectorSupervisor(
 
     stopHandles.push(async () => {
       stopping = true;
+      log("collector_stop_requested", {
+        collectorId: spec.id,
+      });
 
       if (restartTimer) {
         clearTimeout(restartTimer);
