@@ -95,6 +95,7 @@ import {
 import { buildWorkflowReport, formatDuration } from "./reporting/report.js";
 import {
   buildWorkflowReportFromDatabase,
+  buildWorkflowReportComparisonFromDatabase,
   generateReportSnapshot,
   runReportSchedulerCycle,
 } from "./reporting/service.js";
@@ -114,6 +115,7 @@ import type {
   ReportSnapshotSummary,
   ReportWindow,
   WorkflowLLMAnalysis,
+  WorkflowReportComparison,
   WorkflowReport,
 } from "./domain/types.js";
 
@@ -252,6 +254,27 @@ function renderSnapshotSummary(snapshot: ReportSnapshot): void {
   );
 }
 
+function renderComparisonTable(
+  title: string,
+  entries: WorkflowReportComparison["newlyAppearedWorkflows"],
+): void {
+  if (entries.length === 0) {
+    return;
+  }
+
+  console.log(title);
+  console.table(
+    entries.map((entry) => ({
+      workflow: entry.workflowName,
+      previousWorkflow: entry.previousWorkflowName ?? "-",
+      frequencyDelta: entry.frequencyDelta,
+      timeDelta: formatDuration(Math.abs(entry.totalDurationDeltaSeconds)),
+      direction: entry.totalDurationDeltaSeconds >= 0 ? "up_or_new" : "down_or_missing",
+      approvedAutomationCandidate: entry.approvedAutomationCandidate ?? false,
+    })),
+  );
+}
+
 function buildStoredWorkflowReport(
   dataDir: string | undefined,
   options: {
@@ -268,6 +291,67 @@ function buildStoredWorkflowReport(
       includeExcluded: options.includeExcluded,
       includeHidden: options.includeHidden,
     }),
+  );
+}
+
+function buildStoredWorkflowReportComparison(
+  dataDir: string | undefined,
+  options: {
+    window?: ReportWindow | undefined;
+    date?: string | undefined;
+    includeExcluded?: boolean | undefined;
+    includeHidden?: boolean | undefined;
+  } = {},
+): WorkflowReportComparison {
+  const comparison = withDatabase(dataDir, (database) =>
+    buildWorkflowReportComparisonFromDatabase(database, {
+      window: options.window,
+      date: options.date,
+      includeExcluded: options.includeExcluded,
+      includeHidden: options.includeHidden,
+    }),
+  );
+
+  if (!comparison) {
+    throw new Error("Comparison is available only for day and week windows.");
+  }
+
+  return comparison;
+}
+
+function renderWorkflowReportComparison(
+  comparison: WorkflowReportComparison,
+  json = false,
+): void {
+  if (json) {
+    console.log(JSON.stringify(comparison, null, 2));
+    return;
+  }
+
+  console.log(
+    JSON.stringify(
+      {
+        currentWindow: comparison.currentTimeWindow.window,
+        currentReportDate: comparison.currentTimeWindow.reportDate,
+        previousReportDate: comparison.previousTimeWindow.reportDate,
+        sessionDelta: comparison.summary.sessionDelta,
+        trackedDurationDelta: formatDuration(
+          Math.abs(comparison.summary.trackedDurationDeltaSeconds),
+        ),
+        approvedCandidateTimeDelta: formatDuration(
+          Math.abs(comparison.summary.approvedCandidateTimeDeltaSeconds),
+        ),
+      },
+      null,
+      2,
+    ),
+  );
+
+  renderComparisonTable("Newly appeared workflows", comparison.newlyAppearedWorkflows);
+  renderComparisonTable("Disappeared workflows", comparison.disappearedWorkflows);
+  renderComparisonTable(
+    "Approved automation candidate changes",
+    comparison.approvedCandidateChanges,
   );
 }
 
@@ -340,6 +424,20 @@ function renderReport(
 ): void {
   const report = buildStoredWorkflowReport(dataDir, options);
   renderWindowedWorkflowReport(report, json);
+}
+
+function renderReportComparison(
+  json = false,
+  dataDir?: string,
+  options: {
+    window?: ReportWindow | undefined;
+    date?: string | undefined;
+    includeExcluded?: boolean | undefined;
+    includeHidden?: boolean | undefined;
+  } = {},
+): void {
+  const comparison = buildStoredWorkflowReportComparison(dataDir, options);
+  renderWorkflowReportComparison(comparison, json);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -1274,11 +1372,13 @@ program
   .command("agent:autostart:status")
   .description("Show OS autostart status for the resident agent")
   .option("--data-dir <path>", "Override application data directory")
-  .option("--plist-path <path>", "Override the LaunchAgent plist path")
-  .action((options: { dataDir?: string; plistPath?: string }) => {
+  .option("--plist-path <path>", "Override the macOS LaunchAgent plist path")
+  .option("--startup-script-path <path>", "Override the Windows startup script path")
+  .action((options: { dataDir?: string; plistPath?: string; startupScriptPath?: string }) => {
     const status = getAgentAutostartStatus({
       dataDir: options.dataDir,
       plistPath: options.plistPath,
+      startupScriptPath: options.startupScriptPath,
     });
 
     console.log(JSON.stringify(status, null, 2));
@@ -1288,12 +1388,14 @@ program
   .command("agent:autostart:install")
   .description("Install OS autostart for the resident agent")
   .option("--data-dir <path>", "Override application data directory")
-  .option("--plist-path <path>", "Override the LaunchAgent plist path")
+  .option("--plist-path <path>", "Override the macOS LaunchAgent plist path")
+  .option("--startup-script-path <path>", "Override the Windows startup script path")
   .option("--no-load", "Write the LaunchAgent file without loading it")
-  .action((options: { dataDir?: string; plistPath?: string; load: boolean }) => {
+  .action((options: { dataDir?: string; plistPath?: string; startupScriptPath?: string; load: boolean }) => {
     const status = installAgentAutostart({
       dataDir: options.dataDir,
       plistPath: options.plistPath,
+      startupScriptPath: options.startupScriptPath,
       load: options.load,
     });
 
@@ -1304,12 +1406,14 @@ program
   .command("agent:autostart:uninstall")
   .description("Remove OS autostart for the resident agent")
   .option("--data-dir <path>", "Override application data directory")
-  .option("--plist-path <path>", "Override the LaunchAgent plist path")
+  .option("--plist-path <path>", "Override the macOS LaunchAgent plist path")
+  .option("--startup-script-path <path>", "Override the Windows startup script path")
   .option("--no-unload", "Remove the LaunchAgent file without unloading it first")
-  .action((options: { dataDir?: string; plistPath?: string; unload: boolean }) => {
+  .action((options: { dataDir?: string; plistPath?: string; startupScriptPath?: string; unload: boolean }) => {
     const status = uninstallAgentAutostart({
       dataDir: options.dataDir,
       plistPath: options.plistPath,
+      startupScriptPath: options.startupScriptPath,
       unload: options.unload,
     });
 
@@ -1886,6 +1990,33 @@ program
       includeHidden?: boolean;
     }) => {
       renderReport(options.json, options.dataDir, {
+        window: options.window,
+        date: options.date,
+        includeExcluded: options.includeExcluded,
+        includeHidden: options.includeHidden,
+      });
+    },
+  );
+
+program
+  .command("report:compare")
+  .description("Compare the selected day or week report against the previous matching window")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--json", "Print machine-readable JSON")
+  .option("--window <window>", "Comparison window (day, week)", parseReportWindow, "week")
+  .option("--date <date>", "Local report date in YYYY-MM-DD format")
+  .option("--include-excluded", "Include excluded workflows")
+  .option("--include-hidden", "Include hidden workflows")
+  .action(
+    (options: {
+      dataDir?: string;
+      json?: boolean;
+      window: ReportWindow;
+      date?: string;
+      includeExcluded?: boolean;
+      includeHidden?: boolean;
+    }) => {
+      renderReportComparison(options.json, options.dataDir, {
         window: options.window,
         date: options.date,
         includeExcluded: options.includeExcluded,

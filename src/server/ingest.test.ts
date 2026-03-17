@@ -259,6 +259,7 @@ test("startIngestServer serves the local viewer and live viewer API", async () =
     const dashboardResponse = await fetch(`${server.viewerUrl}api/viewer/dashboard?window=all`);
     const dashboard = (await dashboardResponse.json()) as {
       report: { workflows: unknown[]; emergingWorkflows: unknown[] };
+      comparison?: unknown;
       reviewableWorkflows: Array<{ id: string; excluded: boolean; hidden: boolean }>;
       sessionSummaries: Array<{ id: string }>;
       latestSnapshots: unknown[];
@@ -271,6 +272,7 @@ test("startIngestServer serves the local viewer and live viewer API", async () =
     assert.ok(Array.isArray(dashboard.sessionSummaries));
     assert.ok(dashboard.sessionSummaries.length > 0);
     assert.equal(dashboard.latestSnapshots.length, 1);
+    assert.equal(dashboard.comparison, undefined);
     const healthResponse = await fetch(`http://${server.host}:${server.port}/health`);
     const health = (await healthResponse.json()) as {
       security: { authRequired: boolean; localOnly: boolean; authTokenPreview: string };
@@ -363,6 +365,20 @@ test("startIngestServer serves the local viewer and live viewer API", async () =
       refreshedDashboard.report.workflows.some((entry) => entry.workflowClusterId === firstWorkflowId),
       false,
     );
+
+    const weekDashboardResponse = await fetch(`${server.viewerUrl}api/viewer/dashboard?window=week`);
+    const weekDashboard = (await weekDashboardResponse.json()) as {
+      comparison?: {
+        currentTimeWindow: { reportDate: string };
+        previousTimeWindow: { reportDate: string };
+        newlyAppearedWorkflows: unknown[];
+      };
+    };
+
+    assert.equal(weekDashboardResponse.status, 200);
+    assert.ok(weekDashboard.comparison);
+    assert.equal(weekDashboard.comparison?.currentTimeWindow.reportDate >= weekDashboard.comparison?.previousTimeWindow.reportDate, true);
+    assert.ok(Array.isArray(weekDashboard.comparison?.newlyAppearedWorkflows));
   } finally {
     await server.close();
     rmSync(tempDir, { recursive: true, force: true });

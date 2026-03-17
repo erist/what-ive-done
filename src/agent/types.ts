@@ -44,10 +44,15 @@ export interface AgentCollectorState {
   pid?: number | undefined;
   ingestUrl?: string | undefined;
   startedAt?: string | undefined;
+  lastStartAttemptAt?: string | undefined;
+  lastTransitionAt?: string | undefined;
   stoppedAt?: string | undefined;
   lastExitCode?: number | undefined;
   lastExitSignal?: NodeJS.Signals | null | undefined;
   restartCount: number;
+  failureStreak?: number | undefined;
+  currentRestartDelayMs?: number | undefined;
+  nextRestartAt?: string | undefined;
   lastError?: string | undefined;
 }
 

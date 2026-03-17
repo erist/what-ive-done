@@ -6,7 +6,11 @@ import { join } from "node:path";
 
 import { generateMockRawEvents } from "../collectors/mock.js";
 import { AppDatabase } from "../storage/database.js";
-import { generateReportSnapshot, runReportSchedulerCycle } from "./service.js";
+import {
+  buildWorkflowReportComparisonFromDatabase,
+  generateReportSnapshot,
+  runReportSchedulerCycle,
+} from "./service.js";
 
 function createTestDatabase(tempDir: string): AppDatabase {
   return new AppDatabase({
@@ -84,6 +88,33 @@ test("runReportSchedulerCycle stores daily and weekly snapshots for the current 
     assert.equal(snapshots[0]?.timeWindow.reportDate, "2026-03-14");
     assert.equal(latestDaySnapshot?.emergingWorkflows.length, 5);
     assert.equal(latestWeekSnapshot?.workflows.length, 5);
+
+    database.close();
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("buildWorkflowReportComparisonFromDatabase compares the selected window with the previous matching date", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-report-compare-"));
+  const referenceDate = new Date(2026, 2, 14, 12, 0, 0, 0);
+  const timezoneOffsetMinutes = -referenceDate.getTimezoneOffset();
+
+  try {
+    const database = createTestDatabase(tempDir);
+    database.initialize();
+    seedMockEvents(database, referenceDate);
+
+    const comparison = buildWorkflowReportComparisonFromDatabase(database, {
+      window: "week",
+      date: "2026-03-14",
+      timezone: "Test/Local",
+      timezoneOffsetMinutes,
+    });
+
+    assert.ok(comparison);
+    assert.equal(comparison?.currentTimeWindow.reportDate, "2026-03-14");
+    assert.equal(comparison?.previousTimeWindow.reportDate, "2026-03-07");
 
     database.close();
   } finally {

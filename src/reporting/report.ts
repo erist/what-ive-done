@@ -5,6 +5,8 @@ import type {
   ReportTimeWindow,
   Session,
   WorkflowCluster,
+  WorkflowReportComparison,
+  WorkflowReportComparisonEntry,
   WorkflowFeedbackSummary,
   WorkflowGraph,
   WorkflowReport,
@@ -130,6 +132,7 @@ export function buildReportEntries(
 
   return filterVisibleClusters(clusters, options).map((cluster) => ({
     workflowClusterId: cluster.id,
+    workflowSignature: cluster.workflowSignature,
     workflowName: cluster.name,
     businessPurpose: cluster.businessPurpose,
     frequency: cluster.frequency,
@@ -147,6 +150,8 @@ export function buildReportEntries(
     automationSuitability: cluster.automationSuitability,
     recommendedApproach: cluster.recommendedApproach,
     automationHints: cluster.automationHints,
+    automationCandidate: cluster.automationCandidate,
+    approvedAutomationCandidate: cluster.approvedAutomationCandidate,
   }));
 }
 
@@ -242,4 +247,101 @@ export function formatDuration(seconds: number): string {
   }
 
   return `${minutes}m ${remainingSeconds}s`;
+}
+
+function toComparisonEntry(
+  current: ReportEntry | undefined,
+  previous: ReportEntry | undefined,
+): WorkflowReportComparisonEntry {
+  return {
+    workflowClusterId: current?.workflowClusterId ?? previous?.workflowClusterId,
+    workflowSignature: current?.workflowSignature ?? previous?.workflowSignature ?? "unknown",
+    workflowName: current?.workflowName ?? previous?.workflowName ?? "Unknown workflow",
+    previousWorkflowName:
+      previous && current && previous.workflowName !== current.workflowName
+        ? previous.workflowName
+        : undefined,
+    currentFrequency: current?.frequency ?? 0,
+    previousFrequency: previous?.frequency ?? 0,
+    frequencyDelta: (current?.frequency ?? 0) - (previous?.frequency ?? 0),
+    currentTotalDurationSeconds: current?.totalDurationSeconds ?? 0,
+    previousTotalDurationSeconds: previous?.totalDurationSeconds ?? 0,
+    totalDurationDeltaSeconds:
+      (current?.totalDurationSeconds ?? 0) - (previous?.totalDurationSeconds ?? 0),
+    approvedAutomationCandidate:
+      current?.approvedAutomationCandidate ?? previous?.approvedAutomationCandidate,
+  };
+}
+
+export function buildWorkflowReportComparison(
+  currentReport: WorkflowReport,
+  previousReport: WorkflowReport,
+): WorkflowReportComparison {
+  const currentBySignature = new Map(
+    currentReport.workflows.map((workflow) => [workflow.workflowSignature, workflow]),
+  );
+  const previousBySignature = new Map(
+    previousReport.workflows.map((workflow) => [workflow.workflowSignature, workflow]),
+  );
+  const allSignatures = new Set([
+    ...currentBySignature.keys(),
+    ...previousBySignature.keys(),
+  ]);
+  const approvedCandidateChanges = [...allSignatures]
+    .map((workflowSignature) =>
+      toComparisonEntry(
+        currentBySignature.get(workflowSignature),
+        previousBySignature.get(workflowSignature),
+      ),
+    )
+    .filter(
+      (entry) =>
+        entry.approvedAutomationCandidate === true &&
+        (entry.totalDurationDeltaSeconds !== 0 || entry.frequencyDelta !== 0),
+    )
+    .sort(
+      (left, right) =>
+        Math.abs(right.totalDurationDeltaSeconds) - Math.abs(left.totalDurationDeltaSeconds) ||
+        Math.abs(right.frequencyDelta) - Math.abs(left.frequencyDelta),
+    );
+  const currentApprovedCandidates = currentReport.workflows.filter(
+    (workflow) => workflow.approvedAutomationCandidate,
+  );
+  const previousApprovedCandidates = previousReport.workflows.filter(
+    (workflow) => workflow.approvedAutomationCandidate,
+  );
+
+  return {
+    currentTimeWindow: currentReport.timeWindow,
+    previousTimeWindow: previousReport.timeWindow,
+    summary: {
+      sessionDelta: currentReport.totalSessions - previousReport.totalSessions,
+      trackedDurationDeltaSeconds:
+        currentReport.totalTrackedDurationSeconds - previousReport.totalTrackedDurationSeconds,
+      confirmedWorkflowDelta:
+        currentReport.workflows.length - previousReport.workflows.length,
+      emergingWorkflowDelta:
+        currentReport.emergingWorkflows.length - previousReport.emergingWorkflows.length,
+      approvedCandidateWorkflowDelta:
+        currentApprovedCandidates.length - previousApprovedCandidates.length,
+      approvedCandidateTimeDeltaSeconds:
+        currentApprovedCandidates.reduce(
+          (sum, workflow) => sum + workflow.totalDurationSeconds,
+          0,
+        ) -
+        previousApprovedCandidates.reduce(
+          (sum, workflow) => sum + workflow.totalDurationSeconds,
+          0,
+        ),
+    },
+    newlyAppearedWorkflows: currentReport.workflows
+      .filter((workflow) => !previousBySignature.has(workflow.workflowSignature))
+      .map((workflow) => toComparisonEntry(workflow, undefined))
+      .sort((left, right) => right.currentTotalDurationSeconds - left.currentTotalDurationSeconds),
+    disappearedWorkflows: previousReport.workflows
+      .filter((workflow) => !currentBySignature.has(workflow.workflowSignature))
+      .map((workflow) => toComparisonEntry(undefined, workflow))
+      .sort((left, right) => right.previousTotalDurationSeconds - left.previousTotalDurationSeconds),
+    approvedCandidateChanges,
+  };
 }

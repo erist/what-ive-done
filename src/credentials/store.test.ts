@@ -1,7 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createMacOSKeychainCredentialStore, createUnsupportedCredentialStore } from "./store.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import {
+  createMacOSKeychainCredentialStore,
+  createUnsupportedCredentialStore,
+  createWindowsDPAPICredentialStore,
+} from "./store.js";
 
 test("macOS credential store uses security commands for named secrets", () => {
   const calls: Array<{ file: string; args: string[] }> = [];
@@ -54,4 +62,39 @@ test("unsupported credential store rejects secure storage writes", () => {
 
   assert.equal(store.isSupported(), false);
   assert.throws(() => store.setSecret("test.service", "key"), /not supported/);
+});
+
+test("windows DPAPI credential store persists encrypted secrets in the local profile store", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-win-credentials-"));
+  const calls: Array<{ file: string; args: string[] }> = [];
+
+  try {
+    const store = createWindowsDPAPICredentialStore((file, args) => {
+      calls.push({ file, args });
+
+      if (args.some((argument) => argument.includes("Unprotect"))) {
+        return "stored-key\n";
+      }
+
+      if (args.some((argument) => argument.includes("Protect"))) {
+        return "encrypted-value\n";
+      }
+
+      throw new Error("unexpected command");
+    }, tempDir);
+
+    store.setSecret("what-ive-done.llm.openai.api-key", "stored-key");
+
+    assert.equal(store.isSupported(), true);
+    assert.equal(store.hasSecret("what-ive-done.llm.openai.api-key"), true);
+    assert.equal(store.getSecret("what-ive-done.llm.openai.api-key"), "stored-key");
+
+    store.deleteSecret("what-ive-done.llm.openai.api-key");
+    assert.equal(store.getSecret("what-ive-done.llm.openai.api-key"), undefined);
+    assert.ok(calls.some((call) => call.file === "powershell.exe"));
+    assert.ok(calls.some((call) => call.args.some((argument) => argument.includes("Protect"))));
+    assert.ok(calls.some((call) => call.args.some((argument) => argument.includes("Unprotect"))));
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
 });

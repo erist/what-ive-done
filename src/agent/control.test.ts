@@ -61,6 +61,9 @@ test("getAgentHealthReport surfaces runtime issues and latest snapshots", () => 
           runtime: "swift",
           status: "failed",
           restartCount: 1,
+          failureStreak: 3,
+          currentRestartDelayMs: 20000,
+          nextRestartAt: "2026-03-14T00:05:20.000Z",
           lastError: "collector failed",
         },
       ],
@@ -78,6 +81,8 @@ test("getAgentHealthReport surfaces runtime issues and latest snapshots", () => 
 
     assert.equal(report.status, "stale");
     assert.ok(report.issues.includes("agent_runtime_stale"));
+    assert.ok(report.issues.includes("collector_macos-active-window_flapping"));
+    assert.ok(report.issues.includes("collector_macos-active-window_backoff_active"));
     assert.equal(report.latestSnapshots.length, 1);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });

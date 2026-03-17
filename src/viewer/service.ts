@@ -11,11 +11,13 @@ import type {
   WorkflowCluster,
   WorkflowFeedbackSummary,
   WorkflowReport,
+  WorkflowReportComparison,
 } from "../domain/types.js";
 import { applyWorkflowFeedbackToClusters } from "../feedback/service.js";
 import type { AnalysisResult } from "../pipeline/analyze.js";
 import { analyzeRawEvents } from "../pipeline/analyze.js";
 import { buildWorkflowReportFromAnalysis } from "../reporting/report.js";
+import { buildWorkflowReportComparisonFromDatabase } from "../reporting/service.js";
 import { resolveReportTimeWindow } from "../reporting/windows.js";
 import type { AppDatabase } from "../storage/database.js";
 
@@ -70,6 +72,7 @@ export interface ViewerDashboard {
   rawEventCount: number;
   latestEventAt?: string | undefined;
   report: WorkflowReport;
+  comparison?: WorkflowReportComparison | undefined;
   reviewableWorkflows: ViewerWorkflowSummary[];
   sessionSummaries: ViewerSessionSummary[];
   agentHealth: AgentHealthReport;
@@ -224,6 +227,7 @@ export function buildViewerDashboard(
     rawEventCount: rawEvents.length,
     latestEventAt: rawEvents[rawEvents.length - 1]?.timestamp,
     report,
+    comparison: buildWorkflowReportComparisonFromDatabase(database, options),
     reviewableWorkflows: buildViewerWorkflowSummaries(
       analysisResult,
       report,

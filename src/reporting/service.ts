@@ -1,6 +1,11 @@
-import type { ReportSnapshot, ReportWindow, WorkflowReport } from "../domain/types.js";
+import type {
+  ReportSnapshot,
+  ReportWindow,
+  WorkflowReport,
+  WorkflowReportComparison,
+} from "../domain/types.js";
 import type { AppDatabase } from "../storage/database.js";
-import { buildWorkflowReport } from "./report.js";
+import { buildWorkflowReport, buildWorkflowReportComparison } from "./report.js";
 import { resolveReportTimeWindow } from "./windows.js";
 
 export interface BuildStoredWorkflowReportOptions {
@@ -14,6 +19,8 @@ export interface BuildStoredWorkflowReportOptions {
 }
 
 export interface GenerateSnapshotOptions extends BuildStoredWorkflowReportOptions {}
+export interface BuildStoredWorkflowReportComparisonOptions
+  extends BuildStoredWorkflowReportOptions {}
 
 export interface SchedulerCycleOptions {
   windows?: ReportWindow[] | undefined;
@@ -49,6 +56,39 @@ export function buildWorkflowReportFromDatabase(
       feedbackByClusterId: database.listWorkflowFeedbackSummary(),
     },
   });
+}
+
+function shiftReportDate(reportDate: string, dayDelta: number): string {
+  const [year, month, day] = reportDate.split("-").map((value) => Number.parseInt(value, 10));
+  const shiftedDate = new Date(Date.UTC(year ?? 0, (month ?? 1) - 1, day ?? 1));
+
+  shiftedDate.setUTCDate(shiftedDate.getUTCDate() + dayDelta);
+
+  return shiftedDate.toISOString().slice(0, 10);
+}
+
+export function buildWorkflowReportComparisonFromDatabase(
+  database: AppDatabase,
+  options: BuildStoredWorkflowReportComparisonOptions = {},
+): WorkflowReportComparison | undefined {
+  const currentReport = buildWorkflowReportFromDatabase(database, options);
+  const window = currentReport.timeWindow.window;
+  const dayDelta = window === "day" ? -1 : window === "week" ? -7 : undefined;
+
+  if (dayDelta === undefined) {
+    return undefined;
+  }
+
+  const previousReport = buildWorkflowReportFromDatabase(database, {
+    window,
+    date: shiftReportDate(currentReport.timeWindow.reportDate, dayDelta),
+    includeExcluded: options.includeExcluded,
+    includeHidden: options.includeHidden,
+    timezone: currentReport.timeWindow.timezone,
+    timezoneOffsetMinutes: currentReport.timeWindow.timezoneOffsetMinutes,
+  });
+
+  return buildWorkflowReportComparison(currentReport, previousReport);
 }
 
 export function generateReportSnapshot(

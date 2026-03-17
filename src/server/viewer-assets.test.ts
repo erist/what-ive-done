@@ -7,6 +7,8 @@ test("renderViewerHtml exposes the feedback review surface", () => {
   const html = renderViewerHtml();
 
   assert.match(html, /Feedback Queue/u);
+  assert.match(html, /Comparison View/u);
+  assert.match(html, /comparison-view/u);
   assert.match(html, /feedback-workflow-list/u);
   assert.match(html, /workflow-detail/u);
 });

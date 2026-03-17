@@ -234,6 +234,7 @@ export interface AutomationHint {
 
 export interface ReportEntry {
   workflowClusterId: string;
+  workflowSignature: string;
   workflowName: string;
   businessPurpose?: string | undefined;
   frequency: number;
@@ -251,6 +252,8 @@ export interface ReportEntry {
   automationSuitability: AutomationSuitability;
   recommendedApproach: string;
   automationHints: AutomationHint[];
+  automationCandidate?: boolean | undefined;
+  approvedAutomationCandidate?: boolean | undefined;
 }
 
 export interface ReportTimeWindow {
@@ -284,6 +287,36 @@ export interface WorkflowReport {
     quickWinAutomationCandidates: ReportEntry[];
     workflowsNeedingHumanJudgment: ReportEntry[];
   };
+}
+
+export interface WorkflowReportComparisonEntry {
+  workflowClusterId?: string | undefined;
+  workflowSignature: string;
+  workflowName: string;
+  previousWorkflowName?: string | undefined;
+  currentFrequency: number;
+  previousFrequency: number;
+  frequencyDelta: number;
+  currentTotalDurationSeconds: number;
+  previousTotalDurationSeconds: number;
+  totalDurationDeltaSeconds: number;
+  approvedAutomationCandidate?: boolean | undefined;
+}
+
+export interface WorkflowReportComparison {
+  currentTimeWindow: ReportTimeWindow;
+  previousTimeWindow: ReportTimeWindow;
+  summary: {
+    sessionDelta: number;
+    trackedDurationDeltaSeconds: number;
+    confirmedWorkflowDelta: number;
+    emergingWorkflowDelta: number;
+    approvedCandidateWorkflowDelta: number;
+    approvedCandidateTimeDeltaSeconds: number;
+  };
+  newlyAppearedWorkflows: WorkflowReportComparisonEntry[];
+  disappearedWorkflows: WorkflowReportComparisonEntry[];
+  approvedCandidateChanges: WorkflowReportComparisonEntry[];
 }
 
 export interface ReportSnapshot extends WorkflowReport {
