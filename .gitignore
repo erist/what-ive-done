@@ -2,6 +2,8 @@ node_modules/
 dist/
 coverage/
 .DS_Store
+.codex/
+tmp/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
