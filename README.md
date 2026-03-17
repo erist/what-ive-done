@@ -23,6 +23,7 @@ This repository provides a TypeScript CLI plus a resident local agent. Together 
 - Chrome extension path for browser metadata ingestion
 - Chrome browser context substrate with SPA route taxonomy, opaque document-type hashes, tab-order metadata, and signal-only dwell segments
 - versioned domain-pack registry with stable route families and coverage diagnostics
+- versioned action-pack registry with unknown-action coverage ops and offline suggestion prompts
 - golden workflow fixtures and debug trace CLI for quality regression
 - deterministic event normalization and semantic action abstraction
 - explainable session segmentation with boundary reasons
@@ -140,6 +141,8 @@ npm run dev -- viewer:open --data-dir ./tmp/live-data
 npm run dev -- debug:raw:list --data-dir ./tmp/live-data --limit 10
 npm run dev -- debug:normalized:list --data-dir ./tmp/live-data --limit 10
 npm run dev -- domain-pack:report --data-dir ./tmp/live-data --limit 10
+npm run dev -- action:coverage --data-dir ./tmp/live-data --limit 10
+npm run dev -- action:suggest --data-dir ./tmp/live-data --limit 10
 npm run dev -- report:snapshot:list --data-dir ./tmp/live-data --json
 npm run dev -- report:snapshot:show --data-dir ./tmp/live-data --window week --latest --json
 ```
@@ -156,6 +159,8 @@ Quality tracing flow:
 npm run dev -- analyze --data-dir ./tmp/local-data
 npm run dev -- domain-pack:test ./fixtures/domain-packs/google-sheets.ndjson
 npm run dev -- domain-pack:report --data-dir ./tmp/local-data --limit 10
+npm run dev -- action:coverage --data-dir ./tmp/local-data --limit 10
+npm run dev -- action:suggest --data-dir ./tmp/local-data --limit 10
 npm run dev -- debug:raw:list --data-dir ./tmp/local-data --limit 10
 npm run dev -- debug:trace:raw <raw-event-id> --data-dir ./tmp/local-data
 npm run dev -- debug:trace:session <session-id> --data-dir ./tmp/local-data
@@ -228,6 +233,7 @@ Chrome browser context expansion stores only normalized route taxonomy, opaque d
 - 브라우저 메타데이터 수집용 Chrome extension 경로
 - SPA route taxonomy, opaque document-type hash, tab-order metadata, signal-only dwell segment를 담는 Chrome browser context substrate
 - stable route family와 coverage 진단을 위한 versioned domain-pack registry
+- `unknown_action` coverage 운영과 offline suggestion prompt를 위한 versioned action-pack registry
 - golden workflow fixture와 debug trace CLI
 - deterministic event normalization과 semantic action abstraction
 - boundary reason이 있는 session segmentation
@@ -345,6 +351,8 @@ npm run dev -- viewer:open --data-dir ./tmp/live-data
 npm run dev -- debug:raw:list --data-dir ./tmp/live-data --limit 10
 npm run dev -- debug:normalized:list --data-dir ./tmp/live-data --limit 10
 npm run dev -- domain-pack:report --data-dir ./tmp/live-data --limit 10
+npm run dev -- action:coverage --data-dir ./tmp/live-data --limit 10
+npm run dev -- action:suggest --data-dir ./tmp/live-data --limit 10
 npm run dev -- report:snapshot:list --data-dir ./tmp/live-data --json
 npm run dev -- report:snapshot:show --data-dir ./tmp/live-data --window week --latest --json
 ```
@@ -361,6 +369,8 @@ npm run dev -- server:run --data-dir ./tmp/live-data --host 127.0.0.1 --port 431
 npm run dev -- analyze --data-dir ./tmp/local-data
 npm run dev -- domain-pack:test ./fixtures/domain-packs/google-sheets.ndjson
 npm run dev -- domain-pack:report --data-dir ./tmp/local-data --limit 10
+npm run dev -- action:coverage --data-dir ./tmp/local-data --limit 10
+npm run dev -- action:suggest --data-dir ./tmp/local-data --limit 10
 npm run dev -- debug:raw:list --data-dir ./tmp/local-data --limit 10
 npm run dev -- debug:trace:raw <raw-event-id> --data-dir ./tmp/local-data
 npm run dev -- debug:trace:session <session-id> --data-dir ./tmp/local-data

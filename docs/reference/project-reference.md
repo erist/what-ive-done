@@ -23,6 +23,7 @@ Implemented today:
 - Chrome extension scaffold for browser activity metadata
 - Chrome browser context collection with route taxonomy, document-type hash, tab-order metadata, and signal-only dwell segments
 - versioned domain-pack registry with stable route families and coverage diagnostics
+- versioned action-pack registry with coverage reporting and offline suggestion prompts
 - golden workflow fixtures and debug trace commands
 - Windows PowerShell active-window collector path
 - macOS Swift active-window collector path with permission checks and one-shot capture
@@ -85,7 +86,7 @@ The resident agent is implemented under `src/agent/`.
 1. Raw events are collected from mock data, imported files, the local ingest server, or desktop collectors.
 2. Sensitive fields are sanitized before they are written to SQLite.
 3. Raw events are normalized into stable context fields such as app alias, path pattern, route family, page type, resource hint, and title pattern.
-4. Normalized events are mapped into semantic action labels with confidence and source metadata.
+4. Normalized events are mapped into semantic action labels with action-pack, page-type, generic, or `unknown_action` match metadata.
 5. Events are grouped into sessions with explainable boundary reasons.
 6. Similar sessions are clustered into workflows with representative sequences, variants, confidence, and automation hints.
 7. Reports, snapshots, and safe LLM summary payloads are generated from those workflow clusters.
@@ -95,6 +96,14 @@ Normalized browser events now persist a versioned domain-pack match surface:
 - `route_family`
 - `domain_pack_id`
 - `domain_pack_version`
+
+Normalized events also persist action-match metadata under `metadata.actionMatch`:
+
+- `layer`
+- `packId`
+- `packVersion`
+- `ruleId`
+- `strategy` or `reason`
 
 Current heuristic defaults in code:
 
@@ -109,6 +118,7 @@ Quality debugging now has two fixed surfaces:
 
 - `fixtures/golden/` contains representative workflow fixtures used as regression gates.
 - `fixtures/domain-packs/` contains route-family fixture sets used to verify domain-pack coverage.
+- golden fixtures now cover Google Sheets and BigQuery semantic action sequences in addition to the existing admin and desktop cases.
 - debug CLI commands expose `raw -> normalized -> action -> session -> workflow cluster` transitions.
 
 Debug flow:
@@ -117,6 +127,8 @@ Debug flow:
 npm run dev -- analyze --data-dir ./tmp/local-data
 npm run dev -- domain-pack:test ./fixtures/domain-packs/google-sheets.ndjson
 npm run dev -- domain-pack:report --data-dir ./tmp/local-data --limit 10
+npm run dev -- action:coverage --data-dir ./tmp/local-data --limit 10
+npm run dev -- action:suggest --data-dir ./tmp/local-data --limit 10
 npm run dev -- debug:raw:list --data-dir ./tmp/local-data --limit 10
 npm run dev -- debug:normalized:list --data-dir ./tmp/local-data --limit 10
 npm run dev -- debug:trace:raw <raw-event-id> --data-dir ./tmp/local-data
@@ -149,6 +161,32 @@ Useful commands:
 ```bash
 npm run dev -- domain-pack:test ./fixtures/domain-packs/google-sheets.ndjson
 npm run dev -- domain-pack:report --data-dir ./tmp/local-data --limit 10
+```
+
+## Action Pack Substrate
+
+Action packs provide the deterministic semantic-action layer that sits on top of domain packs.
+
+- action matching order
+  - `domain_pack`
+  - `page_type`
+  - `generic`
+  - `unknown_action`
+- current packs
+  - `makestar-admin`
+  - `google-sheets`
+  - `bigquery`
+  - `general-web`
+  - `desktop-productivity`
+- current operational outputs
+  - `action:coverage` for layer, pack, and top-workflow unknown rates
+  - `action:suggest` for offline review prompts built from the unknown-action queue
+
+Useful commands:
+
+```bash
+npm run dev -- action:coverage --data-dir ./tmp/local-data --limit 10
+npm run dev -- action:suggest --data-dir ./tmp/local-data --limit 10
 ```
 
 ## Ingest Security

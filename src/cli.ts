@@ -35,6 +35,11 @@ import {
   buildWorkflowClusterTrace,
 } from "./debug/trace.js";
 import {
+  buildActionSuggestionPrompt,
+  describeActionMatchMetadata,
+  inspectActionCoverage,
+} from "./action-packs/service.js";
+import {
   inspectDomainPackCoverage,
   rawEventInputsToRawEvents,
 } from "./domain-packs/service.js";
@@ -589,18 +594,24 @@ function renderNormalizedEventList(options: {
   }
 
   console.table(
-    events.map((event) => ({
-      id: event.id,
-      rawEventId: event.rawEventId,
-      timestamp: event.timestamp,
-      application: event.application,
-      domainPackId: event.domainPackId ?? "",
-      routeFamily: event.routeFamily ?? "",
-      pageType: event.pageType ?? "",
-      resourceHint: event.resourceHint ?? "",
-      actionName: event.actionName,
-      actionSource: event.actionSource,
-    })),
+    events.map((event) => {
+      const actionMatch = describeActionMatchMetadata(event);
+
+      return {
+        id: event.id,
+        rawEventId: event.rawEventId,
+        timestamp: event.timestamp,
+        application: event.application,
+        domainPackId: event.domainPackId ?? "",
+        routeFamily: event.routeFamily ?? "",
+        pageType: event.pageType ?? "",
+        resourceHint: event.resourceHint ?? "",
+        actionName: event.actionName,
+        actionSource: event.actionSource,
+        actionLayer: actionMatch?.layer ?? "",
+        actionPackId: actionMatch?.packId ?? "",
+      };
+    }),
   );
 }
 
@@ -653,6 +664,114 @@ function renderDomainPackInspection(
       })),
     );
   }
+}
+
+function renderActionCoverage(
+  result: ReturnType<typeof inspectActionCoverage>,
+  options: { json?: boolean | undefined; limit?: number | undefined } = {},
+): void {
+  const limit = options.limit ?? 10;
+
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  console.log(
+    JSON.stringify(
+      {
+        totalEvents: result.coverage.totalEvents,
+        unknownEventCount: result.coverage.unknownEventCount,
+        unknownRate: result.coverage.unknownRate,
+      },
+      null,
+      2,
+    ),
+  );
+
+  if (result.coverage.layers.length > 0) {
+    console.table(
+      result.coverage.layers.map((entry) => ({
+        layer: entry.layer,
+        eventCount: entry.eventCount,
+        rate: entry.rate.toFixed(2),
+      })),
+    );
+  }
+
+  if (result.coverage.packs.length > 0) {
+    console.table(
+      result.coverage.packs.slice(0, limit).map((entry) => ({
+        packId: entry.packId,
+        eventCount: entry.eventCount,
+        unknownEventCount: entry.unknownEventCount,
+        unknownRate: entry.unknownRate.toFixed(2),
+      })),
+    );
+  }
+
+  if (result.coverage.topWorkflows.length > 0) {
+    console.table(
+      result.coverage.topWorkflows.slice(0, limit).map((entry) => ({
+        workflow: entry.workflowName,
+        frequency: entry.frequency,
+        unknownActionCount: entry.unknownActionCount,
+        totalActionCount: entry.totalActionCount,
+        unknownRate: entry.unknownRate.toFixed(2),
+        sequence: entry.representativeSequence.join(" -> "),
+      })),
+    );
+  }
+
+  if (result.reviewQueue.length > 0) {
+    console.table(
+      result.reviewQueue.slice(0, limit).map((entry) => ({
+        queueId: entry.queueId,
+        occurrences: entry.occurrences,
+        application: entry.application,
+        eventType: entry.eventType,
+        domainPackId: entry.domainPackId ?? "",
+        routeFamily: entry.routeFamily ?? "",
+        pageType: entry.pageType ?? "",
+        sampleTargets: entry.sampleTargets.join(", "),
+      })),
+    );
+  }
+}
+
+function renderActionSuggestion(
+  result: ReturnType<typeof inspectActionCoverage>,
+  options: { json?: boolean | undefined; limit?: number | undefined } = {},
+): void {
+  const payload = {
+    reviewQueue: result.reviewQueue.slice(0, options.limit ?? 10),
+    prompt: buildActionSuggestionPrompt(result.reviewQueue, {
+      limit: options.limit,
+    }),
+  };
+
+  if (options.json) {
+    console.log(JSON.stringify(payload, null, 2));
+    return;
+  }
+
+  if (payload.reviewQueue.length === 0) {
+    console.log(payload.prompt);
+    return;
+  }
+
+  console.table(
+    payload.reviewQueue.map((entry) => ({
+      queueId: entry.queueId,
+      occurrences: entry.occurrences,
+      application: entry.application,
+      eventType: entry.eventType,
+      routeFamily: entry.routeFamily ?? "",
+      pageType: entry.pageType ?? "",
+      sampleTargets: entry.sampleTargets.join(", "),
+    })),
+  );
+  console.log(payload.prompt);
 }
 
 function renderWorkflowSummaryPayloads(
@@ -1342,6 +1461,36 @@ program
     const rawEvents = withDatabase(options.dataDir, (database) => database.getRawEventsChronological());
 
     renderDomainPackInspection(inspectDomainPackCoverage(rawEvents), {
+      limit: Number.parseInt(options.limit, 10),
+      json: options.json,
+    });
+  });
+
+program
+  .command("action:coverage")
+  .description("Show semantic action coverage, unknown_action rates, and review queue data")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--limit <count>", "Maximum number of rows to print per table", "10")
+  .option("--json", "Print machine-readable JSON")
+  .action((options: { dataDir?: string; limit: string; json?: boolean }) => {
+    const rawEvents = withDatabase(options.dataDir, (database) => database.getRawEventsChronological());
+
+    renderActionCoverage(inspectActionCoverage(rawEvents), {
+      limit: Number.parseInt(options.limit, 10),
+      json: options.json,
+    });
+  });
+
+program
+  .command("action:suggest")
+  .description("Build an offline review prompt for unknown_action patterns")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--limit <count>", "Maximum number of review queue items to include", "10")
+  .option("--json", "Print machine-readable JSON")
+  .action((options: { dataDir?: string; limit: string; json?: boolean }) => {
+    const rawEvents = withDatabase(options.dataDir, (database) => database.getRawEventsChronological());
+
+    renderActionSuggestion(inspectActionCoverage(rawEvents), {
       limit: Number.parseInt(options.limit, 10),
       json: options.json,
     });
