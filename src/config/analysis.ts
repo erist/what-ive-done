@@ -28,6 +28,8 @@ export interface SessionSegmentationConfig {
   contextShiftThresholdMs: number;
   interruptionResetThresholdMs: number;
   significantContextScore: number;
+  rollingWindowMs: number;
+  rollingMinimumGapMs: number;
 }
 
 export const DEFAULT_NORMALIZATION_CONFIG: NormalizationConfig = {
@@ -110,4 +112,6 @@ export const DEFAULT_SESSION_SEGMENTATION_CONFIG: SessionSegmentationConfig = {
   contextShiftThresholdMs: 75 * 1000,
   interruptionResetThresholdMs: 60 * 1000,
   significantContextScore: 2,
+  rollingWindowMs: 5 * 60 * 1000,
+  rollingMinimumGapMs: 45 * 1000,
 };

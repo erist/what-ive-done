@@ -1,4 +1,5 @@
 import type { RawEventInput } from "../domain/types.js";
+import { sanitizeCalendarSignal } from "../calendar/signals.js";
 import { deriveBrowserCanonicalFields } from "./browser.js";
 
 const SENSITIVE_KEY_PATTERN =
@@ -183,6 +184,14 @@ export function sanitizeMetadata(metadata: Record<string, unknown> | undefined):
     sanitized.browserContext = browserContext;
   } else {
     delete sanitized.browserContext;
+  }
+
+  const calendarSignal = sanitizeCalendarSignal(sanitized.calendarSignal);
+
+  if (calendarSignal) {
+    sanitized.calendarSignal = calendarSignal;
+  } else {
+    delete sanitized.calendarSignal;
   }
 
   return sanitized;

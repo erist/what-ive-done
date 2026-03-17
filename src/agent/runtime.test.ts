@@ -64,6 +64,9 @@ test("startAgentRuntime publishes heartbeat state and clears the lock on stop", 
   let collectorStopped = false;
   let snapshotSchedulerStopped = false;
   let promptAccessibility: boolean | undefined;
+  let enableGWSCalendar: boolean | undefined;
+  let gwsCalendarId: string | undefined;
+  let gwsCalendarPollIntervalMs: number | undefined;
 
   try {
     const runtime = await startAgentRuntime({
@@ -71,6 +74,9 @@ test("startAgentRuntime publishes heartbeat state and clears the lock on stop", 
       heartbeatIntervalMs: 20,
       handleSignals: false,
       promptAccessibility: true,
+      enableGWSCalendar: true,
+      gwsCalendarId: "primary",
+      gwsCalendarPollIntervalMs: 60_000,
       ingestServerFactory: async () => ({
         host: "127.0.0.1",
         port: 4318,
@@ -87,8 +93,18 @@ test("startAgentRuntime publishes heartbeat state and clears the lock on stop", 
           ingestServerClosed = true;
         },
       }),
-      collectorSupervisorFactory: async ({ ingestUrl, onCollectorStateChange, promptAccessibility: prompt }) => {
+      collectorSupervisorFactory: async ({
+        ingestUrl,
+        onCollectorStateChange,
+        promptAccessibility: prompt,
+        enableGWSCalendar: enabledGWS,
+        gwsCalendarId: calendarId,
+        gwsCalendarPollIntervalMs: calendarPollIntervalMs,
+      }) => {
         promptAccessibility = prompt;
+        enableGWSCalendar = enabledGWS;
+        gwsCalendarId = calendarId;
+        gwsCalendarPollIntervalMs = calendarPollIntervalMs;
         const collectorState = {
           id: "macos-active-window",
           platform: "macos",
@@ -146,6 +162,9 @@ test("startAgentRuntime publishes heartbeat state and clears the lock on stop", 
     assert.equal(initialStatus.state?.collectors[0]?.status, "running");
     assert.equal(initialStatus.state?.snapshotScheduler?.status, "running");
     assert.equal(promptAccessibility, true);
+    assert.equal(enableGWSCalendar, true);
+    assert.equal(gwsCalendarId, "primary");
+    assert.equal(gwsCalendarPollIntervalMs, 60_000);
     assert.equal(
       initialStatus.state?.ingestServer?.eventsUrl,
       "http://127.0.0.1:4318/events",

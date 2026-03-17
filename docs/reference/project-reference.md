@@ -27,9 +27,10 @@ Implemented today:
 - golden workflow fixtures and debug trace commands
 - Windows PowerShell active-window collector path
 - macOS Swift active-window collector path with permission checks and one-shot capture
+- optional `gws` Calendar boundary collector with install/auth diagnostics
 - resident local agent runtime with persisted heartbeat and health state
 - agent-managed ingest server lifecycle
-- collector supervision for macOS and Windows command paths
+- collector supervision for macOS, Windows, and optional `gws` command paths
 - agent-managed snapshot scheduler
 - normalization, semantic action abstraction, sessionization, workflow clustering, and all-time/daily/weekly reporting
 - persisted daily and weekly report snapshots
@@ -87,7 +88,7 @@ The resident agent is implemented under `src/agent/`.
 2. Sensitive fields are sanitized before they are written to SQLite.
 3. Raw events are normalized into stable context fields such as app alias, path pattern, route family, page type, resource hint, and title pattern.
 4. Normalized events are mapped into semantic action labels with action-pack, page-type, generic, or `unknown_action` match metadata.
-5. Events are grouped into sessions with explainable boundary reasons.
+5. Events are grouped into sessions with rolling-context suppression and explainable boundary reasons.
 6. Similar sessions are clustered into workflows with representative sequences, variants, confidence, and automation hints.
 7. Reports, snapshots, and safe LLM summary payloads are generated from those workflow clusters.
 
@@ -109,6 +110,8 @@ Current heuristic defaults in code:
 
 - session inactivity split: 150 seconds
 - context-shift split: 75 seconds with significant context change
+- rolling context window: 300 seconds
+- rolling-context suppression minimum gap: 45 seconds
 - minimum workflow session duration: 45 seconds
 - minimum workflow frequency: 3 similar sessions within 7 days
 
@@ -202,6 +205,7 @@ Useful commands:
 ```bash
 npm run dev -- ingest:token --data-dir ./tmp/live-data --rotate
 npm run dev -- doctor --data-dir ./tmp/live-data
+npm run dev -- doctor --data-dir ./tmp/live-data --gws-calendar-id primary
 npm run dev -- server:run --data-dir ./tmp/live-data --verbose
 ```
 
@@ -236,6 +240,34 @@ Privacy note:
 
 - [Chrome Context Privacy Review](./chrome-context-privacy-review.md)
 
+## Calendar Boundary Signals
+
+The optional Calendar collector uses the local `gws` CLI as a thin adapter.
+
+- `doctor` now reports whether `gws` is installed, authenticated, and has Calendar scope.
+- `collector:gws:calendar:info` prints diagnostics, runner paths, and example commands.
+- `agent:run --gws-calendar` enables a cross-platform collector process that polls the selected calendar.
+- meeting start/end events are stored as signal-only metadata and do not become workflow steps.
+- the next real workflow event after a meeting signal can start a new session with `sessionBoundaryReason = calendar_signal`.
+
+Stored `metadata.calendarSignal` fields are privacy-safe only:
+
+- `signalType`
+- `eventIdHash`
+- `summaryHash`
+- `startAt`
+- `endAt`
+- `attendeesCount`
+- `signalOnly`
+
+Useful commands:
+
+```bash
+npm run dev -- doctor --data-dir ./tmp/live-data --gws-calendar-id primary
+npm run dev -- collector:gws:calendar:info --calendar-id primary --json
+npm run dev -- agent:run --data-dir ./tmp/live-data --gws-calendar --gws-calendar-id primary
+```
+
 ## Report Scope
 
 Current report behavior:
@@ -261,6 +293,7 @@ Collected metadata:
 - opaque document-type hash
 - tab-order metadata
 - dwell duration and timestamps
+- hashed calendar meeting boundary metadata
 - event action and target hints
 - timestamps
 - session structure
@@ -285,6 +318,7 @@ Requirements:
 - Chrome for live browser collection
 - Windows PowerShell for the Windows active-window collector
 - Xcode or Xcode Command Line Tools with Swift for the macOS active-window collector
+- optional `gws` CLI with Calendar OAuth scope for meeting boundary signals
 - provider API key env vars such as `OPENAI_API_KEY`, `GEMINI_API_KEY`/`GOOGLE_API_KEY`, and `ANTHROPIC_API_KEY` when no key is stored in secure storage
 
 Install:
@@ -317,6 +351,13 @@ Run the resident agent:
 ```bash
 npm run dev -- ingest:token --data-dir ./tmp/live-data --rotate
 npm run dev -- agent:run --data-dir ./tmp/live-data --verbose
+```
+
+Enable optional Calendar boundaries:
+
+```bash
+npm run dev -- doctor --data-dir ./tmp/live-data --gws-calendar-id primary
+npm run dev -- agent:run --data-dir ./tmp/live-data --gws-calendar --gws-calendar-id primary
 ```
 
 Run the resident agent and open the local browser viewer:
@@ -459,7 +500,7 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 
 | Command | Description |
 | --- | --- |
-| `doctor` | Print runtime information, storage paths, and ingest security status. |
+| `doctor` | Print runtime information, storage paths, ingest security status, and optional `gws` diagnostics. |
 | `init` | Initialize local SQLite storage. |
 | `collect:mock` | Insert deterministic sample events for testing. |
 | `collect:macos:once` | Capture the current macOS frontmost app once and store it. |
@@ -483,6 +524,7 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 | `debug:trace:session` | Trace one session back to raw events and its cluster. |
 | `debug:trace:workflow` | Trace one workflow cluster to member sessions and boundaries. |
 | `collector:list` | List available collectors and scripts. |
+| `collector:gws:calendar:info` | Show `gws` Calendar collector diagnostics, usage, and file paths. |
 | `collector:macos:check` | Check macOS collector permission status. |
 | `collector:macos:info` | Show macOS collector usage, permissions, and file paths. |
 | `collector:windows:info` | Show Windows collector usage and file paths. |
@@ -530,8 +572,11 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 - `src/importers/events.ts`: JSON and NDJSON event import
 - `src/collectors/mock.ts`: deterministic mock event generator
 - `src/collectors/index.ts`: shared collector registry
+- `src/collectors/gws-calendar.ts`: `gws` Calendar diagnostics and meeting signal helpers
+- `src/collectors/gws-calendar-runner.ts`: optional Calendar collector runner
 - `src/collectors/macos.ts`: macOS collector metadata and script lookup
 - `src/collectors/windows.ts`: Windows collector metadata and script lookup
+- `src/calendar/signals.ts`: privacy-safe Calendar signal metadata helpers
 - `collectors/macos/active-window-collector.swift`: macOS active-window collector script
 - `collectors/windows/active-window-collector.ps1`: Windows active-window collector script
 - `src/pipeline/normalize.ts`: raw event normalization

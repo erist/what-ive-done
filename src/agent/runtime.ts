@@ -13,6 +13,9 @@ export interface StartCollectorSupervisorOptions {
   ingestAuthToken?: string | undefined;
   processPlatform?: NodeJS.Platform | undefined;
   pollIntervalMs?: number | undefined;
+  enableGWSCalendar?: boolean | undefined;
+  gwsCalendarId?: string | undefined;
+  gwsCalendarPollIntervalMs?: number | undefined;
   promptAccessibility?: boolean | undefined;
   restartDelayMs?: number | undefined;
   verbose?: boolean | undefined;
@@ -37,6 +40,9 @@ export interface StartAgentRuntimeOptions {
   ingestRateLimitMaxRequests?: number | undefined;
   collectorPollIntervalMs?: number | undefined;
   collectorRestartDelayMs?: number | undefined;
+  enableGWSCalendar?: boolean | undefined;
+  gwsCalendarId?: string | undefined;
+  gwsCalendarPollIntervalMs?: number | undefined;
   promptAccessibility?: boolean | undefined;
   enableCollectors?: boolean | undefined;
   snapshotWindows?: ReportWindow[] | undefined;
@@ -174,6 +180,9 @@ export async function startAgentRuntime(
         ingestAuthToken: ingestServer.authToken,
         processPlatform: process.platform,
         pollIntervalMs: options.collectorPollIntervalMs,
+        enableGWSCalendar: options.enableGWSCalendar,
+        gwsCalendarId: options.gwsCalendarId,
+        gwsCalendarPollIntervalMs: options.gwsCalendarPollIntervalMs,
         promptAccessibility: options.promptAccessibility,
         restartDelayMs: options.collectorRestartDelayMs,
         verbose: options.verbose,

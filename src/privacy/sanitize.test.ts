@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { hashCalendarField } from "../calendar/signals.js";
 import { sanitizeRawEvent } from "./sanitize.js";
 
 test("sanitizeRawEvent drops non-allowlisted query params and derives browser v2 fields", () => {
@@ -134,5 +135,42 @@ test("sanitizeRawEvent keeps only approved browser context metadata fields", () 
       },
       signalOnly: true,
     },
+  });
+});
+
+test("sanitizeRawEvent keeps only privacy-safe calendar signal metadata fields", () => {
+  const sanitized = sanitizeRawEvent({
+    source: "calendar",
+    sourceEventType: "calendar.meeting.start",
+    timestamp: "2026-03-17T09:00:00.000Z",
+    application: "gws-calendar",
+    action: "calendar_signal",
+    target: "meeting_start",
+    metadata: {
+      calendarSignal: {
+        signalType: "meeting_start",
+        eventIdHash: hashCalendarField("event-123"),
+        summaryHash: hashCalendarField("Quarterly planning"),
+        startAt: "2026-03-17T09:00:00.000Z",
+        endAt: "2026-03-17T10:00:00.000Z",
+        attendeesCount: 7,
+        signalOnly: true,
+        rawSummary: "Quarterly planning",
+      },
+      sessionCookie: "drop-me",
+    },
+  });
+
+  assert.deepEqual(sanitized.metadata, {
+    calendarSignal: {
+      signalType: "meeting_start",
+      eventIdHash: hashCalendarField("event-123"),
+      summaryHash: hashCalendarField("Quarterly planning"),
+      startAt: "2026-03-17T09:00:00.000Z",
+      endAt: "2026-03-17T10:00:00.000Z",
+      attendeesCount: 7,
+      signalOnly: true,
+    },
+    sessionCookie: "[REDACTED]",
   });
 });

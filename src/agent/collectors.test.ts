@@ -128,6 +128,27 @@ test("startCollectorSupervisor forwards macOS accessibility prompt configuration
   await supervisor.stop();
 });
 
+test("buildManagedCollectorSpecs adds the optional gws calendar collector when enabled", () => {
+  const specs = buildManagedCollectorSpecs({
+    ingestUrl: "http://127.0.0.1:4318/events",
+    ingestAuthToken: "fixture-token",
+    processPlatform: "linux",
+    enableGWSCalendar: true,
+    gwsCalendarId: "team-calendar@example.com",
+    gwsCalendarPollIntervalMs: 45_000,
+  });
+
+  assert.equal(specs.length, 1);
+  assert.equal(specs[0]?.id, "gws-calendar");
+  assert.equal(specs[0]?.command, process.execPath);
+  assert.deepEqual(specs[0]?.args.slice(-4), [
+    "--calendar-id",
+    "team-calendar@example.com",
+    "--poll-interval-ms",
+    "45000",
+  ]);
+});
+
 test("startCollectorSupervisor returns no managed collectors on unsupported platforms", async () => {
   const supervisor = await startCollectorSupervisor({
     ingestUrl: "http://127.0.0.1:4318/events",
