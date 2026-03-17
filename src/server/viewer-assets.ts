@@ -78,6 +78,21 @@ export function renderViewerHtml(): string {
           <div id="snapshot-list" class="card-list"></div>
         </section>
 
+        <section class="panel panel-span-2">
+          <div class="section-header">
+            <div>
+              <p class="section-title">Feedback Queue</p>
+              <p class="section-subtitle">Review one workflow at a time without touching the CLI.</p>
+            </div>
+          </div>
+          <div class="feedback-layout">
+            <div id="feedback-workflow-list" class="feedback-workflow-list"></div>
+            <div id="workflow-detail" class="workflow-detail empty-detail">
+              Select a workflow to review its current label, visibility state, and automation hints.
+            </div>
+          </div>
+        </section>
+
         <section class="panel">
           <div class="section-header">
             <div>
@@ -160,7 +175,8 @@ body {
 
 button,
 select,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -228,6 +244,7 @@ input {
 
 select,
 input,
+textarea,
 button {
   min-height: 44px;
   border-radius: 14px;
@@ -244,6 +261,12 @@ button {
   color: white;
   font-weight: 600;
   box-shadow: 0 10px 24px rgba(21, 94, 117, 0.24);
+}
+
+textarea {
+  min-height: 112px;
+  padding: 12px 14px;
+  resize: vertical;
 }
 
 .error-banner {
@@ -592,6 +615,92 @@ td strong {
   gap: 16px;
 }
 
+.feedback-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 360px) 1fr;
+  gap: 16px;
+}
+
+.feedback-workflow-list {
+  display: grid;
+  gap: 10px;
+  max-height: 680px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.workflow-review-button {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(29, 36, 31, 0.08);
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--text);
+  box-shadow: none;
+}
+
+.workflow-review-button.active {
+  border-color: rgba(15, 118, 110, 0.28);
+  background: rgba(15, 118, 110, 0.08);
+}
+
+.workflow-review-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workflow-review-button strong,
+.workflow-detail h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.workflow-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.workflow-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.08);
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.workflow-chip.subtle {
+  background: rgba(29, 36, 31, 0.08);
+  color: var(--muted);
+}
+
+.workflow-chip.warn {
+  background: rgba(180, 83, 9, 0.12);
+  color: var(--warn);
+}
+
+.workflow-chip.hidden-state {
+  background: rgba(185, 28, 28, 0.12);
+  color: var(--error);
+}
+
+.workflow-review-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
 .session-list {
   display: grid;
   gap: 10px;
@@ -634,6 +743,14 @@ td strong {
   border: 1px solid rgba(29, 36, 31, 0.08);
 }
 
+.workflow-detail {
+  min-height: 360px;
+  padding: 20px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(29, 36, 31, 0.08);
+}
+
 .empty-detail {
   display: flex;
   align-items: center;
@@ -645,6 +762,118 @@ td strong {
   display: grid;
   gap: 10px;
   margin-top: 18px;
+}
+
+.workflow-detail-grid,
+.hint-grid,
+.detail-stat-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.detail-stat-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 16px;
+}
+
+.detail-stat {
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: rgba(244, 239, 229, 0.66);
+  border: 1px solid rgba(29, 36, 31, 0.08);
+}
+
+.detail-stat p {
+  margin: 0;
+}
+
+.detail-stat .panel-label {
+  margin-bottom: 8px;
+}
+
+.workflow-form {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.workflow-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.field-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.field-stack label {
+  font-size: 0.84rem;
+  color: var(--muted);
+}
+
+.field-span-2 {
+  grid-column: 1 / -1;
+}
+
+.feedback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.button-secondary {
+  background: rgba(29, 36, 31, 0.08);
+  color: var(--text);
+  box-shadow: none;
+}
+
+.button-danger {
+  background: linear-gradient(135deg, #b45309, #9a3412);
+  box-shadow: 0 10px 24px rgba(180, 83, 9, 0.2);
+}
+
+.button-subtle-danger {
+  background: rgba(185, 28, 28, 0.1);
+  color: var(--error);
+  box-shadow: none;
+}
+
+.workflow-helper {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.feedback-message {
+  min-height: 1.2em;
+  margin: 0;
+  color: var(--accent);
+  font-size: 0.9rem;
+}
+
+.hint-card {
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  background: rgba(244, 239, 229, 0.66);
+  border: 1px solid rgba(29, 36, 31, 0.08);
+}
+
+.hint-card h4 {
+  margin: 0 0 8px;
+  font-size: 0.98rem;
+}
+
+.hint-card p,
+.hint-card ul {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.hint-card ul {
+  padding-left: 18px;
 }
 
 .step-card {
@@ -678,7 +907,10 @@ td strong {
   .status-panel,
   .summary-grid,
   .content-grid,
-  .sessions-layout {
+  .sessions-layout,
+  .feedback-layout,
+  .workflow-form-grid,
+  .detail-stat-grid {
     grid-template-columns: 1fr;
   }
 
@@ -703,6 +935,8 @@ const state = {
   window: "day",
   date: "",
   selectedSessionId: null,
+  selectedWorkflowId: null,
+  workflowActionMessage: "",
   refreshTimer: null,
 };
 
@@ -718,6 +952,8 @@ const elements = {
   summaryGrid: document.getElementById("summary-grid"),
   highlightsGrid: document.getElementById("highlights-grid"),
   snapshotList: document.getElementById("snapshot-list"),
+  feedbackWorkflowList: document.getElementById("feedback-workflow-list"),
+  workflowDetail: document.getElementById("workflow-detail"),
   workflowList: document.getElementById("workflow-list"),
   emergingWorkflowList: document.getElementById("emerging-workflow-list"),
   sessionList: document.getElementById("session-list"),
@@ -756,6 +992,66 @@ function formatDuration(seconds) {
   }
 
   return \`\${remainingSeconds}s\`;
+}
+
+function toBooleanChoice(value) {
+  if (value === true) {
+    return "true";
+  }
+
+  if (value === false) {
+    return "false";
+  }
+
+  return "";
+}
+
+function fromBooleanChoice(value) {
+  if (value === "true") {
+    return true;
+  }
+
+  if (value === "false") {
+    return false;
+  }
+
+  return undefined;
+}
+
+function setWorkflowMessage(message) {
+  state.workflowActionMessage = message || "";
+
+  const element = document.getElementById("workflow-feedback-message");
+
+  if (element) {
+    element.textContent = state.workflowActionMessage;
+  }
+}
+
+function buildWorkflowStatusChips(workflow) {
+  const chips = [];
+
+  chips.push('<span class="workflow-chip subtle">' + escapeHtml(workflow.visibleInReport ? "Visible in report" : "Removed from report") + "</span>");
+
+  if (workflow.userLabeled) {
+    chips.push('<span class="workflow-chip">Labeled</span>');
+  }
+
+  if (workflow.excluded) {
+    chips.push('<span class="workflow-chip warn">Excluded</span>');
+  }
+
+  if (workflow.hidden) {
+    chips.push('<span class="workflow-chip hidden-state">Hidden</span>');
+  }
+
+  if (workflow.approvedAutomationCandidate) {
+    chips.push('<span class="workflow-chip">Approved candidate</span>');
+  } else if (workflow.automationCandidate) {
+    chips.push('<span class="workflow-chip subtle">Candidate review pending</span>');
+  }
+
+  return chips.join("");
 }
 
 function setError(message) {
@@ -923,6 +1219,51 @@ function renderSnapshotList(snapshots) {
   }).join("");
 }
 
+function renderFeedbackWorkflowList(workflows) {
+  if (!workflows || workflows.length === 0) {
+    state.selectedWorkflowId = null;
+    elements.feedbackWorkflowList.innerHTML = '<div class="empty-state">No confirmed workflows are available for review in this window yet.</div>';
+    elements.workflowDetail.textContent = 'Select a workflow to review its current label, visibility state, and automation hints.';
+    elements.workflowDetail.className = 'workflow-detail empty-detail';
+    return;
+  }
+
+  if (!state.selectedWorkflowId || !workflows.some((workflow) => workflow.id === state.selectedWorkflowId)) {
+    state.selectedWorkflowId = workflows[0].id;
+  }
+
+  elements.feedbackWorkflowList.innerHTML = workflows.map((workflow) => {
+    const isActive = workflow.id === state.selectedWorkflowId;
+
+    return \`
+      <button class="workflow-review-button \${isActive ? "active" : ""}" type="button" data-workflow-id="\${escapeHtml(workflow.id)}">
+        <div class="workflow-review-header">
+          <div>
+            <strong>\${escapeHtml(workflow.workflowName)}</strong>
+            <div class="workflow-review-meta">
+              <span>\${escapeHtml(String(workflow.frequency))} repeats</span>
+              <span>\${escapeHtml(formatDuration(workflow.totalDurationSeconds))} total</span>
+              <span>confidence \${escapeHtml(String(workflow.confidenceScore))}</span>
+            </div>
+          </div>
+        </div>
+        <div class="workflow-chip-row">
+          \${buildWorkflowStatusChips(workflow)}
+        </div>
+      </button>
+    \`;
+  }).join("");
+
+  for (const button of elements.feedbackWorkflowList.querySelectorAll("[data-workflow-id]")) {
+    button.addEventListener("click", () => {
+      state.selectedWorkflowId = button.getAttribute("data-workflow-id");
+      state.workflowActionMessage = "";
+      renderFeedbackWorkflowList(workflows);
+      void refreshWorkflowDetail();
+    });
+  }
+}
+
 function renderWorkflowTable(container, workflows, emptyMessage, isEmerging = false) {
   if (!workflows || workflows.length === 0) {
     container.innerHTML = \`<div class="empty-state">\${escapeHtml(emptyMessage)}</div>\`;
@@ -1027,6 +1368,226 @@ function renderEmergingWorkflowList(container, workflows, emptyMessage) {
   \`;
 }
 
+async function submitWorkflowFeedback(payload, successMessage) {
+  if (!state.selectedWorkflowId) {
+    return;
+  }
+
+  setWorkflowMessage("Saving feedback...");
+
+  const response = await fetch(\`/api/viewer/workflows/\${encodeURIComponent(state.selectedWorkflowId)}?\${buildQueryString()}\`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorPayload = await response.json().catch(() => null);
+    throw new Error(errorPayload && errorPayload.message ? errorPayload.message : "Failed to save workflow feedback.");
+  }
+
+  state.workflowActionMessage = successMessage;
+  await refreshDashboard();
+}
+
+function renderAutomationHints(hints) {
+  if (!hints || hints.length === 0) {
+    return '<div class="empty-state">No automation hints have been generated for this workflow yet.</div>';
+  }
+
+  return \`
+    <div class="hint-grid">
+      \${hints.map((hint) => {
+        return \`
+          <article class="hint-card">
+            <h4>\${escapeHtml(hint.suggestedApproach)}</h4>
+            <p>\${escapeHtml(hint.whyThisFits)}</p>
+            <div class="workflow-chip-row">
+              <span class="workflow-chip">\${escapeHtml(hint.estimatedDifficulty)} difficulty</span>
+              <span class="workflow-chip subtle">\${escapeHtml(hint.expectedTimeSavings)}</span>
+            </div>
+            <ul>
+              \${(hint.prerequisites || []).map((item) => \`<li>\${escapeHtml(item)}</li>\`).join("")}
+            </ul>
+          </article>
+        \`;
+      }).join("")}
+    </div>
+  \`;
+}
+
+function renderWorkflowDetail(workflow) {
+  elements.workflowDetail.className = "workflow-detail";
+  elements.workflowDetail.innerHTML = \`
+    <div class="workflow-detail-grid">
+      <div>
+        <p class="panel-label">Workflow Review</p>
+        <h3>\${escapeHtml(workflow.workflowName)}</h3>
+        <p class="workflow-helper">
+          \${escapeHtml(workflow.businessPurpose || workflow.recommendedApproach)}
+        </p>
+        <div class="workflow-chip-row">
+          \${buildWorkflowStatusChips(workflow)}
+          <span class="workflow-chip subtle">\${escapeHtml(workflow.automationSuitability)} automation fit</span>
+        </div>
+      </div>
+
+      <div class="detail-stat-grid">
+        <article class="detail-stat">
+          <p class="panel-label">Frequency</p>
+          <p>\${escapeHtml(String(workflow.frequency))}</p>
+        </article>
+        <article class="detail-stat">
+          <p class="panel-label">Average</p>
+          <p>\${escapeHtml(formatDuration(workflow.averageDurationSeconds))}</p>
+        </article>
+        <article class="detail-stat">
+          <p class="panel-label">Total</p>
+          <p>\${escapeHtml(formatDuration(workflow.totalDurationSeconds))}</p>
+        </article>
+        <article class="detail-stat">
+          <p class="panel-label">Confidence</p>
+          <p>\${escapeHtml(String(workflow.confidenceScore))}</p>
+        </article>
+      </div>
+
+      <div>
+        <p class="panel-label">Representative Steps</p>
+        <div class="step-preview">
+          \${workflow.representativeSteps.map((step) => \`<span class="step-pill">\${escapeHtml(step)}</span>\`).join("")}
+        </div>
+      </div>
+
+      <div>
+        <p class="panel-label">Structured Automation Hints</p>
+        \${renderAutomationHints(workflow.automationHints)}
+      </div>
+
+      <form id="workflow-review-form" class="workflow-form">
+        <div class="workflow-form-grid">
+          <div class="field-stack">
+            <label for="workflow-name-input">Display Name</label>
+            <input id="workflow-name-input" name="name" type="text" value="\${escapeHtml(workflow.workflowName)}" />
+          </div>
+          <div class="field-stack">
+            <label for="workflow-purpose-input">Business Purpose</label>
+            <textarea id="workflow-purpose-input" name="purpose">\${escapeHtml(workflow.businessPurpose || "")}</textarea>
+          </div>
+          <div class="field-stack">
+            <label for="workflow-repetitive-select">Repetitive</label>
+            <select id="workflow-repetitive-select" name="repetitive">
+              <option value="" \${workflow.repetitive === undefined ? "selected" : ""}>Keep current</option>
+              <option value="true" \${workflow.repetitive === true ? "selected" : ""}>Yes</option>
+              <option value="false" \${workflow.repetitive === false ? "selected" : ""}>No</option>
+            </select>
+          </div>
+          <div class="field-stack">
+            <label for="workflow-candidate-select">Automation Candidate</label>
+            <select id="workflow-candidate-select" name="automationCandidate">
+              <option value="" \${workflow.automationCandidate === undefined ? "selected" : ""}>Keep current</option>
+              <option value="true" \${workflow.automationCandidate === true ? "selected" : ""}>Yes</option>
+              <option value="false" \${workflow.automationCandidate === false ? "selected" : ""}>No</option>
+            </select>
+          </div>
+          <div class="field-stack">
+            <label for="workflow-difficulty-select">Difficulty</label>
+            <select id="workflow-difficulty-select" name="difficulty">
+              <option value="" \${!workflow.automationDifficulty ? "selected" : ""}>Keep current</option>
+              <option value="low" \${workflow.automationDifficulty === "low" ? "selected" : ""}>Low</option>
+              <option value="medium" \${workflow.automationDifficulty === "medium" ? "selected" : ""}>Medium</option>
+              <option value="high" \${workflow.automationDifficulty === "high" ? "selected" : ""}>High</option>
+            </select>
+          </div>
+          <div class="field-stack">
+            <label for="workflow-approved-select">Approved Candidate</label>
+            <select id="workflow-approved-select" name="approvedAutomationCandidate">
+              <option value="" \${workflow.approvedAutomationCandidate === undefined ? "selected" : ""}>Keep current</option>
+              <option value="true" \${workflow.approvedAutomationCandidate === true ? "selected" : ""}>Yes</option>
+              <option value="false" \${workflow.approvedAutomationCandidate === false ? "selected" : ""}>No</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="feedback-actions">
+          <button id="workflow-save-button" type="submit">Save Review</button>
+          <button id="workflow-exclude-button" class="button-secondary" type="button">\${workflow.excluded ? "Include in Report" : "Exclude from Report"}</button>
+          <button id="workflow-hide-button" class="\${workflow.hidden ? "button-secondary" : "button-subtle-danger"}" type="button">\${workflow.hidden ? "Show Workflow" : "Hide Workflow"}</button>
+        </div>
+        <p id="workflow-feedback-message" class="feedback-message">\${escapeHtml(state.workflowActionMessage)}</p>
+      </form>
+    </div>
+  \`;
+
+  const form = document.getElementById("workflow-review-form");
+  const excludeButton = document.getElementById("workflow-exclude-button");
+  const hideButton = document.getElementById("workflow-hide-button");
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+
+    const formData = new FormData(form);
+    const name = String(formData.get("name") || "").trim();
+    const purpose = String(formData.get("purpose") || "").trim();
+
+    void submitWorkflowFeedback(
+      {
+        name: name || undefined,
+        purpose: purpose || undefined,
+        repetitive: fromBooleanChoice(String(formData.get("repetitive") || "")),
+        automationCandidate: fromBooleanChoice(String(formData.get("automationCandidate") || "")),
+        difficulty: String(formData.get("difficulty") || "") || undefined,
+        approvedAutomationCandidate: fromBooleanChoice(
+          String(formData.get("approvedAutomationCandidate") || ""),
+        ),
+      },
+      "Workflow review saved.",
+    ).catch((error) => {
+      setWorkflowMessage(error instanceof Error ? error.message : "Unknown workflow feedback error");
+    });
+  });
+
+  excludeButton.addEventListener("click", () => {
+    void submitWorkflowFeedback(
+      {
+        excluded: !workflow.excluded,
+      },
+      workflow.excluded ? "Workflow returned to report." : "Workflow excluded from report.",
+    ).catch((error) => {
+      setWorkflowMessage(error instanceof Error ? error.message : "Unknown workflow feedback error");
+    });
+  });
+
+  hideButton.addEventListener("click", () => {
+    void submitWorkflowFeedback(
+      {
+        hidden: !workflow.hidden,
+      },
+      workflow.hidden ? "Workflow is visible again." : "Workflow hidden from review lists.",
+    ).catch((error) => {
+      setWorkflowMessage(error instanceof Error ? error.message : "Unknown workflow feedback error");
+    });
+  });
+}
+
+async function refreshWorkflowDetail() {
+  if (!state.selectedWorkflowId) {
+    elements.workflowDetail.textContent = 'Select a workflow to review its current label, visibility state, and automation hints.';
+    elements.workflowDetail.className = 'workflow-detail empty-detail';
+    return;
+  }
+
+  const response = await fetch(\`/api/viewer/workflows/\${encodeURIComponent(state.selectedWorkflowId)}?\${buildQueryString()}\`);
+
+  if (!response.ok) {
+    throw new Error("Failed to load workflow detail.");
+  }
+
+  const workflow = await response.json();
+  renderWorkflowDetail(workflow);
+}
+
 function renderSessionList(sessions) {
   if (!sessions || sessions.length === 0) {
     state.selectedSessionId = null;
@@ -1128,6 +1689,7 @@ async function refreshDashboard() {
     renderSummaryCards(data);
     renderHighlights(data.report.summary);
     renderSnapshotList(data.latestSnapshots);
+    renderFeedbackWorkflowList(data.reviewableWorkflows);
     renderWorkflowTable(
       elements.workflowList,
       data.report.workflows,
@@ -1139,6 +1701,7 @@ async function refreshDashboard() {
       data.report.emergingWorkflows,
       "No emerging workflows yet for this window.",
     );
+    await refreshWorkflowDetail();
     renderSessionList(data.sessionSummaries);
     await refreshSessionDetail();
   } catch (error) {

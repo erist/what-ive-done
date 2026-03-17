@@ -9,6 +9,7 @@ import type {
   WorkflowGraph,
   WorkflowReport,
 } from "../domain/types.js";
+import { applyWorkflowFeedbackToCluster } from "../feedback/service.js";
 import { analyzeRawEvents, type AnalysisResult } from "../pipeline/analyze.js";
 import { clusterSessions } from "../pipeline/cluster.js";
 
@@ -19,45 +20,6 @@ export interface BuildReportOptions {
 
 export interface BuildWorkflowReportOptions extends BuildReportOptions {
   feedbackByClusterId?: Map<string, WorkflowFeedbackSummary> | undefined;
-}
-
-function applyFeedbackToCluster(
-  cluster: WorkflowCluster,
-  feedbackByClusterId: Map<string, WorkflowFeedbackSummary>,
-): WorkflowCluster {
-  const feedback =
-    feedbackByClusterId.get(cluster.id) ?? feedbackByClusterId.get(cluster.workflowSignature);
-
-  if (!feedback) {
-    return cluster;
-  }
-
-  return {
-    ...cluster,
-    name: feedback.renameTo ?? cluster.name,
-    businessPurpose: feedback.businessPurpose ?? cluster.businessPurpose,
-    excluded: feedback.excluded ?? cluster.excluded,
-    hidden: feedback.hidden ?? cluster.hidden,
-    repetitive: feedback.repetitive ?? cluster.repetitive,
-    automationCandidate: feedback.automationCandidate ?? cluster.automationCandidate,
-    automationDifficulty: feedback.automationDifficulty ?? cluster.automationDifficulty,
-    approvedAutomationCandidate:
-      feedback.approvedAutomationCandidate ?? cluster.approvedAutomationCandidate,
-    mergeIntoWorkflowId: feedback.mergeIntoWorkflowId ?? cluster.mergeIntoWorkflowId,
-    mergeIntoWorkflowSignature:
-      feedback.mergeIntoWorkflowSignature ?? cluster.mergeIntoWorkflowSignature,
-    splitAfterActionName: feedback.splitAfterActionName ?? cluster.splitAfterActionName,
-    userLabeled:
-      cluster.userLabeled ||
-      Boolean(
-        feedback.renameTo ??
-          feedback.businessPurpose ??
-          feedback.repetitive ??
-          feedback.automationCandidate ??
-          feedback.automationDifficulty ??
-          feedback.approvedAutomationCandidate,
-      ),
-  };
 }
 
 function secondsBetween(startTime: string, endTime: string): number {
@@ -93,7 +55,7 @@ function buildEmergingWorkflowEntries(
   const provisionalClusters = clusterSessions(sessions, {
     minimumWorkflowFrequency: 1,
     minSessionDurationSeconds: 0,
-  }).map((cluster) => applyFeedbackToCluster(cluster, feedbackByClusterId));
+  }).map((cluster) => applyWorkflowFeedbackToCluster(cluster, feedbackByClusterId));
 
   return filterVisibleClusters(
     provisionalClusters.filter((cluster) => !confirmedIds.has(cluster.id)),
@@ -250,7 +212,7 @@ export function buildWorkflowReportFromAnalysis(args: {
   const options = args.options ?? {};
   const feedbackByClusterId = options.feedbackByClusterId ?? new Map<string, WorkflowFeedbackSummary>();
   const clusters = args.analysisResult.workflowClusters.map((cluster) =>
-    applyFeedbackToCluster(cluster, feedbackByClusterId),
+    applyWorkflowFeedbackToCluster(cluster, feedbackByClusterId),
   );
   const workflows = buildReportEntries(clusters, args.timeWindow, args.rawEvents, options);
 
