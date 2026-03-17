@@ -1,0 +1,68 @@
+name: Pre-v1 Branch Promotion
+
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pre-v1-branch-promotion
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch remote branches
+        run: git fetch origin '+refs/heads/*:refs/remotes/origin/*'
+
+      - name: Promote develop to master and release branches
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          source_branch="develop"
+          source_ref="origin/${source_branch}"
+
+          mapfile -t target_branches < <(
+            printf '%s\n' master
+            git for-each-ref --format='%(refname:strip=3)' refs/remotes/origin/release/ | sort -u
+          )
+
+          for branch in "${target_branches[@]}"; do
+            if [ -z "${branch}" ]; then
+              continue
+            fi
+
+            echo "::group::Promote ${source_branch} -> ${branch}"
+            git checkout -B "${branch}" "origin/${branch}"
+
+            if git merge-base --is-ancestor "${source_ref}" HEAD; then
+              echo "${branch} already includes ${source_ref}; skipping."
+              echo "::endgroup::"
+              continue
+            fi
+
+            if git merge-base --is-ancestor HEAD "${source_ref}"; then
+              git merge --ff-only "${source_ref}"
+            else
+              git merge --no-ff -m "chore: promote develop to ${branch}" "${source_ref}"
+            fi
+
+            git push origin "HEAD:refs/heads/${branch}"
+            echo "::endgroup::"
+          done

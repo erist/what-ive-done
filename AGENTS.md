@@ -9,3 +9,5 @@
 - Treat `docs/plans/active/` as the current execution plan area and `docs/plans/archive/` as completed or superseded plans.
 - Do not modify planning or requirements documents unless the user explicitly asks for documentation changes.
 - Keep agent-only operational guidance in `AGENTS.md`; keep product and implementation content in `docs/`.
+- Until v1.0, any change merged into `develop` must be promoted immediately to `master` and every active `release/*` branch.
+- Keep `.github/workflows/pre-v1-branch-promotion.yml` aligned with that pre-v1 branch promotion policy, and revisit or remove it once v1.0 ships.
