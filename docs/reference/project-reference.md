@@ -28,6 +28,8 @@ Implemented today:
 - Windows PowerShell active-window collector path
 - macOS Swift active-window collector path with permission checks and one-shot capture
 - optional `gws` Calendar boundary collector with install/auth diagnostics
+- optional `gws` Drive and Sheets context collectors with install/auth diagnostics
+- optional Git context collector with repo hash and commit-time diagnostics
 - resident local agent runtime with persisted heartbeat and health state
 - agent-managed ingest server lifecycle
 - collector supervision for macOS, Windows, and optional `gws` command paths
@@ -432,6 +434,16 @@ Run the standalone local HTTP server for collectors and the browser viewer:
 npm run dev -- server:run --data-dir ./tmp/live-data --open --verbose
 ```
 
+Inspect optional workspace and Git collectors:
+
+```bash
+npm run dev -- doctor --git-repo .
+npm run dev -- collector:gws:drive:info --json
+npm run dev -- collector:gws:sheets:info --json
+npm run dev -- collector:git:info --repo-path . --json
+npm run dev -- agent:run --data-dir ./tmp/live-data --gws-drive --gws-sheets --git-repo .
+```
+
 One-command demo:
 
 ```bash
@@ -531,7 +543,7 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 
 | Command | Description |
 | --- | --- |
-| `doctor` | Print runtime information, storage paths, ingest security status, and optional `gws` diagnostics. |
+| `doctor` | Print runtime information, storage paths, ingest security status, optional `gws` diagnostics, and optional Git collector diagnostics. |
 | `init` | Initialize local SQLite storage. |
 | `collect:mock` | Insert deterministic sample events for testing. |
 | `collect:macos:once` | Capture the current macOS frontmost app once and store it. |
@@ -557,6 +569,9 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 | `cluster:benchmark` | Compare legacy sequence-only clustering against hybrid clustering v2. |
 | `collector:list` | List available collectors and scripts. |
 | `collector:gws:calendar:info` | Show `gws` Calendar collector diagnostics, usage, and file paths. |
+| `collector:gws:drive:info` | Show `gws` Drive collector diagnostics, usage, and file paths. |
+| `collector:gws:sheets:info` | Show `gws` Sheets collector diagnostics, usage, and file paths. |
+| `collector:git:info` | Show Git context collector diagnostics, usage, and file paths. |
 | `collector:macos:check` | Check macOS collector permission status. |
 | `collector:macos:info` | Show macOS collector usage, permissions, and file paths. |
 | `collector:windows:info` | Show Windows collector usage and file paths. |
@@ -644,5 +659,7 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 - automatic snapshot refresh requires the resident agent or legacy scheduler process to be running
 - workflow naming remains heuristic
 - browser feedback currently covers label/review and exclude/hide flows only; merge/split and unknown-action review remain CLI-first
+- Drive/Sheets context is metadata-only and depends on the locally configured `gws` OAuth scopes
+- Git context currently watches one repository path at a time
 - secure credential storage is implemented only for macOS Keychain today
 - OpenAI and Claude direct API usage currently use API keys; Gemini supports API keys or OAuth2 login

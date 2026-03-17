@@ -174,3 +174,73 @@ test("sanitizeRawEvent keeps only privacy-safe calendar signal metadata fields",
     sessionCookie: "[REDACTED]",
   });
 });
+
+test("sanitizeRawEvent keeps only privacy-safe workspace context metadata fields", () => {
+  const sanitized = sanitizeRawEvent({
+    source: "workspace",
+    sourceEventType: "workspace.sheets.viewed",
+    timestamp: "2026-03-17T09:31:00.000Z",
+    application: "gws-sheets",
+    action: "workspace_activity",
+    resourceHash: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+    metadata: {
+      workspaceContext: {
+        provider: "gws",
+        app: "sheets",
+        itemType: "spreadsheet",
+        itemHash: "ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890",
+        activityType: "viewed",
+        modifiedAt: "2026-03-17T09:30:42.225Z",
+        viewedAt: "2026-03-17T09:31:00.000Z",
+        sheetCount: 3,
+        gridSheetCount: 2,
+        title: "drop-me",
+      },
+    },
+  });
+
+  assert.deepEqual(sanitized.metadata, {
+    workspaceContext: {
+      provider: "gws",
+      app: "sheets",
+      itemType: "spreadsheet",
+      itemHash: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      activityType: "viewed",
+      modifiedAt: "2026-03-17T09:30:42.225Z",
+      viewedAt: "2026-03-17T09:31:00.000Z",
+      sheetCount: 3,
+      gridSheetCount: 2,
+    },
+  });
+});
+
+test("sanitizeRawEvent keeps only privacy-safe git context metadata fields", () => {
+  const sanitized = sanitizeRawEvent({
+    source: "git",
+    sourceEventType: "git.repo.status",
+    timestamp: "2026-03-17T09:45:00.000Z",
+    application: "git",
+    action: "git_activity",
+    resourceHash: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+    metadata: {
+      gitContext: {
+        repoHash: "ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890",
+        remoteHost: "GitHub.com",
+        dirtyFileCount: 4,
+        lastCommitAt: "2026-03-17T09:45:00.000Z",
+        branchName: "drop-me",
+      },
+      authToken: "drop-me",
+    },
+  });
+
+  assert.deepEqual(sanitized.metadata, {
+    gitContext: {
+      repoHash: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      remoteHost: "github.com",
+      dirtyFileCount: 4,
+      lastCommitAt: "2026-03-17T09:45:00.000Z",
+    },
+    authToken: "[REDACTED]",
+  });
+});

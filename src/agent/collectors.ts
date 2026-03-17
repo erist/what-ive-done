@@ -2,6 +2,9 @@ import { spawn } from "node:child_process";
 import { PassThrough } from "node:stream";
 
 import { DEFAULT_GWS_CALENDAR_ID, DEFAULT_GWS_CALENDAR_POLL_INTERVAL_MS, getGWSCalendarCollectorInfo } from "../collectors/gws-calendar.js";
+import { DEFAULT_GWS_DRIVE_POLL_INTERVAL_MS, getGWSDriveCollectorInfo } from "../collectors/gws-drive.js";
+import { DEFAULT_GWS_SHEETS_POLL_INTERVAL_MS, getGWSSheetsCollectorInfo } from "../collectors/gws-sheets.js";
+import { DEFAULT_GIT_CONTEXT_POLL_INTERVAL_MS, getGitContextCollectorInfo } from "../collectors/git-context.js";
 import { getMacOSActiveWindowCollectorInfo } from "../collectors/macos.js";
 import { getWindowsActiveWindowCollectorInfo } from "../collectors/windows.js";
 import type { AgentCollectorState } from "./types.js";
@@ -24,6 +27,12 @@ export interface CollectorSupervisorOptions {
   enableGWSCalendar?: boolean | undefined;
   gwsCalendarId?: string | undefined;
   gwsCalendarPollIntervalMs?: number | undefined;
+  enableGWSDrive?: boolean | undefined;
+  gwsDrivePollIntervalMs?: number | undefined;
+  enableGWSSheets?: boolean | undefined;
+  gwsSheetsPollIntervalMs?: number | undefined;
+  gitRepoPath?: string | undefined;
+  gitPollIntervalMs?: number | undefined;
   promptAccessibility?: boolean | undefined;
   restartDelayMs?: number | undefined;
   verbose?: boolean | undefined;
@@ -72,6 +81,12 @@ export function buildManagedCollectorSpecs(options: {
   enableGWSCalendar?: boolean | undefined;
   gwsCalendarId?: string | undefined;
   gwsCalendarPollIntervalMs?: number | undefined;
+  enableGWSDrive?: boolean | undefined;
+  gwsDrivePollIntervalMs?: number | undefined;
+  enableGWSSheets?: boolean | undefined;
+  gwsSheetsPollIntervalMs?: number | undefined;
+  gitRepoPath?: string | undefined;
+  gitPollIntervalMs?: number | undefined;
   promptAccessibility?: boolean | undefined;
 }): CollectorProcessSpec[] {
   const processPlatform = options.processPlatform ?? process.platform;
@@ -148,6 +163,80 @@ export function buildManagedCollectorSpecs(options: {
     });
   }
 
+  if (options.enableGWSDrive) {
+    const info = getGWSDriveCollectorInfo();
+    const runnerArgs = info.scriptPath?.endsWith(".ts")
+      ? ["--import", "tsx", info.scriptPath]
+      : [info.scriptPath!];
+
+    specs.push({
+      id: info.id,
+      platform: info.platform,
+      runtime: info.runtime,
+      command: process.execPath,
+      args: [
+        ...runnerArgs,
+        "--ingest-url",
+        options.ingestUrl,
+        ...(options.ingestAuthToken ? ["--ingest-auth-token", options.ingestAuthToken] : []),
+        "--poll-interval-ms",
+        String(options.gwsDrivePollIntervalMs ?? DEFAULT_GWS_DRIVE_POLL_INTERVAL_MS),
+      ],
+      ingestUrl: options.ingestUrl,
+      ingestAuthToken: options.ingestAuthToken,
+    });
+  }
+
+  if (options.enableGWSSheets) {
+    const info = getGWSSheetsCollectorInfo();
+    const runnerArgs = info.scriptPath?.endsWith(".ts")
+      ? ["--import", "tsx", info.scriptPath]
+      : [info.scriptPath!];
+
+    specs.push({
+      id: info.id,
+      platform: info.platform,
+      runtime: info.runtime,
+      command: process.execPath,
+      args: [
+        ...runnerArgs,
+        "--ingest-url",
+        options.ingestUrl,
+        ...(options.ingestAuthToken ? ["--ingest-auth-token", options.ingestAuthToken] : []),
+        "--poll-interval-ms",
+        String(options.gwsSheetsPollIntervalMs ?? DEFAULT_GWS_SHEETS_POLL_INTERVAL_MS),
+      ],
+      ingestUrl: options.ingestUrl,
+      ingestAuthToken: options.ingestAuthToken,
+    });
+  }
+
+  if (options.gitRepoPath) {
+    const info = getGitContextCollectorInfo();
+    const runnerArgs = info.scriptPath?.endsWith(".ts")
+      ? ["--import", "tsx", info.scriptPath]
+      : [info.scriptPath!];
+
+    specs.push({
+      id: info.id,
+      platform: info.platform,
+      runtime: info.runtime,
+      command: process.execPath,
+      args: [
+        ...runnerArgs,
+        "--ingest-url",
+        options.ingestUrl,
+        ...(options.ingestAuthToken ? ["--ingest-auth-token", options.ingestAuthToken] : []),
+        "--repo-path",
+        options.gitRepoPath,
+        "--poll-interval-ms",
+        String(options.gitPollIntervalMs ?? DEFAULT_GIT_CONTEXT_POLL_INTERVAL_MS),
+      ],
+      ingestUrl: options.ingestUrl,
+      ingestAuthToken: options.ingestAuthToken,
+    });
+  }
+
   return specs;
 }
 
@@ -182,6 +271,12 @@ export async function startCollectorSupervisor(
     enableGWSCalendar: options.enableGWSCalendar,
     gwsCalendarId: options.gwsCalendarId,
     gwsCalendarPollIntervalMs: options.gwsCalendarPollIntervalMs,
+    enableGWSDrive: options.enableGWSDrive,
+    gwsDrivePollIntervalMs: options.gwsDrivePollIntervalMs,
+    enableGWSSheets: options.enableGWSSheets,
+    gwsSheetsPollIntervalMs: options.gwsSheetsPollIntervalMs,
+    gitRepoPath: options.gitRepoPath,
+    gitPollIntervalMs: options.gitPollIntervalMs,
     promptAccessibility: options.promptAccessibility,
   });
   const restartDelayMs = options.restartDelayMs ?? 5_000;

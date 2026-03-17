@@ -22,6 +22,21 @@ import {
   getGWSCalendarCollectorInfo,
   getGWSCalendarCollectorStatus,
 } from "./collectors/gws-calendar.js";
+import {
+  DEFAULT_GWS_DRIVE_POLL_INTERVAL_MS,
+  getGWSDriveCollectorInfo,
+  getGWSDriveCollectorStatus,
+} from "./collectors/gws-drive.js";
+import {
+  DEFAULT_GWS_SHEETS_POLL_INTERVAL_MS,
+  getGWSSheetsCollectorInfo,
+  getGWSSheetsCollectorStatus,
+} from "./collectors/gws-sheets.js";
+import {
+  DEFAULT_GIT_CONTEXT_POLL_INTERVAL_MS,
+  getGitContextCollectorInfo,
+  getGitContextCollectorStatus,
+} from "./collectors/git-context.js";
 import { getMacOSActiveWindowCollectorInfo, resolveMacOSCollectorRunner } from "./collectors/macos.js";
 import { getWindowsActiveWindowCollectorInfo } from "./collectors/windows.js";
 import {
@@ -1013,7 +1028,8 @@ program
   .description("Validate local runtime prerequisites")
   .option("--data-dir <path>", "Override application data directory")
   .option("--gws-calendar-id <id>", "Calendar id to inspect for gws Calendar collector diagnostics", DEFAULT_GWS_CALENDAR_ID)
-  .action((options: { dataDir?: string; gwsCalendarId: string }) => {
+  .option("--git-repo <path>", "Local Git repository path to inspect for Git collector diagnostics")
+  .action((options: { dataDir?: string; gwsCalendarId: string; gitRepo?: string }) => {
     const paths = resolveAppPaths(options.dataDir);
     const result = {
       node: process.version,
@@ -1025,6 +1041,11 @@ program
       ingestSecurity: describeIngestSecurity(options.dataDir),
       gwsCalendar: getGWSCalendarCollectorStatus({
         calendarId: options.gwsCalendarId,
+      }),
+      gwsDrive: getGWSDriveCollectorStatus(),
+      gwsSheets: getGWSSheetsCollectorStatus(),
+      gitContext: getGitContextCollectorStatus({
+        repoPath: options.gitRepo,
       }),
     };
 
@@ -1047,6 +1068,24 @@ program
     "--gws-calendar-poll-interval-ms <ms>",
     "gws Calendar polling interval in milliseconds",
     String(DEFAULT_GWS_CALENDAR_POLL_INTERVAL_MS),
+  )
+  .option("--gws-drive", "Enable the optional gws Drive context collector")
+  .option(
+    "--gws-drive-poll-interval-ms <ms>",
+    "gws Drive polling interval in milliseconds",
+    String(DEFAULT_GWS_DRIVE_POLL_INTERVAL_MS),
+  )
+  .option("--gws-sheets", "Enable the optional gws Sheets context collector")
+  .option(
+    "--gws-sheets-poll-interval-ms <ms>",
+    "gws Sheets polling interval in milliseconds",
+    String(DEFAULT_GWS_SHEETS_POLL_INTERVAL_MS),
+  )
+  .option("--git-repo <path>", "Enable the Git context collector for one local repository path")
+  .option(
+    "--git-poll-interval-ms <ms>",
+    "Git context polling interval in milliseconds",
+    String(DEFAULT_GIT_CONTEXT_POLL_INTERVAL_MS),
   )
   .option(
     "--no-prompt-accessibility",
@@ -1075,6 +1114,12 @@ program
       gwsCalendar?: boolean;
       gwsCalendarId: string;
       gwsCalendarPollIntervalMs: string;
+      gwsDrive?: boolean;
+      gwsDrivePollIntervalMs: string;
+      gwsSheets?: boolean;
+      gwsSheetsPollIntervalMs: string;
+      gitRepo?: string;
+      gitPollIntervalMs: string;
       promptAccessibility: boolean;
       snapshotWindows: ReportWindow[];
       snapshotIntervalSeconds: string;
@@ -1094,6 +1139,12 @@ program
       enableGWSCalendar: options.gwsCalendar,
       gwsCalendarId: options.gwsCalendarId,
       gwsCalendarPollIntervalMs: Number.parseInt(options.gwsCalendarPollIntervalMs, 10),
+      enableGWSDrive: options.gwsDrive,
+      gwsDrivePollIntervalMs: Number.parseInt(options.gwsDrivePollIntervalMs, 10),
+      enableGWSSheets: options.gwsSheets,
+      gwsSheetsPollIntervalMs: Number.parseInt(options.gwsSheetsPollIntervalMs, 10),
+      gitRepoPath: options.gitRepo,
+      gitPollIntervalMs: Number.parseInt(options.gitPollIntervalMs, 10),
       promptAccessibility: options.promptAccessibility,
       enableCollectors: options.collectors,
       snapshotWindows: options.snapshotWindows,
@@ -1653,6 +1704,90 @@ program
       examples: {
         checkPrerequisites: `npm run dev -- doctor --gws-calendar-id "${options.calendarId}"`,
         runInAgent: `npm run dev -- agent:run --gws-calendar --gws-calendar-id "${options.calendarId}"`,
+        runStandalone: standaloneCommand,
+      },
+    };
+
+    if (options.json) {
+      console.log(JSON.stringify(payload, null, 2));
+      return;
+    }
+
+    console.log(JSON.stringify(payload, null, 2));
+  });
+
+program
+  .command("collector:gws:drive:info")
+  .description("Print usage details and diagnostics for the optional gws Drive collector")
+  .option("--json", "Print machine-readable JSON")
+  .action((options: { json?: boolean }) => {
+    const info = getGWSDriveCollectorInfo();
+    const standaloneCommand = info.scriptPath?.endsWith(".ts")
+      ? `node --import tsx "${info.scriptPath}" --ingest-url "http://127.0.0.1:4318/events"`
+      : `node "${info.scriptPath}" --ingest-url "http://127.0.0.1:4318/events"`;
+    const payload = {
+      ...info,
+      diagnostics: getGWSDriveCollectorStatus(),
+      examples: {
+        checkPrerequisites: "npm run dev -- doctor",
+        runInAgent: "npm run dev -- agent:run --gws-drive",
+        runStandalone: standaloneCommand,
+      },
+    };
+
+    if (options.json) {
+      console.log(JSON.stringify(payload, null, 2));
+      return;
+    }
+
+    console.log(JSON.stringify(payload, null, 2));
+  });
+
+program
+  .command("collector:gws:sheets:info")
+  .description("Print usage details and diagnostics for the optional gws Sheets collector")
+  .option("--json", "Print machine-readable JSON")
+  .action((options: { json?: boolean }) => {
+    const info = getGWSSheetsCollectorInfo();
+    const standaloneCommand = info.scriptPath?.endsWith(".ts")
+      ? `node --import tsx "${info.scriptPath}" --ingest-url "http://127.0.0.1:4318/events"`
+      : `node "${info.scriptPath}" --ingest-url "http://127.0.0.1:4318/events"`;
+    const payload = {
+      ...info,
+      diagnostics: getGWSSheetsCollectorStatus(),
+      examples: {
+        checkPrerequisites: "npm run dev -- doctor",
+        runInAgent: "npm run dev -- agent:run --gws-sheets",
+        runStandalone: standaloneCommand,
+      },
+    };
+
+    if (options.json) {
+      console.log(JSON.stringify(payload, null, 2));
+      return;
+    }
+
+    console.log(JSON.stringify(payload, null, 2));
+  });
+
+program
+  .command("collector:git:info")
+  .description("Print usage details and diagnostics for the optional Git context collector")
+  .requiredOption("--repo-path <path>", "Local Git repository path to inspect")
+  .option("--json", "Print machine-readable JSON")
+  .action((options: { repoPath: string; json?: boolean }) => {
+    const info = getGitContextCollectorInfo();
+    const standaloneCommand = info.scriptPath?.endsWith(".ts")
+      ? `node --import tsx "${info.scriptPath}" --ingest-url "http://127.0.0.1:4318/events" --repo-path "${options.repoPath}"`
+      : `node "${info.scriptPath}" --ingest-url "http://127.0.0.1:4318/events" --repo-path "${options.repoPath}"`;
+    const payload = {
+      ...info,
+      diagnostics: getGitContextCollectorStatus({
+        repoPath: options.repoPath,
+      }),
+      examples: {
+        checkPrerequisites: `npm run dev -- doctor --git-repo "${options.repoPath}"`,
+        runInAgent: `npm run dev -- agent:run --git-repo "${options.repoPath}"`,
         runStandalone: standaloneCommand,
       },
     };

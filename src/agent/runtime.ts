@@ -16,6 +16,12 @@ export interface StartCollectorSupervisorOptions {
   enableGWSCalendar?: boolean | undefined;
   gwsCalendarId?: string | undefined;
   gwsCalendarPollIntervalMs?: number | undefined;
+  enableGWSDrive?: boolean | undefined;
+  gwsDrivePollIntervalMs?: number | undefined;
+  enableGWSSheets?: boolean | undefined;
+  gwsSheetsPollIntervalMs?: number | undefined;
+  gitRepoPath?: string | undefined;
+  gitPollIntervalMs?: number | undefined;
   promptAccessibility?: boolean | undefined;
   restartDelayMs?: number | undefined;
   verbose?: boolean | undefined;
@@ -43,6 +49,12 @@ export interface StartAgentRuntimeOptions {
   enableGWSCalendar?: boolean | undefined;
   gwsCalendarId?: string | undefined;
   gwsCalendarPollIntervalMs?: number | undefined;
+  enableGWSDrive?: boolean | undefined;
+  gwsDrivePollIntervalMs?: number | undefined;
+  enableGWSSheets?: boolean | undefined;
+  gwsSheetsPollIntervalMs?: number | undefined;
+  gitRepoPath?: string | undefined;
+  gitPollIntervalMs?: number | undefined;
   promptAccessibility?: boolean | undefined;
   enableCollectors?: boolean | undefined;
   snapshotWindows?: ReportWindow[] | undefined;
@@ -183,6 +195,12 @@ export async function startAgentRuntime(
         enableGWSCalendar: options.enableGWSCalendar,
         gwsCalendarId: options.gwsCalendarId,
         gwsCalendarPollIntervalMs: options.gwsCalendarPollIntervalMs,
+        enableGWSDrive: options.enableGWSDrive,
+        gwsDrivePollIntervalMs: options.gwsDrivePollIntervalMs,
+        enableGWSSheets: options.enableGWSSheets,
+        gwsSheetsPollIntervalMs: options.gwsSheetsPollIntervalMs,
+        gitRepoPath: options.gitRepoPath,
+        gitPollIntervalMs: options.gitPollIntervalMs,
         promptAccessibility: options.promptAccessibility,
         restartDelayMs: options.collectorRestartDelayMs,
         verbose: options.verbose,

@@ -28,6 +28,8 @@ This repository provides a TypeScript CLI plus a resident local agent. Together 
 - deterministic event normalization and semantic action abstraction
 - rolling-context session segmentation with explainable boundary reasons
 - optional `gws` Calendar boundary collector with meeting start/end signals and doctor diagnostics
+- optional `gws` Drive and Sheets context collectors with privacy-safe file and spreadsheet metadata
+- optional Git context collector with repo hash, remote host, dirty-file count, and last-commit time signals
 - hybrid workflow clustering with action-set/domain/time similarity, explainable confidence details, and benchmark diagnostics
 - all-time, daily, and weekly workflow-centric reports
 - stored daily and weekly report snapshots
@@ -89,6 +91,16 @@ Enable optional Calendar boundary signals through `gws`:
 ```bash
 npm run dev -- doctor --gws-calendar-id primary
 npm run dev -- agent:run --data-dir ./tmp/live-data --gws-calendar --gws-calendar-id primary
+```
+
+Enable optional Drive, Sheets, and Git context collectors:
+
+```bash
+npm run dev -- doctor --git-repo .
+npm run dev -- collector:gws:drive:info --json
+npm run dev -- collector:gws:sheets:info --json
+npm run dev -- collector:git:info --repo-path . --json
+npm run dev -- agent:run --data-dir ./tmp/live-data --gws-drive --gws-sheets --git-repo .
 ```
 
 Run the resident agent and open the local browser viewer:
@@ -256,6 +268,8 @@ Optional Calendar boundary signals store only hashed event identifiers, hashed m
 - deterministic event normalization과 semantic action abstraction
 - rolling-context 기반 boundary reason이 있는 session segmentation
 - optional `gws` Calendar collector와 meeting start/end signal, doctor 진단
+- privacy-safe file/spreadsheet metadata를 넣는 optional `gws` Drive/Sheets collector
+- repo hash, remote host, dirty file count, last commit time을 넣는 optional Git context collector
 - action-set/domain/time similarity를 쓰는 hybrid workflow clustering, variant, confidence 설명
 - all-time/day/week workflow-centric 리포트
 - daily/weekly report snapshot 저장
@@ -317,6 +331,16 @@ npm run dev -- agent:run --data-dir ./tmp/live-data --verbose
 ```bash
 npm run dev -- doctor --gws-calendar-id primary
 npm run dev -- agent:run --data-dir ./tmp/live-data --gws-calendar --gws-calendar-id primary
+```
+
+optional Drive/Sheets/Git context collector 켜기:
+
+```bash
+npm run dev -- doctor --git-repo .
+npm run dev -- collector:gws:drive:info --json
+npm run dev -- collector:gws:sheets:info --json
+npm run dev -- collector:git:info --repo-path . --json
+npm run dev -- agent:run --data-dir ./tmp/live-data --gws-drive --gws-sheets --git-repo .
 ```
 
 resident agent를 실행하면서 browser viewer까지 바로 열기:

@@ -172,6 +172,50 @@ function sanitizeBrowserContext(value: unknown): Record<string, unknown> | undef
   return Object.keys(browserContext).length > 0 ? browserContext : undefined;
 }
 
+function sanitizeWorkspaceContext(value: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const app = normalizeOptionalString(value.app);
+  const itemType = normalizeOptionalString(value.itemType);
+  const activityType = normalizeOptionalString(value.activityType);
+  const workspaceContext = compactObject({
+    provider: normalizeOptionalString(value.provider),
+    app: app && ["drive", "sheets"].includes(app) ? app : undefined,
+    itemType:
+      itemType && ["spreadsheet", "document", "presentation", "pdf", "folder", "file"].includes(itemType)
+        ? itemType
+        : undefined,
+    itemHash: normalizeOpaqueHash(value.itemHash),
+    activityType:
+      activityType && ["modified", "viewed"].includes(activityType) ? activityType : undefined,
+    modifiedAt: normalizeIsoTimestamp(value.modifiedAt),
+    viewedAt: normalizeIsoTimestamp(value.viewedAt),
+    sheetCount: normalizeOptionalInteger(value.sheetCount),
+    gridSheetCount: normalizeOptionalInteger(value.gridSheetCount),
+  });
+
+  return Object.keys(workspaceContext).length > 0 ? workspaceContext : undefined;
+}
+
+function sanitizeGitContext(value: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const remoteHost = normalizeOptionalString(value.remoteHost)?.toLowerCase();
+  const gitContext = compactObject({
+    repoHash: normalizeOpaqueHash(value.repoHash),
+    remoteHost:
+      remoteHost && /^[a-z0-9.-]{1,128}$/u.test(remoteHost) ? remoteHost : undefined,
+    dirtyFileCount: normalizeOptionalInteger(value.dirtyFileCount),
+    lastCommitAt: normalizeIsoTimestamp(value.lastCommitAt),
+  });
+
+  return Object.keys(gitContext).length > 0 ? gitContext : undefined;
+}
+
 export function sanitizeMetadata(metadata: Record<string, unknown> | undefined): Record<string, unknown> {
   if (!metadata) {
     return {};
@@ -192,6 +236,22 @@ export function sanitizeMetadata(metadata: Record<string, unknown> | undefined):
     sanitized.calendarSignal = calendarSignal;
   } else {
     delete sanitized.calendarSignal;
+  }
+
+  const workspaceContext = sanitizeWorkspaceContext(sanitized.workspaceContext);
+
+  if (workspaceContext) {
+    sanitized.workspaceContext = workspaceContext;
+  } else {
+    delete sanitized.workspaceContext;
+  }
+
+  const gitContext = sanitizeGitContext(sanitized.gitContext);
+
+  if (gitContext) {
+    sanitized.gitContext = gitContext;
+  } else {
+    delete sanitized.gitContext;
   }
 
   return sanitized;
