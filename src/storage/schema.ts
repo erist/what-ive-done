@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 
-export const CURRENT_SCHEMA_VERSION = 12;
+export const CURRENT_SCHEMA_VERSION = 13;
 
 export const INITIAL_SCHEMA_SQL = `
   PRAGMA journal_mode = WAL;
@@ -108,6 +108,7 @@ export const INITIAL_SCHEMA_SQL = `
     representative_steps_json TEXT NOT NULL,
     involved_apps_json TEXT NOT NULL DEFAULT '[]',
     confidence_score REAL NOT NULL DEFAULT 0,
+    confidence_details_json TEXT NOT NULL DEFAULT '{}',
     top_variants_json TEXT NOT NULL DEFAULT '[]',
     automation_suitability TEXT NOT NULL,
     recommended_approach TEXT NOT NULL,
@@ -300,6 +301,12 @@ export function applySchemaMigrations(
       "workflow_clusters",
       "confidence_score",
       "confidence_score REAL DEFAULT 0",
+    );
+    ensureColumn(
+      connection,
+      "workflow_clusters",
+      "confidence_details_json",
+      "confidence_details_json TEXT DEFAULT '{}'",
     );
     ensureColumn(
       connection,

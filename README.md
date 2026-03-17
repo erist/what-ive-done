@@ -28,7 +28,7 @@ This repository provides a TypeScript CLI plus a resident local agent. Together 
 - deterministic event normalization and semantic action abstraction
 - rolling-context session segmentation with explainable boundary reasons
 - optional `gws` Calendar boundary collector with meeting start/end signals and doctor diagnostics
-- near-match workflow clustering with variants and confidence scores
+- hybrid workflow clustering with action-set/domain/time similarity, explainable confidence details, and benchmark diagnostics
 - all-time, daily, and weekly workflow-centric reports
 - stored daily and weekly report snapshots
 - workflow review, label, merge, split, exclude, hide, and session deletion
@@ -154,6 +154,7 @@ npm run dev -- debug:normalized:list --data-dir ./tmp/live-data --limit 10
 npm run dev -- domain-pack:report --data-dir ./tmp/live-data --limit 10
 npm run dev -- action:coverage --data-dir ./tmp/live-data --limit 10
 npm run dev -- action:suggest --data-dir ./tmp/live-data --limit 10
+npm run dev -- cluster:benchmark --json
 npm run dev -- report:snapshot:list --data-dir ./tmp/live-data --json
 npm run dev -- report:snapshot:show --data-dir ./tmp/live-data --window week --latest --json
 ```
@@ -172,6 +173,7 @@ npm run dev -- domain-pack:test ./fixtures/domain-packs/google-sheets.ndjson
 npm run dev -- domain-pack:report --data-dir ./tmp/local-data --limit 10
 npm run dev -- action:coverage --data-dir ./tmp/local-data --limit 10
 npm run dev -- action:suggest --data-dir ./tmp/local-data --limit 10
+npm run dev -- cluster:benchmark --json
 npm run dev -- debug:raw:list --data-dir ./tmp/local-data --limit 10
 npm run dev -- debug:trace:raw <raw-event-id> --data-dir ./tmp/local-data
 npm run dev -- debug:trace:session <session-id> --data-dir ./tmp/local-data
@@ -252,7 +254,7 @@ Optional Calendar boundary signals store only hashed event identifiers, hashed m
 - deterministic event normalization과 semantic action abstraction
 - rolling-context 기반 boundary reason이 있는 session segmentation
 - optional `gws` Calendar collector와 meeting start/end signal, doctor 진단
-- near-match workflow clustering, variant, confidence 계산
+- action-set/domain/time similarity를 쓰는 hybrid workflow clustering, variant, confidence 설명
 - all-time/day/week workflow-centric 리포트
 - daily/weekly report snapshot 저장
 - 워크플로우 검토, label, merge, split, exclude, hide, 세션 삭제
@@ -378,6 +380,7 @@ npm run dev -- debug:normalized:list --data-dir ./tmp/live-data --limit 10
 npm run dev -- domain-pack:report --data-dir ./tmp/live-data --limit 10
 npm run dev -- action:coverage --data-dir ./tmp/live-data --limit 10
 npm run dev -- action:suggest --data-dir ./tmp/live-data --limit 10
+npm run dev -- cluster:benchmark --json
 npm run dev -- report:snapshot:list --data-dir ./tmp/live-data --json
 npm run dev -- report:snapshot:show --data-dir ./tmp/live-data --window week --latest --json
 ```
@@ -396,6 +399,7 @@ npm run dev -- domain-pack:test ./fixtures/domain-packs/google-sheets.ndjson
 npm run dev -- domain-pack:report --data-dir ./tmp/local-data --limit 10
 npm run dev -- action:coverage --data-dir ./tmp/local-data --limit 10
 npm run dev -- action:suggest --data-dir ./tmp/local-data --limit 10
+npm run dev -- cluster:benchmark --json
 npm run dev -- debug:raw:list --data-dir ./tmp/local-data --limit 10
 npm run dev -- debug:trace:raw <raw-event-id> --data-dir ./tmp/local-data
 npm run dev -- debug:trace:session <session-id> --data-dir ./tmp/local-data

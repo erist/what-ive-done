@@ -33,6 +33,7 @@ Implemented today:
 - collector supervision for macOS, Windows, and optional `gws` command paths
 - agent-managed snapshot scheduler
 - normalization, semantic action abstraction, sessionization, workflow clustering, and all-time/daily/weekly reporting
+- hybrid clustering benchmark command with legacy-vs-v2 error comparison
 - persisted daily and weekly report snapshots
 - live browser dashboard for agent health, workflow reports, snapshots, and session drill-down
 - workflow rename, label, merge, split, exclude, include, hide, and unhide feedback
@@ -89,7 +90,7 @@ The resident agent is implemented under `src/agent/`.
 3. Raw events are normalized into stable context fields such as app alias, path pattern, route family, page type, resource hint, and title pattern.
 4. Normalized events are mapped into semantic action labels with action-pack, page-type, generic, or `unknown_action` match metadata.
 5. Events are grouped into sessions with rolling-context suppression and explainable boundary reasons.
-6. Similar sessions are clustered into workflows with representative sequences, variants, confidence, and automation hints.
+6. Similar sessions are clustered into workflows with representative sequences, action-set/domain/time-aware similarity, explainable confidence details, and automation hints.
 7. Reports, snapshots, and safe LLM summary payloads are generated from those workflow clusters.
 
 Normalized browser events now persist a versioned domain-pack match surface:
@@ -112,6 +113,8 @@ Current heuristic defaults in code:
 - context-shift split: 75 seconds with significant context change
 - rolling context window: 300 seconds
 - rolling-context suppression minimum gap: 45 seconds
+- clustering similarity threshold: 0.74
+- clustering weights: sequence 0.35, action set 0.25, context 0.25, time of day 0.15
 - minimum workflow session duration: 45 seconds
 - minimum workflow frequency: 3 similar sessions within 7 days
 
@@ -190,6 +193,22 @@ Useful commands:
 ```bash
 npm run dev -- action:coverage --data-dir ./tmp/local-data --limit 10
 npm run dev -- action:suggest --data-dir ./tmp/local-data --limit 10
+```
+
+## Hybrid Clustering v2
+
+Workflow clustering now uses a weighted hybrid score instead of a sequence-only score.
+
+- sequence similarity still anchors the score
+- action-set similarity helps keep reordered but semantically equivalent work together
+- domain-context similarity prevents same-looking browser flows from unrelated domains from collapsing together
+- time-of-day similarity acts as a weak tie-breaker for recurring routines
+- `confidenceDetails` explains how the final confidence score was composed
+
+Useful command:
+
+```bash
+npm run dev -- cluster:benchmark --json
 ```
 
 ## Ingest Security
@@ -402,6 +421,7 @@ Generate and inspect stored snapshots:
 npm run dev -- report:generate --data-dir ./tmp/local-data --window day --json
 npm run dev -- report:snapshot:list --data-dir ./tmp/local-data --json
 npm run dev -- report:snapshot:show --data-dir ./tmp/local-data --window week --latest --json
+npm run dev -- cluster:benchmark --json
 ```
 
 Run the standalone local HTTP server for collectors and the browser viewer:
@@ -523,6 +543,7 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 | `debug:trace:raw` | Trace one raw event through the interpretation pipeline. |
 | `debug:trace:session` | Trace one session back to raw events and its cluster. |
 | `debug:trace:workflow` | Trace one workflow cluster to member sessions and boundaries. |
+| `cluster:benchmark` | Compare legacy sequence-only clustering against hybrid clustering v2. |
 | `collector:list` | List available collectors and scripts. |
 | `collector:gws:calendar:info` | Show `gws` Calendar collector diagnostics, usage, and file paths. |
 | `collector:macos:check` | Check macOS collector permission status. |
@@ -582,7 +603,8 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 - `src/pipeline/normalize.ts`: raw event normalization
 - `src/pipeline/actions.ts`: semantic action abstraction rules
 - `src/pipeline/sessionize.ts`: session boundary logic
-- `src/pipeline/cluster.ts`: workflow clustering heuristics
+- `src/pipeline/cluster.ts`: hybrid workflow clustering heuristics and confidence details
+- `src/pipeline/cluster-benchmark.ts`: legacy-vs-v2 clustering benchmark dataset and scoring
 - `src/pipeline/analyze.ts`: end-to-end workflow analysis orchestration
 - `src/reporting/report.ts`: workflow-centric report formatting
 - `src/reporting/service.ts`: report generation and snapshot helpers

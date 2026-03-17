@@ -87,6 +87,7 @@ interface WorkflowClusterRow {
   representative_steps_json: string;
   involved_apps_json: string | null;
   confidence_score: number | null;
+  confidence_details_json: string | null;
   top_variants_json: string | null;
   automation_suitability: WorkflowCluster["automationSuitability"];
   recommended_approach: string;
@@ -869,13 +870,14 @@ export class AppDatabase {
           representative_steps_json,
           involved_apps_json,
           confidence_score,
+          confidence_details_json,
           top_variants_json,
           automation_suitability,
           recommended_approach,
           automation_hints_json,
           excluded,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           workflow_signature = excluded.workflow_signature,
           name = excluded.name,
@@ -887,6 +889,7 @@ export class AppDatabase {
           representative_steps_json = excluded.representative_steps_json,
           involved_apps_json = excluded.involved_apps_json,
           confidence_score = excluded.confidence_score,
+          confidence_details_json = excluded.confidence_details_json,
           top_variants_json = excluded.top_variants_json,
           automation_suitability = excluded.automation_suitability,
           recommended_approach = excluded.recommended_approach,
@@ -914,6 +917,7 @@ export class AppDatabase {
           JSON.stringify(cluster.representativeSteps),
           JSON.stringify(cluster.involvedApps),
           cluster.confidenceScore,
+          JSON.stringify(cluster.confidenceDetails),
           JSON.stringify(cluster.topVariants),
           cluster.automationSuitability,
           cluster.recommendedApproach,
@@ -961,6 +965,7 @@ export class AppDatabase {
           representative_steps_json,
           involved_apps_json,
           confidence_score,
+          confidence_details_json,
           top_variants_json,
           automation_suitability,
           recommended_approach,
@@ -1009,6 +1014,9 @@ export class AppDatabase {
         representativeSteps: JSON.parse(row.representative_steps_json) as string[],
         involvedApps: JSON.parse(row.involved_apps_json ?? "[]") as string[],
         confidenceScore: row.confidence_score ?? 0,
+        confidenceDetails: JSON.parse(
+          row.confidence_details_json ?? "{}",
+        ) as WorkflowCluster["confidenceDetails"],
         topVariants: JSON.parse(row.top_variants_json ?? "[]") as WorkflowCluster["topVariants"],
         automationSuitability: row.automation_suitability,
         recommendedApproach: row.recommended_approach,

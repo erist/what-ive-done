@@ -124,6 +124,31 @@ export interface WorkflowVariant {
   averageDurationSeconds: number;
 }
 
+export interface WorkflowSimilarityWeights {
+  sequence: number;
+  actionSet: number;
+  context: number;
+  timeOfDay: number;
+}
+
+export interface WorkflowConfidenceWeights {
+  compositeSimilarity: number;
+  topVariantConcentration: number;
+  repetition: number;
+}
+
+export interface WorkflowConfidenceDetails {
+  similarityWeights: WorkflowSimilarityWeights;
+  confidenceWeights: WorkflowConfidenceWeights;
+  averageSequenceSimilarity: number;
+  averageActionSetSimilarity: number;
+  averageContextSimilarity: number;
+  averageTimeOfDaySimilarity: number;
+  averageCompositeSimilarity: number;
+  topVariantConcentration: number;
+  repetitionScore: number;
+}
+
 export interface WorkflowCluster {
   id: string;
   workflowSignature: string;
@@ -138,6 +163,7 @@ export interface WorkflowCluster {
   representativeSteps: string[];
   involvedApps: string[];
   confidenceScore: number;
+  confidenceDetails: WorkflowConfidenceDetails;
   topVariants: WorkflowVariant[];
   automationSuitability: AutomationSuitability;
   recommendedApproach: string;

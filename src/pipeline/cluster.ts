@@ -4,33 +4,64 @@ import type {
   Session,
   SessionStep,
   WorkflowCluster,
+  WorkflowConfidenceDetails,
+  WorkflowConfidenceWeights,
+  WorkflowSimilarityWeights,
   WorkflowVariant,
 } from "../domain/types.js";
 import { stableId } from "../domain/ids.js";
+
+export type ClusterScoringStrategy = "legacy" | "hybrid_v2";
 
 export interface ClusterOptions {
   similarityThreshold?: number;
   minSessionDurationSeconds?: number;
   minimumWorkflowFrequency?: number;
+  scoringStrategy?: ClusterScoringStrategy | undefined;
+  similarityWeights?: Partial<WorkflowSimilarityWeights> | undefined;
+  confidenceWeights?: Partial<WorkflowConfidenceWeights> | undefined;
 }
 
 interface SessionDescriptor {
   session: Session;
-  tokens: string[];
+  tokenSequence: string[];
   actionSequence: string[];
+  actionSet: string[];
+  contextTokens: string[];
   durationSeconds: number;
   involvedApps: string[];
+  startMinutesOfDay: number;
 }
 
 interface MutableCluster {
-  prototypeTokens: string[];
   descriptors: SessionDescriptor[];
 }
 
-const DEFAULT_SIMILARITY_THRESHOLD = 0.62;
+interface SimilarityBreakdown {
+  sequence: number;
+  actionSet: number;
+  context: number;
+  timeOfDay: number;
+  total: number;
+}
+
+export const DEFAULT_CLUSTER_SIMILARITY_THRESHOLD = 0.74;
 const DEFAULT_MIN_SESSION_DURATION_SECONDS = 45;
 const DEFAULT_MINIMUM_WORKFLOW_FREQUENCY = 3;
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+export const DEFAULT_CLUSTER_SIMILARITY_WEIGHTS: WorkflowSimilarityWeights = {
+  sequence: 0.35,
+  actionSet: 0.25,
+  context: 0.25,
+  timeOfDay: 0.15,
+};
+
+export const DEFAULT_CLUSTER_CONFIDENCE_WEIGHTS: WorkflowConfidenceWeights = {
+  compositeSimilarity: 0.55,
+  topVariantConcentration: 0.25,
+  repetition: 0.2,
+};
 
 function secondsBetween(startTime: string, endTime: string): number {
   return Math.max(0, (new Date(endTime).getTime() - new Date(startTime).getTime()) / 1000);
@@ -48,6 +79,10 @@ function average(numbers: number[]): number {
   return numbers.reduce((sum, value) => sum + value, 0) / numbers.length;
 }
 
+function roundScore(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
 function compactStepTokens(steps: SessionStep[]): string[] {
   const tokens = steps.map((step) => `${step.application}|${step.actionName}`);
 
@@ -58,6 +93,47 @@ function compactActionSequence(steps: SessionStep[]): string[] {
   const actions = steps.map((step) => step.actionName);
 
   return actions.filter((action, index) => action !== actions[index - 1]);
+}
+
+function buildContextTokens(steps: SessionStep[]): string[] {
+  const domains = unique(
+    steps
+      .map((step) => step.domain)
+      .filter((value): value is string => Boolean(value))
+      .map((domain) => `domain:${domain}`),
+  ).sort();
+
+  if (domains.length > 0) {
+    return domains;
+  }
+
+  return unique(steps.map((step) => `app:${step.application}`)).sort();
+}
+
+function startMinutesOfDay(timestamp: string): number {
+  const date = new Date(timestamp);
+
+  return date.getUTCHours() * 60 + date.getUTCMinutes();
+}
+
+export function buildWorkflowSignatureFromSteps(steps: SessionStep[]): string {
+  const actionSignature = compactActionSequence(steps).join(">");
+  const contextSignature = buildContextTokens(steps).join(">");
+
+  return stableId("workflow_signature", `${actionSignature}||${contextSignature}`);
+}
+
+function buildDescriptor(session: Session): SessionDescriptor {
+  return {
+    session,
+    tokenSequence: compactStepTokens(session.steps),
+    actionSequence: compactActionSequence(session.steps),
+    actionSet: unique(compactActionSequence(session.steps)).sort(),
+    contextTokens: buildContextTokens(session.steps),
+    durationSeconds: secondsBetween(session.startTime, session.endTime),
+    involvedApps: unique(session.steps.map((step) => step.application)),
+    startMinutesOfDay: startMinutesOfDay(session.startTime),
+  };
 }
 
 function longestCommonSubsequenceLength(left: string[], right: string[]): number {
@@ -121,6 +197,110 @@ function sequenceSimilarity(left: string[], right: string[]): number {
   const ngramScore = jaccardSimilarity(buildNgrams(left, ngramSize), buildNgrams(right, ngramSize));
 
   return lcsScore * 0.75 + ngramScore * 0.25;
+}
+
+function timeOfDaySimilarity(leftMinutes: number, rightMinutes: number): number {
+  const difference = Math.abs(leftMinutes - rightMinutes);
+  const wrappedDifference = Math.min(difference, 24 * 60 - difference);
+
+  return Math.max(0, 1 - wrappedDifference / (12 * 60));
+}
+
+function normalizeSimilarityWeights(
+  weights: Partial<WorkflowSimilarityWeights> | undefined,
+): WorkflowSimilarityWeights {
+  const merged = {
+    ...DEFAULT_CLUSTER_SIMILARITY_WEIGHTS,
+    ...weights,
+  };
+  const total = merged.sequence + merged.actionSet + merged.context + merged.timeOfDay;
+
+  if (total <= 0) {
+    return DEFAULT_CLUSTER_SIMILARITY_WEIGHTS;
+  }
+
+  return {
+    sequence: merged.sequence / total,
+    actionSet: merged.actionSet / total,
+    context: merged.context / total,
+    timeOfDay: merged.timeOfDay / total,
+  };
+}
+
+function normalizeConfidenceWeights(
+  weights: Partial<WorkflowConfidenceWeights> | undefined,
+): WorkflowConfidenceWeights {
+  const merged = {
+    ...DEFAULT_CLUSTER_CONFIDENCE_WEIGHTS,
+    ...weights,
+  };
+  const total = merged.compositeSimilarity + merged.topVariantConcentration + merged.repetition;
+
+  if (total <= 0) {
+    return DEFAULT_CLUSTER_CONFIDENCE_WEIGHTS;
+  }
+
+  return {
+    compositeSimilarity: merged.compositeSimilarity / total,
+    topVariantConcentration: merged.topVariantConcentration / total,
+    repetition: merged.repetition / total,
+  };
+}
+
+function buildSimilarityBreakdown(args: {
+  left: SessionDescriptor;
+  right: SessionDescriptor;
+  scoringStrategy: ClusterScoringStrategy;
+  similarityWeights: WorkflowSimilarityWeights;
+}): SimilarityBreakdown {
+  const sequence = sequenceSimilarity(args.left.tokenSequence, args.right.tokenSequence);
+
+  if (args.scoringStrategy === "legacy") {
+    return {
+      sequence,
+      actionSet: 0,
+      context: 0,
+      timeOfDay: 0,
+      total: sequence,
+    };
+  }
+
+  const actionSet = jaccardSimilarity(args.left.actionSet, args.right.actionSet);
+  const context = jaccardSimilarity(args.left.contextTokens, args.right.contextTokens);
+  const timeOfDay = timeOfDaySimilarity(args.left.startMinutesOfDay, args.right.startMinutesOfDay);
+
+  return {
+    sequence,
+    actionSet,
+    context,
+    timeOfDay,
+    total:
+      sequence * args.similarityWeights.sequence +
+      actionSet * args.similarityWeights.actionSet +
+      context * args.similarityWeights.context +
+      timeOfDay * args.similarityWeights.timeOfDay,
+  };
+}
+
+function clusterMembershipScore(args: {
+  cluster: MutableCluster;
+  candidate: SessionDescriptor;
+  scoringStrategy: ClusterScoringStrategy;
+  similarityWeights: WorkflowSimilarityWeights;
+}): number {
+  const scores = args.cluster.descriptors
+    .map((descriptor) =>
+      buildSimilarityBreakdown({
+        left: descriptor,
+        right: args.candidate,
+        scoringStrategy: args.scoringStrategy,
+        similarityWeights: args.similarityWeights,
+      }).total,
+    )
+    .sort((left, right) => right - left);
+  const windowSize = Math.min(2, scores.length);
+
+  return average(scores.slice(0, windowSize));
 }
 
 function hasMinimumFrequencyWithinSevenDays(descriptors: SessionDescriptor[], minimumFrequency: number): boolean {
@@ -418,31 +598,75 @@ function buildTopVariants(descriptors: SessionDescriptor[]): WorkflowVariant[] {
     .slice(0, 3);
 }
 
-function computeConfidenceScore(descriptors: SessionDescriptor[], topVariants: WorkflowVariant[]): number {
-  const prototype = topVariants[0]?.sequence ?? descriptors[0]?.actionSequence ?? [];
-  const consistency = average(
-    descriptors.map((descriptor) => sequenceSimilarity(descriptor.actionSequence, prototype)),
+function computeConfidence(args: {
+  descriptors: SessionDescriptor[];
+  representativeDescriptor: SessionDescriptor;
+  topVariants: WorkflowVariant[];
+  scoringStrategy: ClusterScoringStrategy;
+  similarityWeights: WorkflowSimilarityWeights;
+  confidenceWeights: WorkflowConfidenceWeights;
+}): {
+  confidenceScore: number;
+  confidenceDetails: WorkflowConfidenceDetails;
+} {
+  const breakdowns = args.descriptors.map((descriptor) =>
+    buildSimilarityBreakdown({
+      left: args.representativeDescriptor,
+      right: descriptor,
+      scoringStrategy: args.scoringStrategy,
+      similarityWeights: args.similarityWeights,
+    }),
   );
-  const concentration = (topVariants[0]?.occurrenceCount ?? 0) / Math.max(1, descriptors.length);
-  const repetition = Math.min(1, descriptors.length / 5);
+  const averageSequenceSimilarity = average(breakdowns.map((breakdown) => breakdown.sequence));
+  const averageActionSetSimilarity = average(breakdowns.map((breakdown) => breakdown.actionSet));
+  const averageContextSimilarity = average(breakdowns.map((breakdown) => breakdown.context));
+  const averageTimeOfDaySimilarity = average(breakdowns.map((breakdown) => breakdown.timeOfDay));
+  const averageCompositeSimilarity = average(breakdowns.map((breakdown) => breakdown.total));
+  const topVariantConcentration = (args.topVariants[0]?.occurrenceCount ?? 0) / Math.max(1, args.descriptors.length);
+  const repetitionScore = Math.min(1, args.descriptors.length / 5);
+  const confidenceScore = roundScore(
+    averageCompositeSimilarity * args.confidenceWeights.compositeSimilarity +
+      topVariantConcentration * args.confidenceWeights.topVariantConcentration +
+      repetitionScore * args.confidenceWeights.repetition,
+  );
 
-  return Math.round((consistency * 0.5 + concentration * 0.3 + repetition * 0.2) * 100) / 100;
+  return {
+    confidenceScore,
+    confidenceDetails: {
+      similarityWeights: {
+        sequence: roundScore(args.similarityWeights.sequence),
+        actionSet: roundScore(args.similarityWeights.actionSet),
+        context: roundScore(args.similarityWeights.context),
+        timeOfDay: roundScore(args.similarityWeights.timeOfDay),
+      },
+      confidenceWeights: {
+        compositeSimilarity: roundScore(args.confidenceWeights.compositeSimilarity),
+        topVariantConcentration: roundScore(args.confidenceWeights.topVariantConcentration),
+        repetition: roundScore(args.confidenceWeights.repetition),
+      },
+      averageSequenceSimilarity: roundScore(averageSequenceSimilarity),
+      averageActionSetSimilarity: roundScore(averageActionSetSimilarity),
+      averageContextSimilarity: roundScore(averageContextSimilarity),
+      averageTimeOfDaySimilarity: roundScore(averageTimeOfDaySimilarity),
+      averageCompositeSimilarity: roundScore(averageCompositeSimilarity),
+      topVariantConcentration: roundScore(topVariantConcentration),
+      repetitionScore: roundScore(repetitionScore),
+    },
+  };
 }
 
 export function clusterSessions(sessions: Session[], options: ClusterOptions = {}): WorkflowCluster[] {
-  const similarityThreshold = options.similarityThreshold ?? DEFAULT_SIMILARITY_THRESHOLD;
+  const similarityThreshold = options.similarityThreshold ?? DEFAULT_CLUSTER_SIMILARITY_THRESHOLD;
   const minimumWorkflowFrequency = options.minimumWorkflowFrequency ?? DEFAULT_MINIMUM_WORKFLOW_FREQUENCY;
   const minSessionDurationSeconds =
     options.minSessionDurationSeconds ?? DEFAULT_MIN_SESSION_DURATION_SECONDS;
+  const scoringStrategy = options.scoringStrategy ?? "hybrid_v2";
+  const similarityWeights = normalizeSimilarityWeights(options.similarityWeights);
+  const confidenceWeights = normalizeConfidenceWeights(options.confidenceWeights);
 
-  const descriptors: SessionDescriptor[] = sessions
-    .map((session) => ({
-      session,
-      tokens: compactStepTokens(session.steps),
-      actionSequence: compactActionSequence(session.steps),
-      durationSeconds: secondsBetween(session.startTime, session.endTime),
-      involvedApps: unique(session.steps.map((step) => step.application)),
-    }))
+  const descriptors: SessionDescriptor[] = [...sessions]
+    .sort((left, right) => left.startTime.localeCompare(right.startTime))
+    .map((session) => buildDescriptor(session))
     .filter(
       (descriptor) =>
         descriptor.durationSeconds >= minSessionDurationSeconds && descriptor.actionSequence.length > 0,
@@ -455,7 +679,12 @@ export function clusterSessions(sessions: Session[], options: ClusterOptions = {
     let bestScore = 0;
 
     for (const cluster of mutableClusters) {
-      const score = sequenceSimilarity(cluster.prototypeTokens, descriptor.tokens);
+      const score = clusterMembershipScore({
+        cluster,
+        candidate: descriptor,
+        scoringStrategy,
+        similarityWeights,
+      });
 
       if (score >= similarityThreshold && score > bestScore) {
         bestCluster = cluster;
@@ -469,7 +698,6 @@ export function clusterSessions(sessions: Session[], options: ClusterOptions = {
     }
 
     mutableClusters.push({
-      prototypeTokens: descriptor.tokens,
       descriptors: [descriptor],
     });
   }
@@ -490,13 +718,25 @@ export function clusterSessions(sessions: Session[], options: ClusterOptions = {
           (descriptor) =>
             descriptor.actionSequence.join(">") === representativeSequence.join(">"),
         ) ?? cluster.descriptors[0];
-      const similarities = cluster.descriptors.map((descriptor) =>
-        sequenceSimilarity(representativeSequence, descriptor.actionSequence),
-      );
+      if (!representativeDescriptor) {
+        throw new Error("Expected a representative descriptor for a non-empty cluster");
+      }
       const involvedApps = unique(cluster.descriptors.flatMap((descriptor) => descriptor.involvedApps));
-      const workflowSignature = stableId("workflow_signature", representativeSequence.join(">"));
-      const suitability = determineSuitability(cluster.descriptors, average(similarities));
-      const confidenceScore = computeConfidenceScore(cluster.descriptors, topVariants);
+      const confidence = computeConfidence({
+        descriptors: cluster.descriptors,
+        representativeDescriptor,
+        topVariants,
+        scoringStrategy,
+        similarityWeights,
+        confidenceWeights,
+      });
+      const workflowSignature = buildWorkflowSignatureFromSteps(
+        representativeDescriptor.session.steps,
+      );
+      const suitability = determineSuitability(
+        cluster.descriptors,
+        confidence.confidenceDetails.averageCompositeSimilarity,
+      );
       const automationHints = buildAutomationHints({
         involvedApps,
         representativeSequence,
@@ -515,9 +755,10 @@ export function clusterSessions(sessions: Session[], options: ClusterOptions = {
         averageDurationSeconds: average(durations),
         totalDurationSeconds: durations.reduce((sum, value) => sum + value, 0),
         representativeSequence,
-        representativeSteps: representativeSteps(representativeDescriptor?.session.steps ?? []),
+        representativeSteps: representativeSteps(representativeDescriptor.session.steps),
         involvedApps,
-        confidenceScore,
+        confidenceScore: confidence.confidenceScore,
+        confidenceDetails: confidence.confidenceDetails,
         topVariants,
         automationSuitability: suitability.automationSuitability,
         recommendedApproach: automationHints[0]?.suggestedApproach ?? suitability.recommendedApproach,
