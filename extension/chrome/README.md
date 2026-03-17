@@ -9,7 +9,7 @@ Recommended local target:
 
 Fallback target:
 
-- the standalone ingest endpoint started with `npm run dev -- serve`
+- the standalone ingest endpoint started with `npm run dev -- server:run`
 
 The local ingest server is localhost-only and now requires a shared auth token for
 browser POST requests.
@@ -18,15 +18,23 @@ Captured event categories:
 
 - tab navigation
 - tab activation
+- SPA route-change metadata with normalized route taxonomy
 - DOM click metadata
 - form submission metadata
+- signal-only dwell segment events with tab-order metadata
+- opaque document-type hashes derived from coarse page structure
 
 The extension intentionally avoids collecting:
 
+- raw DOM or page text
+- hash fragment source strings
 - field values
 - raw text input
 - passwords
 - clipboard contents
+
+Dwell events are marked as signal-only browser context. They are stored for debug and future
+session-quality work, but they do not become workflow steps in the current normalized analysis path.
 
 Before using the extension:
 

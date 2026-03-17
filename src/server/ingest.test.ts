@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { generateMockRawEvents } from "../collectors/mock.js";
+import { analyzeRawEvents } from "../pipeline/analyze.js";
 import { AppDatabase } from "../storage/database.js";
 import { generateReportSnapshot } from "../reporting/service.js";
 import { coerceIncomingEvent, coerceIncomingEvents } from "./ingest.js";
@@ -98,6 +99,125 @@ test("startIngestServer stores posted events", async () => {
 
     assert.equal(events.length, 1);
     assert.equal(events[0]?.target, "orders_page");
+  } finally {
+    await server.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("collector browser context payloads survive ingest while signal-only dwell stays out of analysis", async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-browser-context-"));
+  const server = await startIngestServer({
+    dataDir: tempDir,
+    host: "127.0.0.1",
+    port: 0,
+    authToken: TEST_AUTH_TOKEN,
+  });
+
+  try {
+    const response = await fetch(`http://${server.host}:${server.port}/events`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-What-Ive-Done-Token": TEST_AUTH_TOKEN,
+      },
+      body: JSON.stringify({
+        events: [
+          {
+            sourceEventType: "chrome.route_change",
+            application: "chrome",
+            url: "https://workspace.example.com/#/orders/123/edit",
+            action: "navigation",
+            target: "route_change",
+            metadata: {
+              browserContext: {
+                routeTaxonomy: {
+                  source: "hash",
+                  signature: "hash:/orders/{id}/edit",
+                  routeTemplate: "/orders/{id}/edit",
+                  depth: 3,
+                  primarySection: "orders",
+                  secondarySection: "{id}",
+                  leafSection: "edit",
+                  dynamicSegmentCount: 1,
+                },
+                documentTypeHash: "abcdef1234567890abcdef12",
+                tabOrder: {
+                  globalSequence: 8,
+                  windowSequence: 4,
+                  tabIndex: 2,
+                  previousTabId: 7,
+                  windowId: 3,
+                },
+              },
+            },
+          },
+          {
+            sourceEventType: "chrome.dwell",
+            application: "chrome",
+            url: "https://workspace.example.com/#/orders/123/edit",
+            action: "dwell",
+            target: "route_dwell",
+            metadata: {
+              browserContext: {
+                routeTaxonomy: {
+                  source: "hash",
+                  signature: "hash:/orders/{id}/edit",
+                  routeTemplate: "/orders/{id}/edit",
+                },
+                documentTypeHash: "abcdef1234567890abcdef12",
+                dwell: {
+                  durationMs: 15000,
+                  startedAt: "2026-03-17T00:00:00.000Z",
+                  endedAt: "2026-03-17T00:00:15.000Z",
+                  reason: "route_change",
+                },
+                signalOnly: true,
+              },
+            },
+          },
+        ],
+      }),
+    });
+
+    assert.equal(response.status, 202);
+
+    const database = new AppDatabase({
+      dataDir: tempDir,
+      databasePath: join(tempDir, "what-ive-done.sqlite"),
+      agentLockPath: join(tempDir, "agent.lock"),
+    });
+    database.initialize();
+
+    const rawEvents = database.getRawEventsChronological();
+    const analysis = analyzeRawEvents(rawEvents);
+
+    assert.equal(rawEvents.length, 2);
+    assert.equal(analysis.normalizedEvents.length, 1);
+    assert.equal(
+      ((rawEvents[0]?.metadata.browserContext as Record<string, unknown>)?.routeTaxonomy as Record<
+        string,
+        unknown
+      >)?.signature,
+      "hash:/orders/{id}/edit",
+    );
+    assert.equal(
+      (rawEvents[0]?.metadata.browserContext as Record<string, unknown>)?.documentTypeHash,
+      "abcdef1234567890abcdef12",
+    );
+    assert.equal(
+      ((rawEvents[1]?.metadata.browserContext as Record<string, unknown>)?.dwell as Record<string, unknown>)?.durationMs,
+      15000,
+    );
+    assert.equal(
+      ((analysis.normalizedEvents[0]?.metadata.browserContext as Record<string, unknown>)?.routeTaxonomy as Record<
+        string,
+        unknown
+      >)?.signature,
+      "hash:/orders/{id}/edit",
+    );
+
+    database.close();
   } finally {
     await server.close();
     rmSync(tempDir, { recursive: true, force: true });

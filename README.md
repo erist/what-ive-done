@@ -21,6 +21,7 @@ This repository provides a TypeScript CLI plus a resident local agent. Together 
 - local browser viewer for agent status, live workflow reports, snapshots, and session drill-down
 - Windows and macOS active-window collection paths
 - Chrome extension path for browser metadata ingestion
+- Chrome browser context substrate with SPA route taxonomy, opaque document-type hashes, tab-order metadata, and signal-only dwell segments
 - golden workflow fixtures and debug trace CLI for quality regression
 - deterministic event normalization and semantic action abstraction
 - explainable session segmentation with boundary reasons
@@ -185,10 +186,13 @@ npm run dev -- auth:login gemini --data-dir ./tmp/local-data
 
 The project stores behavioral metadata only. It must not collect raw keystrokes, passwords, email or document content, clipboard text, authentication tokens, cookies, continuous screenshots, or screen recordings.
 
+Chrome browser context expansion stores only normalized route taxonomy, opaque document-type hashes, tab-order counters, and dwell durations. Raw DOM text, form values, and hash-fragment strings are not persisted.
+
 ### Docs
 
 - [CLI Quickstart](./CLI_QUICKSTART.md)
 - [Detailed Internal Reference](./docs/reference/project-reference.md)
+- [Chrome Context Privacy Review](./docs/reference/chrome-context-privacy-review.md)
 - [Product Requirements](./docs/product/requirements.md)
 - [Active Implementation Plan](./docs/plans/active/mvp-implementation.md)
 
@@ -217,6 +221,7 @@ The project stores behavioral metadata only. It must not collect raw keystrokes,
 - agent 상태, live report, snapshot, session detail을 보는 local browser viewer
 - Windows/macOS active-window 수집 경로
 - 브라우저 메타데이터 수집용 Chrome extension 경로
+- SPA route taxonomy, opaque document-type hash, tab-order metadata, signal-only dwell segment를 담는 Chrome browser context substrate
 - golden workflow fixture와 debug trace CLI
 - deterministic event normalization과 semantic action abstraction
 - boundary reason이 있는 session segmentation
@@ -381,10 +386,13 @@ npm run dev -- auth:login gemini --data-dir ./tmp/local-data
 
 이 프로젝트는 행동 메타데이터만 저장합니다. 실제 키 입력, 비밀번호, 이메일/문서 본문, 클립보드 텍스트, 인증 토큰, 쿠키, 연속 스크린샷, 화면 녹화는 수집하면 안 됩니다.
 
+Chrome browser context 확장에서도 저장되는 것은 정규화된 route taxonomy, opaque document-type hash, tab-order 카운터, dwell duration뿐입니다. raw DOM 텍스트, form 값, hash fragment 원문은 저장하지 않습니다.
+
 ### 문서
 
 - [CLI Quickstart](./CLI_QUICKSTART.md)
 - [상세 내부 레퍼런스](./docs/reference/project-reference.md)
+- [Chrome Context Privacy Review](./docs/reference/chrome-context-privacy-review.md)
 - [제품 요구사항](./docs/product/requirements.md)
 - [현재 구현 계획](./docs/plans/active/mvp-implementation.md)
 

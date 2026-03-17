@@ -129,6 +129,7 @@ test("AppDatabase initializes schema and stores sanitized raw events", () => {
     });
 
     const events = database.listRawEvents();
+    const stored = events[0] ? database.getRawEventById(events[0].id) : undefined;
 
     assert.equal(events.length, 1);
     assert.equal(events[0]?.application, "chrome");
@@ -144,6 +145,8 @@ test("AppDatabase initializes schema and stores sanitized raw events", () => {
       clickedButton: "open-order",
       authToken: "[REDACTED]",
     });
+    assert.equal(stored?.canonicalUrl, "https://admin.internal/orders");
+    assert.equal(stored?.routeTemplate, "/orders");
 
     database.close();
   } finally {

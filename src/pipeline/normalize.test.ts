@@ -99,3 +99,41 @@ test("normalizeRawEvents normalizes title identifiers even without a URL", () =>
   assert.equal(event.pageType, "order_detail");
   assert.equal(event.resourceHint, "order");
 });
+
+test("normalizeRawEvents skips signal-only browser context events", () => {
+  const events = normalizeRawEvents([
+    createRawEvent({
+      id: "raw-3",
+      timestamp: "2026-03-17T00:00:00.000Z",
+      sourceEventType: "chrome.navigation",
+      url: "https://workspace.example.com/orders/123",
+      metadata: {
+        browserContext: {
+          routeTaxonomy: {
+            signature: "pathname:/orders/{id}",
+          },
+        },
+      },
+    }),
+    createRawEvent({
+      id: "raw-4",
+      timestamp: "2026-03-17T00:00:30.000Z",
+      sourceEventType: "chrome.dwell",
+      action: "dwell",
+      metadata: {
+        browserContext: {
+          routeTaxonomy: {
+            signature: "pathname:/orders/{id}",
+          },
+          dwell: {
+            durationMs: 30000,
+          },
+          signalOnly: true,
+        },
+      },
+    }),
+  ]);
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0]?.rawEventId, "raw-3");
+});
