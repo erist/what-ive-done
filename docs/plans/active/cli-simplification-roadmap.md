@@ -116,8 +116,16 @@ wid up --open
 
 ### M14. Short Aliases + `wid` Binary
 
+- 상태
+  - 완료(2026-03-18)
 - 목표
   - 짧은 alias와 `wid` binary를 도입해 실제 사용 흐름을 한 줄 실행 중심으로 단순화한다.
+- 구현 메모
+  - `src/cli/aliases.ts` 와 command alias를 함께 사용해 `wid up|restart|status|stop|token|compare|trace|coverage|viewer` 를 long-form command에 연결했다.
+  - `wid up --open` 과 `wid up --no-gws` 가 각각 `--open-viewer`, gws 일회성 비활성화로 해석되도록 option alias를 추가했다.
+  - `agent:restart` 와 공용 runtime option surface를 도입해 `up/restart` 의 실행면을 하나로 맞췄다.
+  - `package.json` 의 `wid` bin, shebang, CI `npm link` smoke를 추가해 linked binary 경로를 고정했다.
+  - `doctor` 가 managed tools 상태를 함께 반환하도록 확장했고, alias/binary integration test를 추가했다.
 - 다음 단계로 넘길 입력
   - env/config/alias 일관 실행면
 

@@ -407,10 +407,26 @@
 ## M14. Short Aliases + `wid` Binary
 
 - 권장 branch: `codex/m14-cli-short-aliases`
+- 상태
+  - 완료(2026-03-18)
 - 목표
   - short alias와 `wid` binary를 도입해 상용 사용 흐름을 한 줄로 줄인다.
 - 선행 조건
   - M13
+- 산출물
+  - `wid` package bin
+  - `up|restart|status|stop|token|compare|trace|coverage|viewer` alias surface
+  - `agent:restart` command
+  - CLI alias smoke CI gate
+- 구현 메모
+  - `src/cli/aliases.ts` 를 추가해 short alias와 `wid up --open`, `wid up --no-gws` 같은 option alias를 parse 직전에 정규화했다.
+  - `agent:run` 과 `agent:restart` 가 같은 runtime option surface를 쓰도록 정리했고, `agent:restart` 는 기존 런타임을 내린 뒤 새로 기동하도록 추가했다.
+  - `package.json` 에 `wid` bin을 등록하고 shebang을 추가해 build 결과를 바로 링크 가능한 실행 파일로 맞췄다.
+  - `doctor` 가 기존 collector 진단과 함께 managed `tools` 상태도 반환하도록 확장했다.
+  - `src/cli/aliases.test.ts`, `src/integration/cli.test.ts`, `.github/workflows/ci.yml` 확장을 통해 alias routing, `wid up`, linked binary smoke를 검증했다.
+- 다음 단계로 넘길 입력
+  - env/config/alias/binary 실행면
+  - M15가 재사용할 `agent:restart` 와 doctor tool-state 진단면
 
 ## M15. Edge Cases + Migration Chain
 

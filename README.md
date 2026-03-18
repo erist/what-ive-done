@@ -110,6 +110,24 @@ npm run dev -- tools remove gws --data-dir ./tmp/agent-data
 
 When you run from an initialized data directory, `npm run dev -- tools` prints the managed collector/analyzer status without needing `--data-dir`.
 
+Shortcut CLI with the linked `wid` binary:
+
+```bash
+npm link
+wid init ./tmp/live-data --interactive
+wid tools
+wid tools add gws
+wid up --open
+wid up --no-gws
+wid status
+wid restart --open
+wid stop
+wid token
+wid compare --data-dir ./tmp/live-data --window week --json
+```
+
+`wid up` maps to `agent:run`, `wid status` maps to `agent:health`, and `doctor` now includes a `tools` block so runtime/config readiness can be checked in one payload.
+
 Browser ingest token for the Chrome extension:
 
 ```bash
@@ -399,6 +417,24 @@ npm run dev -- tools remove gws --data-dir ./tmp/agent-data
 ```
 
 초기화된 data dir 안에서 실행하면 `npm run dev -- tools` 만으로 collector/analyzer 상태를 바로 볼 수 있습니다.
+
+링크된 `wid` 바이너리로 짧은 명령 사용:
+
+```bash
+npm link
+wid init ./tmp/live-data --interactive
+wid tools
+wid tools add gws
+wid up --open
+wid up --no-gws
+wid status
+wid restart --open
+wid stop
+wid token
+wid compare --data-dir ./tmp/live-data --window week --json
+```
+
+`wid up` 은 `agent:run`, `wid status` 는 `agent:health` 에 매핑되며, `doctor` 출력에는 이제 `tools` 블록이 포함되어 설정/런타임 준비 상태를 한 번에 볼 수 있습니다.
 
 Chrome extension에 넣을 ingest token 확인:
 

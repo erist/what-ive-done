@@ -72,6 +72,25 @@ npm run dev -- tools refresh gemini --data-dir ./tmp/demo-data
 
 From inside an initialized data directory, `npm run dev -- tools` shows the managed collector/analyzer status without `--data-dir`.
 
+## `wid` shortcuts
+
+After `npm link`, the linked `wid` binary can replace the longer `npm run dev -- ...` entrypoint for the common runtime flows.
+
+```bash
+npm link
+wid init ./tmp/live-data --interactive
+wid tools
+wid tools add gws
+wid up --open
+wid up --no-gws
+wid status
+wid restart --open
+wid stop
+wid token
+```
+
+`wid up` maps to `agent:run`, `wid status` maps to `agent:health`, and `wid compare` maps to `report:compare`.
+
 Run the resident agent:
 
 ```bash
@@ -83,6 +102,8 @@ Doctor diagnostics:
 ```bash
 npm run dev -- doctor --data-dir ./tmp/live-data
 ```
+
+`doctor` now includes the managed `tools` status block alongside the existing collector diagnostics.
 
 Run the resident agent and open the local browser viewer:
 
@@ -134,6 +155,7 @@ npm run dev -- report --data-dir ./tmp/demo-data
 - `viewer:open`: open the local browser viewer
 - `config show|get|set|path`: inspect or update `.wid/config.json`
 - `tools|tools list|tools add|tools remove|tools refresh|tools auth`: manage configured collectors/analyzers
+- `up|restart|status|stop|token|compare|trace|coverage|viewer`: short aliases for the most common long-form commands
 - `init`: initialize `.wid/config.json`, SQLite, and the ingest token
 - `collect:mock`: insert mock raw events
 - `analyze`: run normalization, sessionization, and workflow clustering

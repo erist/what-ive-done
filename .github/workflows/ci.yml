@@ -37,6 +37,14 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: CLI alias smoke
+        run: |
+          npm link
+          WID_BIN="$(npm prefix -g)/bin/wid"
+          "${WID_BIN}" --help
+          "${WID_BIN}" config --help
+          "${WID_BIN}" tools --help
+
       - name: Domain pack fixture regression
         shell: bash
         run: |
