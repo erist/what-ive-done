@@ -8,6 +8,7 @@ const DEFAULT_ACCOUNT_NAME = "default";
 
 export interface CredentialStore {
   backend: string;
+  warning?: string | undefined;
   isSupported(): boolean;
   hasSecret(serviceName: string, accountName?: string): boolean;
   getSecret(serviceName: string, accountName?: string): string | undefined;
@@ -39,6 +40,13 @@ export function createUnsupportedCredentialStore(): CredentialStore {
       throw new Error("Secure credential storage is not supported on this platform yet");
     },
   };
+}
+
+interface PlaintextCredentialRecord {
+  serviceName: string;
+  accountName: string;
+  secret: string;
+  updatedAt: string;
 }
 
 export function createMacOSKeychainCredentialStore(execRunner: ExecRunner = defaultExecRunner): CredentialStore {
@@ -103,6 +111,24 @@ function resolveWindowsCredentialPath(
     baseDir,
     `${encodeCredentialPathPart(serviceName)}--${encodeCredentialPathPart(accountName)}.json`,
   );
+}
+
+function readPlaintextCredentialRecord(
+  baseDir: string,
+  serviceName: string,
+  accountName = DEFAULT_ACCOUNT_NAME,
+): PlaintextCredentialRecord | undefined {
+  const recordPath = resolveWindowsCredentialPath(baseDir, serviceName, accountName);
+
+  if (!existsSync(recordPath)) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(readFileSync(recordPath, "utf8")) as PlaintextCredentialRecord;
+  } catch {
+    return undefined;
+  }
 }
 
 function protectWindowsSecret(secret: string, execRunner: ExecRunner): string {
@@ -192,6 +218,48 @@ export function createWindowsDPAPICredentialStore(
   };
 }
 
+export function createLinuxFileCredentialStore(
+  baseDir = resolveWindowsCredentialStoreDir(),
+): CredentialStore {
+  const warning =
+    "Linux credential storage currently uses a local plaintext file fallback under the app data directory.";
+
+  return {
+    backend: "linux-file-fallback",
+    warning,
+    isSupported: () => true,
+    hasSecret: (serviceName: string, accountName?: string) =>
+      readPlaintextCredentialRecord(baseDir, serviceName, accountName)?.secret !== undefined,
+    getSecret: (serviceName: string, accountName?: string) =>
+      readPlaintextCredentialRecord(baseDir, serviceName, accountName)?.secret,
+    setSecret: (serviceName: string, secret: string, accountName?: string) => {
+      const resolvedAccountName = accountName ?? DEFAULT_ACCOUNT_NAME;
+      const recordPath = resolveWindowsCredentialPath(baseDir, serviceName, resolvedAccountName);
+
+      mkdirSync(baseDir, { recursive: true });
+      writeFileSync(
+        recordPath,
+        `${JSON.stringify(
+          {
+            serviceName,
+            accountName: resolvedAccountName,
+            secret,
+            updatedAt: new Date().toISOString(),
+          } satisfies PlaintextCredentialRecord,
+          null,
+          2,
+        )}\n`,
+        "utf8",
+      );
+    },
+    deleteSecret: (serviceName: string, accountName?: string) => {
+      rmSync(resolveWindowsCredentialPath(baseDir, serviceName, accountName ?? DEFAULT_ACCOUNT_NAME), {
+        force: true,
+      });
+    },
+  };
+}
+
 export function resolveCredentialStore(): CredentialStore {
   if (process.platform === "darwin") {
     return createMacOSKeychainCredentialStore();
@@ -199,6 +267,10 @@ export function resolveCredentialStore(): CredentialStore {
 
   if (process.platform === "win32") {
     return createWindowsDPAPICredentialStore();
+  }
+
+  if (process.platform === "linux") {
+    return createLinuxFileCredentialStore();
   }
 
   return createUnsupportedCredentialStore();

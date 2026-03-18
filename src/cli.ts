@@ -56,6 +56,7 @@ import {
   DEFAULT_WID_SERVER_PORT,
   type WidConfig,
 } from "./config/schema.js";
+import { isInteractiveTerminal, PromptSession } from "./cli/prompts.js";
 import { runInit, runInteractiveInit } from "./init/flow.js";
 import {
   buildRawEventTrace,
@@ -116,6 +117,15 @@ import {
   rotateIngestAuthToken,
 } from "./server/security.js";
 import { AppDatabase } from "./storage/database.js";
+import {
+  addTool,
+  authenticateTool,
+  formatToolList,
+  listTools,
+  refreshTool,
+  removeTool,
+} from "./tools/service.js";
+import { resolveCollectorRuntimeOptions } from "./tools/runtime.js";
 import type {
   ReportEntry,
   ReportSnapshot,
@@ -164,6 +174,10 @@ function normalizeOptionalConfigString(value: unknown): string | undefined {
 
 function isToolAdded(config: WidConfig, toolName: string): boolean {
   return config.tools[toolName]?.added === true;
+}
+
+function createPromptSessionIfInteractive(): PromptSession | undefined {
+  return isInteractiveTerminal() ? new PromptSession() : undefined;
 }
 
 function parseConfigValue(value: string): unknown {
@@ -1160,6 +1174,7 @@ function buildProviderCredentialStatus(dataDir?: string) {
 
   return {
     backend: credentialStore.backend,
+    warning: credentialStore.warning,
     supported: credentialStore.isSupported(),
     configuration,
     hasOpenAIKey: hasLLMApiKey(credentialStore, "openai"),
@@ -1237,6 +1252,204 @@ program
         console.log(ConfigManager.resolveConfigPath(dataDir));
       }),
   );
+
+const toolsCommand = program
+  .command("tools")
+  .description("List or manage configured collectors and analyzers")
+  .action(async () => {
+    const { dataDir } = loadCommandConfig();
+    const report = await listTools(dataDir);
+
+    console.log(formatToolList(report));
+  });
+
+toolsCommand.addCommand(
+  new Command("list")
+    .description("List configured collectors and analyzers")
+    .option("--data-dir <path>", "Override application data directory")
+    .action(async (options: { dataDir?: string }) => {
+      const { dataDir } = loadCommandConfig(options.dataDir);
+      const report = await listTools(dataDir);
+
+      console.log(formatToolList(report));
+    }),
+);
+
+toolsCommand.addCommand(
+  new Command("add")
+    .description("Add a collector or analyzer tool to the persisted config")
+    .argument("<name>", "Tool name: gws|git|gh|gemini|claude|openai")
+    .option("--data-dir <path>", "Override application data directory")
+    .option("--auth <method>", "Analyzer auth method: api-key|oauth2")
+    .option("--model <name>", "Analyzer model override")
+    .option("--repo-path <path>", "Git repository path")
+    .option("--calendar-id <id>", "Default gws Calendar id", DEFAULT_GWS_CALENDAR_ID)
+    .option("--api-key <value>", "Analyzer API key")
+    .option("--client-id <id>", "Gemini OAuth client id")
+    .option("--client-secret <secret>", "Gemini OAuth client secret")
+    .option("--project-id <id>", "Gemini OAuth project id")
+    .option("--port <port>", "Local callback port for OAuth", "0")
+    .action(async (
+      name: string,
+      options: {
+        dataDir?: string;
+        auth?: string;
+        model?: string;
+        repoPath?: string;
+        calendarId?: string;
+        apiKey?: string;
+        clientId?: string;
+        clientSecret?: string;
+        projectId?: string;
+        port: string;
+      },
+    ) => {
+      const { dataDir } = loadCommandConfig(options.dataDir);
+      const prompts = createPromptSessionIfInteractive();
+
+      try {
+        const result = await addTool(
+          dataDir,
+          name,
+          {
+            authMethod: options.auth,
+            model: options.model,
+            repoPath: options.repoPath,
+            calendarId: options.calendarId,
+            apiKey: options.apiKey,
+            clientId: options.clientId,
+            clientSecret: options.clientSecret,
+            projectId: options.projectId,
+            port: Number.parseInt(options.port, 10),
+          },
+          {
+            prompts,
+          },
+        );
+
+        console.log(result.message);
+
+        if (result.warning) {
+          console.log(`Warning: ${result.warning}`);
+        }
+      } finally {
+        prompts?.close();
+      }
+    }),
+);
+
+toolsCommand.addCommand(
+  new Command("remove")
+    .description("Remove a configured collector or analyzer tool")
+    .argument("<name>", "Tool name: gws|git|gh|gemini|claude|openai")
+    .option("--data-dir <path>", "Override application data directory")
+    .option("--delete-credentials", "Also delete locally stored credentials when supported")
+    .action(async (
+      name: string,
+      options: {
+        dataDir?: string;
+        deleteCredentials?: boolean;
+      },
+    ) => {
+      const { dataDir } = loadCommandConfig(options.dataDir);
+      const prompts = createPromptSessionIfInteractive();
+
+      try {
+        const result = await removeTool(
+          dataDir,
+          name,
+          {
+            deleteCredentials: options.deleteCredentials,
+          },
+          {
+            prompts,
+          },
+        );
+
+        console.log(result.message);
+
+        if (result.warning) {
+          console.log(`Warning: ${result.warning}`);
+        }
+      } finally {
+        prompts?.close();
+      }
+    }),
+);
+
+toolsCommand.addCommand(
+  new Command("refresh")
+    .description("Refresh a managed OAuth token when supported")
+    .argument("<name>", "Tool name")
+    .option("--data-dir <path>", "Override application data directory")
+    .action(async (name: string, options: { dataDir?: string }) => {
+      const { dataDir } = loadCommandConfig(options.dataDir);
+      const result = await refreshTool(dataDir, name);
+
+      console.log(result.message);
+
+      if (result.warning) {
+        console.log(`Warning: ${result.warning}`);
+      }
+    }),
+);
+
+toolsCommand.addCommand(
+  new Command("auth")
+    .description("Authenticate or re-authenticate a managed tool")
+    .argument("<name>", "Tool name")
+    .option("--data-dir <path>", "Override application data directory")
+    .option("--auth <method>", "Analyzer auth method: api-key|oauth2")
+    .option("--model <name>", "Analyzer model override")
+    .option("--api-key <value>", "Analyzer API key")
+    .option("--client-id <id>", "Gemini OAuth client id")
+    .option("--client-secret <secret>", "Gemini OAuth client secret")
+    .option("--project-id <id>", "Gemini OAuth project id")
+    .option("--port <port>", "Local callback port for OAuth", "0")
+    .action(async (
+      name: string,
+      options: {
+        dataDir?: string;
+        auth?: string;
+        model?: string;
+        apiKey?: string;
+        clientId?: string;
+        clientSecret?: string;
+        projectId?: string;
+        port: string;
+      },
+    ) => {
+      const { dataDir } = loadCommandConfig(options.dataDir);
+      const prompts = createPromptSessionIfInteractive();
+
+      try {
+        const result = await authenticateTool(
+          dataDir,
+          name,
+          {
+            authMethod: options.auth,
+            model: options.model,
+            apiKey: options.apiKey,
+            clientId: options.clientId,
+            clientSecret: options.clientSecret,
+            projectId: options.projectId,
+            port: Number.parseInt(options.port, 10),
+          },
+          {
+            prompts,
+          },
+        );
+
+        console.log(result.message);
+
+        if (result.warning) {
+          console.log(`Warning: ${result.warning}`);
+        }
+      } finally {
+        prompts?.close();
+      }
+    }),
+);
 
 program
   .command("doctor")
@@ -1361,15 +1574,18 @@ program
       options.ingestPort ?? String(config.server.port ?? DEFAULT_WID_SERVER_PORT),
       10,
     );
-    const gwsEnabled = isToolAdded(config, "gws");
-    const gitEnabled = isToolAdded(config, "git");
-    const gwsCalendarId =
-      options.gwsCalendarId ??
-      normalizeOptionalConfigString(config.tools.gws?.["calendar-id"]) ??
-      DEFAULT_GWS_CALENDAR_ID;
-    const gitRepo =
-      options.gitRepo ??
-      (gitEnabled ? normalizeOptionalConfigString(config.tools.git?.["repo-path"]) : undefined);
+    const collectorRuntime = resolveCollectorRuntimeOptions({
+      config,
+      gwsCalendar: options.gwsCalendar,
+      gwsDrive: options.gwsDrive,
+      gwsSheets: options.gwsSheets,
+      gwsCalendarId: options.gwsCalendarId,
+      gitRepo: options.gitRepo,
+    });
+
+    for (const warning of collectorRuntime.warnings) {
+      console.error(`[tools] ${warning}`);
+    }
 
     const runtime = await startAgentRuntime({
       dataDir,
@@ -1379,14 +1595,14 @@ program
       ingestAuthToken: options.ingestAuthToken,
       collectorPollIntervalMs: Number.parseInt(options.collectorPollIntervalMs, 10),
       collectorRestartDelayMs: Number.parseInt(options.collectorRestartDelayMs, 10),
-      enableGWSCalendar: options.gwsCalendar ?? gwsEnabled,
-      gwsCalendarId,
+      enableGWSCalendar: collectorRuntime.enableGWSCalendar,
+      gwsCalendarId: collectorRuntime.gwsCalendarId,
       gwsCalendarPollIntervalMs: Number.parseInt(options.gwsCalendarPollIntervalMs, 10),
-      enableGWSDrive: options.gwsDrive ?? gwsEnabled,
+      enableGWSDrive: collectorRuntime.enableGWSDrive,
       gwsDrivePollIntervalMs: Number.parseInt(options.gwsDrivePollIntervalMs, 10),
-      enableGWSSheets: options.gwsSheets ?? gwsEnabled,
+      enableGWSSheets: collectorRuntime.enableGWSSheets,
       gwsSheetsPollIntervalMs: Number.parseInt(options.gwsSheetsPollIntervalMs, 10),
-      gitRepoPath: gitRepo,
+      gitRepoPath: collectorRuntime.gitRepoPath,
       gitPollIntervalMs: Number.parseInt(options.gitPollIntervalMs, 10),
       promptAccessibility: options.promptAccessibility,
       enableCollectors: options.collectors,

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  createLinuxFileCredentialStore,
   createMacOSKeychainCredentialStore,
   createUnsupportedCredentialStore,
   createWindowsDPAPICredentialStore,
@@ -94,6 +95,27 @@ test("windows DPAPI credential store persists encrypted secrets in the local pro
     assert.ok(calls.some((call) => call.file === "powershell.exe"));
     assert.ok(calls.some((call) => call.args.some((argument) => argument.includes("Protect"))));
     assert.ok(calls.some((call) => call.args.some((argument) => argument.includes("Unprotect"))));
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("linux file credential store persists plaintext secrets with a warning", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-linux-credentials-"));
+
+  try {
+    const store = createLinuxFileCredentialStore(tempDir);
+
+    assert.equal(store.isSupported(), true);
+    assert.match(store.warning ?? "", /plaintext file fallback/iu);
+
+    store.setSecret("what-ive-done.llm.claude.api-key", "stored-key");
+
+    assert.equal(store.hasSecret("what-ive-done.llm.claude.api-key"), true);
+    assert.equal(store.getSecret("what-ive-done.llm.claude.api-key"), "stored-key");
+
+    store.deleteSecret("what-ive-done.llm.claude.api-key");
+    assert.equal(store.getSecret("what-ive-done.llm.claude.api-key"), undefined);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

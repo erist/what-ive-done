@@ -208,6 +208,96 @@ exit 1
   }
 });
 
+test("tools add configures collectors and tools prints their managed status", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-cli-tools-"));
+  const fakeBinDir = join(tempDir, "bin");
+  const repoDir = join(tempDir, "workspace", "repo");
+  const dataDir = join(tempDir, "agent-data");
+  const env = {
+    ...process.env,
+    PATH: `${fakeBinDir}:${dirname(process.execPath)}`,
+  };
+
+  try {
+    mkdirSync(fakeBinDir, { recursive: true });
+    mkdirSync(join(repoDir, ".git"), { recursive: true });
+
+    writeExecutable(
+      join(fakeBinDir, "gws"),
+      `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "gws 0.13.2"
+  exit 0
+fi
+if [ "$1" = "auth" ] && [ "$2" = "status" ]; then
+  cat <<'EOF'
+{"auth_method":"oauth2","has_refresh_token":true,"project_id":"demo-project","scopes":["https://www.googleapis.com/auth/calendar.readonly","https://www.googleapis.com/auth/drive","https://www.googleapis.com/auth/spreadsheets"],"token_valid":true,"user":"tester@example.com"}
+EOF
+  exit 0
+fi
+echo "unexpected gws args: $@" >&2
+exit 1
+`,
+    );
+    writeExecutable(
+      join(fakeBinDir, "git"),
+      `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "git version 2.44.0"
+  exit 0
+fi
+if [ "$1" = "-C" ] && [ "$3" = "rev-parse" ]; then
+  echo "$2"
+  exit 0
+fi
+if [ "$1" = "-C" ] && [ "$3" = "status" ]; then
+  exit 0
+fi
+if [ "$1" = "-C" ] && [ "$3" = "log" ]; then
+  echo "2026-03-18T00:00:00.000Z"
+  exit 0
+fi
+if [ "$1" = "-C" ] && [ "$3" = "remote" ]; then
+  echo "git@github.com:erist/what-ive-done.git"
+  exit 0
+fi
+echo "unexpected git args: $@" >&2
+exit 1
+`,
+    );
+
+    runCli(["init", "--data-dir", dataDir], repoRoot, env);
+
+    assert.match(
+      runCli(["tools", "add", "gws", "--data-dir", dataDir], repoRoot, env),
+      /Added gws collector/u,
+    );
+    assert.match(
+      runCli(["tools", "add", "git", "--data-dir", dataDir, "--repo-path", repoDir], repoRoot, env),
+      /Added git collector/u,
+    );
+
+    const toolsOutput = runCli(["tools", "list", "--data-dir", dataDir], repoRoot, env);
+    const config = JSON.parse(
+      runCli(["config", "show", "--data-dir", dataDir], repoRoot, env),
+    ) as {
+      tools: {
+        gws?: { added?: boolean };
+        git?: { added?: boolean; "repo-path"?: string };
+      };
+    };
+
+    assert.match(toolsOutput, /COLLECTORS/u);
+    assert.match(toolsOutput, /\bgws\b/u);
+    assert.match(toolsOutput, /✓ git/u);
+    assert.equal(config.tools.gws?.added, true);
+    assert.equal(config.tools.git?.added, true);
+    assert.equal(realpathSync(config.tools.git?.["repo-path"] ?? ""), realpathSync(repoDir));
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("agent:run remains compatible with the explicit --data-dir flow", async () => {
   const dataDir = mkdtempSync(join(tmpdir(), "what-ive-done-cli-agent-run-"));
 

@@ -110,5 +110,5 @@ M1 -> M2 -> M3 -> M4 -> M5 -> M6 -> M7 -> M8 -> M10
 
 - 현재 `M1-M10` 열차는 완료되었고, 다음 독립 열차는 CLI 사용성 단순화다.
 - 새 열차는 `M11-M15`로 나누어 config foundation, init wizard, tool registry, alias/binary, edge case를 순차적으로 닫는다.
-- 현재 진행 상태는 `M11`, `M12` 완료이며 다음 실행 마일스톤은 `M13`이다.
+- 현재 진행 상태는 `M11`, `M12`, `M13` 완료이며 다음 실행 마일스톤은 `M14`이다.
 - 운영 규칙은 기존과 동일하게 `1 milestone = 1 worktree = 1 mergeable PR` 이다.
