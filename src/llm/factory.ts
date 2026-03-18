@@ -30,6 +30,9 @@ export function createWorkflowAnalyzer(options: CreateWorkflowAnalyzerOptions) {
         baseUrl: options.baseUrl,
       });
 
+    case "openai-codex":
+      throw new Error("OpenAI Codex workflow analysis is not available until the OAuth runtime milestone");
+
     case "gemini":
       if (options.authMethod === "oauth2") {
         return createGeminiWorkflowAnalyzer({

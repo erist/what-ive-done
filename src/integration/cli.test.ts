@@ -278,6 +278,7 @@ exit 1
     );
 
     const toolsOutput = runCli(["tools", "list", "--data-dir", dataDir], repoRoot, env);
+    const providersOutput = runCli(["llm:providers"], repoRoot, env);
     const config = JSON.parse(
       runCli(["config", "show", "--data-dir", dataDir], repoRoot, env),
     ) as {
@@ -290,6 +291,8 @@ exit 1
     assert.match(toolsOutput, /COLLECTORS/u);
     assert.match(toolsOutput, /\bgws\b/u);
     assert.match(toolsOutput, /✓ git/u);
+    assert.match(toolsOutput, /openai-codex/u);
+    assert.match(providersOutput, /openai-codex/u);
     assert.equal(config.tools.gws?.added, true);
     assert.equal(config.tools.git?.added, true);
     assert.equal(realpathSync(config.tools.git?.["repo-path"] ?? ""), realpathSync(repoDir));

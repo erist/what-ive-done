@@ -6,6 +6,7 @@ import {
   detectGit,
   detectGitRepo,
   detectGws,
+  detectOpenaiCodex,
   detectOpenai,
   type DetectionResult,
 } from "./detect.js";
@@ -101,6 +102,21 @@ export const TOOL_REGISTRY: ToolDefinition[] = [
         key: "model",
         message: "Model",
         defaultValue: "gpt-5-mini",
+      },
+    ],
+  },
+  {
+    name: "openai-codex",
+    category: "analyzer",
+    displayName: "OpenAI Codex",
+    description: "ChatGPT/Codex OAuth workflow analysis",
+    detect: () => detectOpenaiCodex(),
+    authMethods: ["oauth2"],
+    prompts: [
+      {
+        key: "model",
+        message: "Model",
+        defaultValue: "gpt-5.4",
       },
     ],
   },

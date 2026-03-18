@@ -346,3 +346,22 @@ export async function detectClaude(options: AnalyzerDetectOptions = {}): Promise
 export async function detectOpenai(options: AnalyzerDetectOptions = {}): Promise<DetectionResult> {
   return detectApiKeyBackedProvider("openai", options);
 }
+
+export async function detectOpenaiCodex(
+  options: AnalyzerDetectOptions = {},
+): Promise<DetectionResult> {
+  const credentialStore = options.credentialStore ?? resolveCredentialStore();
+
+  return {
+    name: "openai-codex",
+    available: credentialStore.isSupported(),
+    authenticated: false,
+    details: credentialStore.isSupported()
+      ? "OAuth2 login is not configured yet"
+      : "Secure credential storage is not supported on this platform",
+    installHint: credentialStore.isSupported()
+      ? "OpenAI Codex OAuth support is not wired yet"
+      : "Secure credential storage is required for OAuth login on this platform",
+    authMethod: "oauth2",
+  };
+}

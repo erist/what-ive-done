@@ -1,4 +1,4 @@
-export const LLM_PROVIDERS = ["openai", "gemini", "claude"] as const;
+export const LLM_PROVIDERS = ["openai", "openai-codex", "gemini", "claude"] as const;
 export type LLMProvider = (typeof LLM_PROVIDERS)[number];
 
 export const LLM_AUTH_METHODS = ["api-key", "oauth2"] as const;
@@ -20,6 +20,14 @@ export const LLM_PROVIDER_DESCRIPTORS: Record<LLMProvider, LLMProviderDescriptor
     defaultModel: "gpt-5-mini",
     supportedAuthMethods: ["api-key"],
     apiKeyEnvVars: ["OPENAI_API_KEY"],
+    supportsBaseUrl: true,
+  },
+  "openai-codex": {
+    provider: "openai-codex",
+    label: "OpenAI Codex (ChatGPT)",
+    defaultModel: "gpt-5.4",
+    supportedAuthMethods: ["oauth2"],
+    apiKeyEnvVars: [],
     supportsBaseUrl: true,
   },
   gemini: {
@@ -45,6 +53,10 @@ export function normalizeLLMProvider(value: string): LLMProvider {
 
   if (normalized === "openai" || normalized === "chatgpt") {
     return "openai";
+  }
+
+  if (normalized === "openai-codex" || normalized === "openaicodex" || normalized === "codex") {
+    return "openai-codex";
   }
 
   if (normalized === "gemini" || normalized === "google") {

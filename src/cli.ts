@@ -1268,6 +1268,10 @@ function resolveApiKeyFromEnv(provider: LLMProvider): string | undefined {
 }
 
 function resolveProviderApiKey(provider: LLMProvider): string {
+  if (!supportsLLMAuthMethod(provider, "api-key")) {
+    throw new Error(`${provider} does not support API key authentication`);
+  }
+
   const credentialStore = resolveCredentialStore();
   const storedKey = getLLMApiKey(credentialStore, provider);
 
@@ -1389,7 +1393,9 @@ function buildProviderCredentialStatus(dataDir?: string) {
         supportedAuthMethods: descriptor.supportedAuthMethods,
         hasApiKey: hasLLMApiKey(credentialStore, provider),
         envApiKeyAvailable: Boolean(resolveApiKeyFromEnv(provider)),
-        hasOAuthCredentials: provider === "gemini" ? hasGeminiOAuthCredentials(credentialStore) : false,
+        hasOAuthCredentials: provider === "gemini"
+          ? hasGeminiOAuthCredentials(credentialStore)
+          : false,
         selected: configuration.provider === provider,
       };
     }),
@@ -1480,7 +1486,7 @@ toolsCommand.addCommand(
 toolsCommand.addCommand(
   new Command("add")
     .description("Add a collector or analyzer tool to the persisted config")
-    .argument("<name>", "Tool name: gws|git|gh|gemini|claude|openai")
+    .argument("<name>", "Tool name: gws|git|gh|gemini|claude|openai|openai-codex")
     .option("--data-dir <path>", "Override application data directory")
     .option("--auth <method>", "Analyzer auth method: api-key|oauth2")
     .option("--model <name>", "Analyzer model override")
@@ -1543,7 +1549,7 @@ toolsCommand.addCommand(
 toolsCommand.addCommand(
   new Command("remove")
     .description("Remove a configured collector or analyzer tool")
-    .argument("<name>", "Tool name: gws|git|gh|gemini|claude|openai")
+    .argument("<name>", "Tool name: gws|git|gh|gemini|claude|openai|openai-codex")
     .option("--data-dir <path>", "Override application data directory")
     .option("--delete-credentials", "Also delete locally stored credentials when supported")
     .action(async (
@@ -3144,11 +3150,16 @@ program
 program
   .command("credential:set")
   .description("Store a provider API key in secure OS credential storage")
-  .argument("<provider>", "Provider name: openai|gemini|claude")
+  .argument("<provider>", "Provider name")
   .argument("[api-key]", "Provider API key. If omitted, provider env vars are used.")
   .action((providerName: string, apiKey: string | undefined) => {
     const credentialStore = resolveCredentialStore();
     const provider = normalizeLLMProvider(providerName);
+
+    if (!supportsLLMAuthMethod(provider, "api-key")) {
+      throw new Error(`${provider} does not support API key storage`);
+    }
+
     const resolvedApiKey = apiKey ?? resolveApiKeyFromEnv(provider);
 
     if (!resolvedApiKey) {
@@ -3174,10 +3185,15 @@ program
 program
   .command("credential:delete")
   .description("Delete a stored provider API key from secure OS credential storage")
-  .argument("<provider>", "Provider name: openai|gemini|claude")
+  .argument("<provider>", "Provider name")
   .action((providerName: string) => {
     const credentialStore = resolveCredentialStore();
     const provider = normalizeLLMProvider(providerName);
+
+    if (!supportsLLMAuthMethod(provider, "api-key")) {
+      throw new Error(`${provider} does not support API key storage`);
+    }
+
     deleteLLMApiKey(credentialStore, provider);
 
     console.log(
@@ -3266,6 +3282,10 @@ program
     ) => {
       const provider = normalizeLLMProvider(providerName);
 
+      if (provider === "openai-codex") {
+        throw new Error("OpenAI Codex OAuth login is planned in a follow-up milestone and is not wired yet");
+      }
+
       if (provider !== "gemini") {
         throw new Error(`${provider} does not expose a public OAuth login flow for direct API usage`);
       }
@@ -3335,6 +3355,10 @@ program
   .option("--data-dir <path>", "Override application data directory")
   .action((providerName: string, options: { dataDir?: string }) => {
     const provider = normalizeLLMProvider(providerName);
+
+    if (provider === "openai-codex") {
+      throw new Error("OpenAI Codex OAuth logout is not wired yet");
+    }
 
     if (provider !== "gemini") {
       throw new Error(`${provider} does not have stored OAuth credentials in this CLI`);
