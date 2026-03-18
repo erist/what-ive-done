@@ -6,7 +6,12 @@ import test from "node:test";
 
 import { resolveAppPaths } from "../app-paths.js";
 import { createLinuxFileCredentialStore } from "../credentials/store.js";
-import { getGeminiOAuthCredentials, getLLMApiKey, setGeminiOAuthCredentials } from "../credentials/llm.js";
+import {
+  getGeminiOAuthCredentials,
+  getLLMApiKey,
+  getOpenAICodexOAuthCredentials,
+  setGeminiOAuthCredentials,
+} from "../credentials/llm.js";
 import { AppDatabase } from "../storage/database.js";
 import { ConfigManager } from "../config/manager.js";
 import { addTool, refreshTool, removeTool } from "./service.js";
@@ -122,7 +127,7 @@ test("refreshTool updates stored gemini OAuth credentials", async () => {
   }
 });
 
-test("addTool stores openai-codex foundation config without requiring credentials yet", async () => {
+test("addTool stores openai-codex OAuth credentials and analyzer config", async () => {
   const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-tools-openai-codex-"));
   const dataDir = join(tempDir, "data");
   const credentialDir = join(tempDir, "credentials");
@@ -137,9 +142,23 @@ test("addTool stores openai-codex foundation config without requiring credential
       "openai-codex",
       {
         model: "gpt-5.4",
+        clientId: "openai-client-id",
       },
       {
         credentialStore,
+        runOpenAICodexOAuthLogin: async ({ clientId, issuer }) => ({
+          provider: "openai-codex",
+          clientId,
+          issuer: issuer ?? "https://auth.openai.com",
+          accessToken: "oauth-access-token",
+          refreshToken: "oauth-refresh-token",
+          idToken: "oauth-id-token",
+          tokenType: "Bearer",
+          scope: ["openid", "profile", "email", "offline_access"],
+          expiresAt: "2026-03-19T00:00:00.000Z",
+          email: "tester@example.com",
+          apiKey: "sk-openai-api-key",
+        }),
       },
     );
 
@@ -155,6 +174,21 @@ test("addTool stores openai-codex foundation config without requiring credential
     assert.equal(config.tools["openai-codex"]?.auth, "oauth2");
     assert.equal(config.tools["openai-codex"]?.model, "gpt-5.4");
     assert.equal(config.llm.default, "openai-codex");
+    assert.equal(getOpenAICodexOAuthCredentials(credentialStore)?.email, "tester@example.com");
+
+    const removed = await removeTool(
+      dataDir,
+      "openai-codex",
+      {
+        deleteCredentials: true,
+      },
+      {
+        credentialStore,
+      },
+    );
+
+    assert.equal(removed.status, "removed");
+    assert.equal(getOpenAICodexOAuthCredentials(credentialStore), undefined);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

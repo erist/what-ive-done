@@ -15,6 +15,7 @@ import {
 } from "./detect.js";
 import { createUnsupportedCredentialStore } from "../credentials/store.js";
 import { createLinuxFileCredentialStore } from "../credentials/store.js";
+import { setOpenAICodexOAuthCredentials } from "../credentials/llm.js";
 
 function createExecRunner(
   handlers: Record<string, { status?: number | null; stdout?: string; stderr?: string; error?: Error }>,
@@ -136,7 +137,39 @@ test("detectOpenaiCodex reports an oauth-backed provider that is not configured 
     assert.equal(detection.available, true);
     assert.equal(detection.authenticated, false);
     assert.equal(detection.authMethod, "oauth2");
-    assert.match(detection.details ?? "", /OAuth2 login/iu);
+    assert.match(detection.details ?? "", /No OpenAI Codex OAuth credentials configured yet/iu);
+  } finally {
+    rmSync(credentialDir, { recursive: true, force: true });
+  }
+});
+
+test("detectOpenaiCodex reports stored OAuth credentials", async () => {
+  const credentialDir = mkdtempSync(join(tmpdir(), "what-ive-done-openai-codex-ready-"));
+
+  try {
+    const credentialStore = createLinuxFileCredentialStore(credentialDir);
+    setOpenAICodexOAuthCredentials(credentialStore, {
+      provider: "openai-codex",
+      clientId: "client-id",
+      issuer: "https://auth.openai.com",
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      idToken: "id-token",
+      tokenType: "Bearer",
+      scope: ["openid", "profile", "email"],
+      expiresAt: "2026-03-19T00:00:00.000Z",
+      email: "tester@example.com",
+      apiKey: "sk-openai-api-key",
+    });
+
+    const detection = await detectOpenaiCodex({
+      credentialStore,
+    });
+
+    assert.equal(detection.available, true);
+    assert.equal(detection.authenticated, true);
+    assert.equal(detection.authMethod, "oauth2");
+    assert.match(detection.details ?? "", /tester@example.com/iu);
   } finally {
     rmSync(credentialDir, { recursive: true, force: true });
   }

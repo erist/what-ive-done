@@ -508,9 +508,9 @@ npm run dev -- llm:analyze --data-dir ./tmp/local-data --json
 ```
 
 `llm:providers` lists `openai`, `openai-codex`, `gemini`, and `claude`.
-In the current M16 foundation milestone, `openai-codex` is available as a distinct
-provider/config choice, but OAuth login and runtime execution are not wired yet.
-Use `openai` for OpenAI Platform API-key analysis until the follow-up OAuth milestones land.
+In the current M17 auth milestone, `openai-codex` supports stored OAuth login and
+credential status detection. Workflow analysis runtime still lands in the follow-up M18 milestone.
+Use `openai` for OpenAI Platform API-key analysis until the `openai-codex` runtime path ships.
 
 Apply LLM-generated names:
 
@@ -537,7 +537,7 @@ npm run dev -- credential:delete gemini
 `credential:set` only applies to providers that support API-key auth.
 `openai-codex` is reserved for OAuth-based login and does not accept `credential:set`.
 
-Gemini OAuth login:
+Provider OAuth login:
 
 ```bash
 export GOOGLE_CLIENT_ID="your-client-id"
@@ -545,7 +545,17 @@ export GOOGLE_CLIENT_SECRET="your-client-secret"
 export GOOGLE_CLOUD_PROJECT="your-project-id"
 npm run dev -- auth:login gemini --data-dir ./tmp/local-data
 npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
+
+export OPENAI_CODEX_CLIENT_ID="your-openai-client-id"
+# Optional when you need a non-default issuer:
+# export OPENAI_CODEX_ISSUER="https://auth.openai.com"
+npm run dev -- auth:login openai-codex --data-dir ./tmp/local-data
+npm run dev -- auth:logout openai-codex --data-dir ./tmp/local-data
 ```
+
+`auth:login openai-codex` requires `--client-id` or `OPENAI_CODEX_CLIENT_ID`.
+The command stores OAuth credentials securely and surfaces readiness in `credential:status`
+and `tools list`, but summarized workflow execution still waits for the M18 runtime milestone.
 
 ## CLI Command Reference
 
@@ -609,8 +619,8 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 | `credential:status` | Show secure credential backend status for macOS Keychain or Windows DPAPI. |
 | `credential:set` | Store an API-key provider credential in secure OS credential storage. |
 | `credential:delete` | Delete a stored provider API key from secure storage. |
-| `auth:login` | Run Gemini OAuth login and store the resulting credentials securely. |
-| `auth:logout` | Delete stored Gemini OAuth credentials. |
+| `auth:login` | Run Gemini or OpenAI Codex OAuth login and store the resulting credentials securely. |
+| `auth:logout` | Delete stored Gemini or OpenAI Codex OAuth credentials. |
 | `server:run` | Run the local HTTP server for collectors and the browser viewer. |
 | `demo` | Reset data, seed mock events, run analysis, and print a report. |
 | `reset` | Delete all locally stored events and analysis artifacts. |

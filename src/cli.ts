@@ -12,6 +12,10 @@ import { startAgentRuntime, stopAgentRuntime } from "./agent/runtime.js";
 import { resolveAppPaths } from "./app-paths.js";
 import { openSystemBrowser } from "./auth/browser.js";
 import {
+  DEFAULT_OPENAI_CODEX_ISSUER,
+  runOpenAICodexOAuthInteractiveLogin,
+} from "./auth/openai-oauth.js";
+import {
   isGoogleOAuthAccessTokenExpired,
   refreshGoogleOAuthCredentials,
   runGoogleOAuthInteractiveLogin,
@@ -41,12 +45,15 @@ import {
 import { getMacOSActiveWindowCollectorInfo, resolveMacOSCollectorRunner } from "./collectors/macos.js";
 import { getWindowsActiveWindowCollectorInfo } from "./collectors/windows.js";
 import {
+  deleteOpenAICodexOAuthCredentials,
   deleteGeminiOAuthCredentials,
   deleteLLMApiKey,
   getGeminiOAuthCredentials,
   getLLMApiKey,
+  hasOpenAICodexOAuthCredentials,
   hasGeminiOAuthCredentials,
   hasLLMApiKey,
+  setOpenAICodexOAuthCredentials,
   setGeminiOAuthCredentials,
   setLLMApiKey,
 } from "./credentials/llm.js";
@@ -1395,7 +1402,9 @@ function buildProviderCredentialStatus(dataDir?: string) {
         envApiKeyAvailable: Boolean(resolveApiKeyFromEnv(provider)),
         hasOAuthCredentials: provider === "gemini"
           ? hasGeminiOAuthCredentials(credentialStore)
-          : false,
+          : provider === "openai-codex"
+            ? hasOpenAICodexOAuthCredentials(credentialStore)
+            : false,
         selected: configuration.provider === provider,
       };
     }),
@@ -1493,9 +1502,10 @@ toolsCommand.addCommand(
     .option("--repo-path <path>", "Git repository path")
     .option("--calendar-id <id>", "Default gws Calendar id", DEFAULT_GWS_CALENDAR_ID)
     .option("--api-key <value>", "Analyzer API key")
-    .option("--client-id <id>", "Gemini OAuth client id")
-    .option("--client-secret <secret>", "Gemini OAuth client secret")
+    .option("--client-id <id>", "OAuth client id")
+    .option("--client-secret <secret>", "OAuth client secret for providers that require it")
     .option("--project-id <id>", "Gemini OAuth project id")
+    .option("--issuer-url <url>", "OAuth issuer base URL for OpenAI Codex")
     .option("--port <port>", "Local callback port for OAuth", "0")
     .action(async (
       name: string,
@@ -1509,6 +1519,7 @@ toolsCommand.addCommand(
         clientId?: string;
         clientSecret?: string;
         projectId?: string;
+        issuerUrl?: string;
         port: string;
       },
     ) => {
@@ -1528,6 +1539,7 @@ toolsCommand.addCommand(
             clientId: options.clientId,
             clientSecret: options.clientSecret,
             projectId: options.projectId,
+            issuerUrl: options.issuerUrl,
             port: Number.parseInt(options.port, 10),
           },
           {
@@ -1610,9 +1622,10 @@ toolsCommand.addCommand(
     .option("--auth <method>", "Analyzer auth method: api-key|oauth2")
     .option("--model <name>", "Analyzer model override")
     .option("--api-key <value>", "Analyzer API key")
-    .option("--client-id <id>", "Gemini OAuth client id")
-    .option("--client-secret <secret>", "Gemini OAuth client secret")
+    .option("--client-id <id>", "OAuth client id")
+    .option("--client-secret <secret>", "OAuth client secret for providers that require it")
     .option("--project-id <id>", "Gemini OAuth project id")
+    .option("--issuer-url <url>", "OAuth issuer base URL for OpenAI Codex")
     .option("--port <port>", "Local callback port for OAuth", "0")
     .action(async (
       name: string,
@@ -1624,6 +1637,7 @@ toolsCommand.addCommand(
         clientId?: string;
         clientSecret?: string;
         projectId?: string;
+        issuerUrl?: string;
         port: string;
       },
     ) => {
@@ -1641,6 +1655,7 @@ toolsCommand.addCommand(
             clientId: options.clientId,
             clientSecret: options.clientSecret,
             projectId: options.projectId,
+            issuerUrl: options.issuerUrl,
             port: Number.parseInt(options.port, 10),
           },
           {
@@ -3265,9 +3280,10 @@ program
   .description("Run a provider OAuth login flow when supported")
   .argument("<provider>", "Provider name")
   .option("--data-dir <path>", "Override application data directory")
-  .option("--client-id <id>", "OAuth client id for Gemini")
-  .option("--client-secret <secret>", "OAuth client secret for Gemini")
+  .option("--client-id <id>", "OAuth client id")
+  .option("--client-secret <secret>", "OAuth client secret for providers that require it")
   .option("--project-id <id>", "Google Cloud project id for Gemini")
+  .option("--issuer-url <url>", "OAuth issuer base URL for OpenAI Codex")
   .option("--port <port>", "Local callback port", "0")
   .action(
     async (
@@ -3277,23 +3293,77 @@ program
         clientId?: string;
         clientSecret?: string;
         projectId?: string;
+        issuerUrl?: string;
         port: string;
       },
     ) => {
       const provider = normalizeLLMProvider(providerName);
+      const credentialStore = resolveCredentialStore();
 
-      if (provider === "openai-codex") {
-        throw new Error("OpenAI Codex OAuth login is planned in a follow-up milestone and is not wired yet");
-      }
-
-      if (provider !== "gemini") {
+      if (provider !== "gemini" && provider !== "openai-codex") {
         throw new Error(`${provider} does not expose a public OAuth login flow for direct API usage`);
       }
 
-      const credentialStore = resolveCredentialStore();
-
       if (!credentialStore.isSupported()) {
         throw new Error("Secure credential storage is required for OAuth login on this platform");
+      }
+
+      if (provider === "openai-codex") {
+        const clientId = options.clientId ?? process.env.OPENAI_CODEX_CLIENT_ID;
+
+        if (!clientId) {
+          throw new Error("OpenAI Codex OAuth requires --client-id or OPENAI_CODEX_CLIENT_ID");
+        }
+
+        let authorizationUrl = "";
+        let redirectUri = "";
+        const credentials = await runOpenAICodexOAuthInteractiveLogin({
+          clientId,
+          issuer: options.issuerUrl ?? process.env.OPENAI_CODEX_ISSUER ?? DEFAULT_OPENAI_CODEX_ISSUER,
+          port: Number.parseInt(options.port, 10),
+          openBrowser: openSystemBrowser,
+          onAuthorizationUrl: (url, resolvedRedirectUri) => {
+            authorizationUrl = url;
+            redirectUri = resolvedRedirectUri;
+            console.log(
+              JSON.stringify(
+                {
+                  status: "oauth2_login_started",
+                  provider: "openai-codex",
+                  authorizationUrl: url,
+                  redirectUri: resolvedRedirectUri,
+                },
+                null,
+                2,
+              ),
+            );
+          },
+        });
+
+        setOpenAICodexOAuthCredentials(credentialStore, credentials);
+        withDatabase(options.dataDir, (database) =>
+          updateLLMConfiguration(database, {
+            provider: "openai-codex",
+            authMethod: "oauth2",
+          }),
+        );
+
+        console.log(
+          JSON.stringify(
+            {
+              status: "oauth2_login_completed",
+              provider: "openai-codex",
+              authorizationUrl,
+              redirectUri,
+              expiresAt: credentials.expiresAt,
+              email: credentials.email,
+              scopes: credentials.scope,
+            },
+            null,
+            2,
+          ),
+        );
+        return;
       }
 
       let authorizationUrl = "";
@@ -3356,15 +3426,28 @@ program
   .action((providerName: string, options: { dataDir?: string }) => {
     const provider = normalizeLLMProvider(providerName);
 
-    if (provider === "openai-codex") {
-      throw new Error("OpenAI Codex OAuth logout is not wired yet");
-    }
-
-    if (provider !== "gemini") {
+    if (provider !== "gemini" && provider !== "openai-codex") {
       throw new Error(`${provider} does not have stored OAuth credentials in this CLI`);
     }
 
     const credentialStore = resolveCredentialStore();
+
+    if (provider === "openai-codex") {
+      deleteOpenAICodexOAuthCredentials(credentialStore);
+
+      console.log(
+        JSON.stringify(
+          {
+            status: "oauth2_credentials_deleted",
+            provider: "openai-codex",
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+
     deleteGeminiOAuthCredentials(credentialStore);
 
     withDatabase(options.dataDir, (database) => {

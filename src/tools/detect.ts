@@ -4,6 +4,7 @@ import { dirname, join, parse, resolve } from "node:path";
 
 import {
   getGeminiOAuthCredentials,
+  getOpenAICodexOAuthCredentials,
   hasGeminiOAuthCredentials,
   hasLLMApiKey,
 } from "../credentials/llm.js";
@@ -351,16 +352,29 @@ export async function detectOpenaiCodex(
   options: AnalyzerDetectOptions = {},
 ): Promise<DetectionResult> {
   const credentialStore = options.credentialStore ?? resolveCredentialStore();
+  const credentials = getOpenAICodexOAuthCredentials(credentialStore);
+
+  if (credentials) {
+    return {
+      name: "openai-codex",
+      available: true,
+      authenticated: true,
+      details: credentials.expiresAt
+        ? `${credentials.email ?? "OAuth credentials stored"} (expires ${credentials.expiresAt})`
+        : (credentials.email ?? "OAuth credentials stored"),
+      authMethod: "oauth2",
+    };
+  }
 
   return {
     name: "openai-codex",
     available: credentialStore.isSupported(),
     authenticated: false,
     details: credentialStore.isSupported()
-      ? "OAuth2 login is not configured yet"
+      ? "No OpenAI Codex OAuth credentials configured yet"
       : "Secure credential storage is not supported on this platform",
     installHint: credentialStore.isSupported()
-      ? "OpenAI Codex OAuth support is not wired yet"
+      ? "Run auth:login openai-codex"
       : "Secure credential storage is required for OAuth login on this platform",
     authMethod: "oauth2",
   };

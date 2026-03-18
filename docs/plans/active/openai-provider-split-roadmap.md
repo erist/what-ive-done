@@ -107,7 +107,7 @@
 
 ## 6. 현재 시작 지점
 
-현재 작업은 `M16 Provider Split Foundation`부터 시작한다.
+현재 작업은 `M18 OpenAI Codex Runtime` 준비 단계다.
 
 ## 7. 진행 상태
 
@@ -125,3 +125,19 @@
   - `npm test`
 - 후속:
   - M17에서 secure credential store 기반 OAuth login/logout과 detect/status를 구현
+
+### M17. OpenAI Codex Auth Surface
+
+- 상태: 완료
+- 완료일: 2026-03-18
+- 산출물:
+  - `src/auth/openai-oauth.ts` 에 OpenAI Codex browser OAuth login + PKCE flow 추가
+  - `openai-codex` OAuth credential을 secure credential store에 저장하고 detect/status에 반영
+  - `auth:login openai-codex`, `auth:logout openai-codex`, `tools add/auth openai-codex` 표면 연결
+  - OpenAI Codex OAuth unit test, detect/service regression test, reference 문서 갱신
+- 검증:
+  - `npm run typecheck`
+  - `npm test`
+  - `npm run build`
+- 후속:
+  - M18에서 stored OAuth credential을 analyzer runtime auth resolution과 refresh/retry handling에 연결

@@ -3,16 +3,21 @@ import { getGitContextCollectorStatus } from "../collectors/git-context.js";
 import { resolveAppPaths } from "../app-paths.js";
 import { openSystemBrowser } from "../auth/browser.js";
 import {
+  DEFAULT_OPENAI_CODEX_ISSUER,
+  runOpenAICodexOAuthInteractiveLogin,
+} from "../auth/openai-oauth.js";
+import {
   refreshGoogleOAuthCredentials,
   runGoogleOAuthInteractiveLogin,
 } from "../auth/google-oauth.js";
 import { ConfigManager } from "../config/manager.js";
 import {
+  deleteOpenAICodexOAuthCredentials,
   deleteGeminiOAuthCredentials,
   deleteLLMApiKey,
   getGeminiOAuthCredentials,
-  hasGeminiOAuthCredentials,
-  hasLLMApiKey,
+  getOpenAICodexOAuthCredentials,
+  setOpenAICodexOAuthCredentials,
   setGeminiOAuthCredentials,
   setLLMApiKey,
 } from "../credentials/llm.js";
@@ -53,6 +58,7 @@ export interface ToolServiceDependencies {
   prompts?: ToolCommandPrompts | undefined;
   credentialStore?: CredentialStore | undefined;
   runOAuthLogin?: typeof runGoogleOAuthInteractiveLogin | undefined;
+  runOpenAICodexOAuthLogin?: typeof runOpenAICodexOAuthInteractiveLogin | undefined;
   refreshOAuthCredentials?: typeof refreshGoogleOAuthCredentials | undefined;
   openBrowser?: typeof openSystemBrowser | undefined;
 }
@@ -66,6 +72,7 @@ export interface AddToolOptions {
   clientId?: string | undefined;
   clientSecret?: string | undefined;
   projectId?: string | undefined;
+  issuerUrl?: string | undefined;
   port?: number | undefined;
 }
 
@@ -380,6 +387,10 @@ async function ensureGeminiOAuthCredential(args: {
     };
   }
 
+  if (!args.credentialStore.isSupported()) {
+    throw new Error("Secure credential storage is required for OAuth login on this platform");
+  }
+
   const prompts = args.prompts;
   const clientId =
     args.options.clientId ??
@@ -411,6 +422,52 @@ async function ensureGeminiOAuthCredential(args: {
   return {
     projectId: credentials.projectId,
   };
+}
+
+async function ensureOpenAICodexOAuthCredential(args: {
+  options: AddToolOptions;
+  prompts?: ToolCommandPrompts | undefined;
+  credentialStore: CredentialStore;
+  dependencies: ToolServiceDependencies;
+}): Promise<void> {
+  const storedCredentials = getOpenAICodexOAuthCredentials(args.credentialStore);
+
+  if (storedCredentials && !args.options.clientId && !args.options.issuerUrl) {
+    return;
+  }
+
+  if (!args.credentialStore.isSupported()) {
+    throw new Error("Secure credential storage is required for OAuth login on this platform");
+  }
+
+  const prompts = args.prompts;
+  const clientId =
+    normalizeOptionalString(args.options.clientId) ??
+    normalizeOptionalString(process.env.OPENAI_CODEX_CLIENT_ID) ??
+    normalizeOptionalString(
+      prompts
+        ? await prompts.text("OpenAI Codex OAuth client id", process.env.OPENAI_CODEX_CLIENT_ID)
+        : undefined,
+    );
+  const issuer =
+    normalizeOptionalString(args.options.issuerUrl) ??
+    normalizeOptionalString(process.env.OPENAI_CODEX_ISSUER) ??
+    DEFAULT_OPENAI_CODEX_ISSUER;
+
+  if (!clientId) {
+    throw new Error("OpenAI Codex OAuth requires --client-id or OPENAI_CODEX_CLIENT_ID");
+  }
+
+  const runOpenAICodexOAuthLogin =
+    args.dependencies.runOpenAICodexOAuthLogin ?? runOpenAICodexOAuthInteractiveLogin;
+  const credentials = await runOpenAICodexOAuthLogin({
+    clientId,
+    issuer,
+    port: args.options.port ?? 0,
+    openBrowser: args.dependencies.openBrowser ?? openSystemBrowser,
+  });
+
+  setOpenAICodexOAuthCredentials(args.credentialStore, credentials);
 }
 
 async function resolveModel(
@@ -601,8 +658,12 @@ export async function addTool(
     });
     projectId = oauth.projectId;
   } else if (provider === "openai-codex") {
-    // M16 only separates the provider surface and persisted config.
-    // OAuth login and runtime execution land in follow-up milestones.
+    await ensureOpenAICodexOAuthCredential({
+      options,
+      prompts,
+      credentialStore,
+      dependencies,
+    });
   } else {
     throw new Error(`${provider} does not support OAuth2`);
   }
@@ -619,9 +680,7 @@ export async function addTool(
   return {
     status: "added",
     tool: provider,
-    message: provider === "openai-codex"
-      ? "Added openai-codex analyzer configuration. OAuth login and runtime support land in follow-up milestones."
-      : `Added ${provider} analyzer (${formatAnalyzerAuthLabel(authMethod) ?? authMethod}).`,
+    message: `Added ${provider} analyzer (${formatAnalyzerAuthLabel(authMethod) ?? authMethod}).`,
     warning: buildWarning(credentialStore),
   };
 }
@@ -711,6 +770,11 @@ function deleteManagedCredentials(
   if (toolName === "gemini") {
     deleteLLMApiKey(credentialStore, "gemini");
     deleteGeminiOAuthCredentials(credentialStore);
+    return;
+  }
+
+  if (toolName === "openai-codex") {
+    deleteOpenAICodexOAuthCredentials(credentialStore);
     return;
   }
 
