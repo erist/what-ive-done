@@ -600,6 +600,9 @@ export async function addTool(
       dependencies,
     });
     projectId = oauth.projectId;
+  } else if (provider === "openai-codex") {
+    // M16 only separates the provider surface and persisted config.
+    // OAuth login and runtime execution land in follow-up milestones.
   } else {
     throw new Error(`${provider} does not support OAuth2`);
   }
@@ -616,7 +619,9 @@ export async function addTool(
   return {
     status: "added",
     tool: provider,
-    message: `Added ${provider} analyzer (${formatAnalyzerAuthLabel(authMethod) ?? authMethod}).`,
+    message: provider === "openai-codex"
+      ? "Added openai-codex analyzer configuration. OAuth login and runtime support land in follow-up milestones."
+      : `Added ${provider} analyzer (${formatAnalyzerAuthLabel(authMethod) ?? authMethod}).`,
     warning: buildWarning(credentialStore),
   };
 }

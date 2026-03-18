@@ -9,10 +9,12 @@ import {
   detectGit,
   detectGitRepo,
   detectGws,
+  detectOpenaiCodex,
   detectOpenai,
   type DetectionResult,
 } from "./detect.js";
 import { createUnsupportedCredentialStore } from "../credentials/store.js";
+import { createLinuxFileCredentialStore } from "../credentials/store.js";
 
 function createExecRunner(
   handlers: Record<string, { status?: number | null; stdout?: string; stderr?: string; error?: Error }>,
@@ -121,4 +123,21 @@ test("detectOpenai falls back to environment hints when secure storage is unavai
   assert.equal(detection.authenticated, true);
   assert.equal(detection.authMethod, "api-key");
   assert.match(detection.details ?? "", /OPENAI_API_KEY/iu);
+});
+
+test("detectOpenaiCodex reports an oauth-backed provider that is not configured yet", async () => {
+  const credentialDir = mkdtempSync(join(tmpdir(), "what-ive-done-openai-codex-credentials-"));
+
+  try {
+    const detection = await detectOpenaiCodex({
+      credentialStore: createLinuxFileCredentialStore(credentialDir),
+    });
+
+    assert.equal(detection.available, true);
+    assert.equal(detection.authenticated, false);
+    assert.equal(detection.authMethod, "oauth2");
+    assert.match(detection.details ?? "", /OAuth2 login/iu);
+  } finally {
+    rmSync(credentialDir, { recursive: true, force: true });
+  }
 });

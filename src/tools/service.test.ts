@@ -121,3 +121,41 @@ test("refreshTool updates stored gemini OAuth credentials", async () => {
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test("addTool stores openai-codex foundation config without requiring credentials yet", async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-tools-openai-codex-"));
+  const dataDir = join(tempDir, "data");
+  const credentialDir = join(tempDir, "credentials");
+
+  try {
+    initializeDataDir(dataDir);
+
+    const credentialStore = createLinuxFileCredentialStore(credentialDir);
+
+    const added = await addTool(
+      dataDir,
+      "openai-codex",
+      {
+        model: "gpt-5.4",
+      },
+      {
+        credentialStore,
+      },
+    );
+
+    assert.equal(added.status, "added");
+    assert.match(added.message, /openai-codex/iu);
+
+    const config = ConfigManager.load(dataDir) as {
+      tools: Record<string, Record<string, unknown> | undefined>;
+      llm: { default?: string };
+    };
+
+    assert.equal(config.tools["openai-codex"]?.added, true);
+    assert.equal(config.tools["openai-codex"]?.auth, "oauth2");
+    assert.equal(config.tools["openai-codex"]?.model, "gpt-5.4");
+    assert.equal(config.llm.default, "openai-codex");
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});

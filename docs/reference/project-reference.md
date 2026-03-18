@@ -507,6 +507,11 @@ export GEMINI_API_KEY="your-api-key"
 npm run dev -- llm:analyze --data-dir ./tmp/local-data --json
 ```
 
+`llm:providers` lists `openai`, `openai-codex`, `gemini`, and `claude`.
+In the current M16 foundation milestone, `openai-codex` is available as a distinct
+provider/config choice, but OAuth login and runtime execution are not wired yet.
+Use `openai` for OpenAI Platform API-key analysis until the follow-up OAuth milestones land.
+
 Apply LLM-generated names:
 
 ```bash
@@ -528,6 +533,9 @@ npm run dev -- credential:set gemini
 npm run dev -- credential:set claude
 npm run dev -- credential:delete gemini
 ```
+
+`credential:set` only applies to providers that support API-key auth.
+`openai-codex` is reserved for OAuth-based login and does not accept `credential:set`.
 
 Gemini OAuth login:
 
@@ -593,13 +601,13 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 | `session:show` | Show one analyzed session with ordered steps. |
 | `session:delete` | Delete a session's source events and rerun analysis. |
 | `llm:payloads` | Print summarized workflow payloads without raw logs. |
-| `llm:providers` | List supported ChatGPT, Gemini, and Claude providers with auth methods. |
+| `llm:providers` | List supported OpenAI, OpenAI Codex, Gemini, and Claude providers with auth methods. |
 | `llm:config:show` | Show the saved default LLM provider/model/auth configuration. |
 | `llm:config:set` | Update the saved default LLM provider/model/auth configuration. |
 | `llm:analyze` | Run summarized workflow analysis through the configured provider or CLI override. |
 | `llm:results` | List stored LLM analysis results. |
 | `credential:status` | Show secure credential backend status for macOS Keychain or Windows DPAPI. |
-| `credential:set` | Store a provider API key in secure OS credential storage. |
+| `credential:set` | Store an API-key provider credential in secure OS credential storage. |
 | `credential:delete` | Delete a stored provider API key from secure storage. |
 | `auth:login` | Run Gemini OAuth login and store the resulting credentials securely. |
 | `auth:logout` | Delete stored Gemini OAuth credentials. |
@@ -637,6 +645,7 @@ npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
 - `src/reporting/report.ts`: workflow-centric report formatting
 - `src/reporting/service.ts`: report generation and snapshot helpers
 - `src/llm/payloads.ts`: summarized LLM-safe workflow payload builder
+- `src/llm/catalog.ts`: provider catalog, auth capabilities, default models, and provider normalization
 - `src/llm/openai.ts`: OpenAI Responses API adapter for workflow analysis
 - `src/llm/gemini.ts`: Gemini generateContent adapter for workflow analysis
 - `src/llm/claude.ts`: Anthropic Messages adapter for workflow analysis
