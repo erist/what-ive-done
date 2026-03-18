@@ -397,3 +397,112 @@ test("agent:run remains compatible with the explicit --data-dir flow", async () 
     rmSync(dataDir, { recursive: true, force: true });
   }
 });
+
+test("short aliases route to the expected commands and doctor reports tool state", async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "what-ive-done-cli-aliases-"));
+
+  try {
+    runCli(["init", "--data-dir", dataDir], repoRoot);
+
+    const doctorPayload = JSON.parse(runCli(["doctor", "--data-dir", dataDir], repoRoot)) as {
+      tools?: {
+        collectors?: Array<{ name: string }>;
+        analyzers?: Array<{ name: string }>;
+      };
+    };
+    const statusPayload = JSON.parse(runCli(["status", "--data-dir", dataDir], repoRoot)) as {
+      status: string;
+    };
+    const tokenPayload = JSON.parse(runCli(["token", "--data-dir", dataDir], repoRoot)) as {
+      configured: boolean;
+      authToken: string;
+    };
+
+    assert.equal(statusPayload.status, "stopped");
+    assert.equal(tokenPayload.configured, true);
+    assert.match(tokenPayload.authToken, /^[A-Za-z0-9_-]{20,}$/u);
+    assert.ok(doctorPayload.tools?.collectors?.some((tool) => tool.name === "active-window"));
+    assert.ok(doctorPayload.tools?.analyzers?.some((tool) => tool.name === "gemini"));
+
+    const child = spawn(
+      tsxBinary,
+      [
+        cliEntrypoint,
+        "up",
+        "--data-dir",
+        dataDir,
+        "--no-gws",
+        "--no-collectors",
+        "--no-snapshot-scheduler",
+        "--ingest-port",
+        "0",
+      ],
+      {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error(`Timed out waiting for up output.\nstdout:\n${stdout}\nstderr:\n${stderr}`));
+      }, 15_000);
+
+      child.stdout.on("data", () => {
+        if (stdout.includes('"status": "running"')) {
+          clearTimeout(timeout);
+          resolve();
+        }
+      });
+
+      child.on("error", (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+
+      child.on("exit", (code) => {
+        if (!stdout.includes('"status": "running"')) {
+          clearTimeout(timeout);
+          reject(new Error(`up exited before startup. code=${String(code)} stderr=${stderr}`));
+        }
+      });
+    });
+
+    child.kill("SIGTERM");
+
+    const exitCode = await new Promise<number | null>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error(`Timed out waiting for up to stop.\nstdout:\n${stdout}\nstderr:\n${stderr}`));
+      }, 15_000);
+
+      child.on("exit", (code) => {
+        clearTimeout(timeout);
+        resolve(code);
+      });
+
+      child.on("error", (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+    });
+
+    assert.equal(exitCode, 0);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});

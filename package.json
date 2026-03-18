@@ -4,6 +4,7 @@
   "description": "Local workflow pattern analyzer CLI",
   "type": "module",
   "bin": {
+    "wid": "./dist/cli.js",
     "what-ive-done": "./dist/cli.js"
   },
   "scripts": {

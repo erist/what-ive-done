@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { Command } from "commander";
 
 import { getAgentHealthReport, listLatestAgentSnapshots, runAgentOnce } from "./agent/control.js";
@@ -56,6 +57,7 @@ import {
   DEFAULT_WID_SERVER_PORT,
   type WidConfig,
 } from "./config/schema.js";
+import { normalizeCliArgv } from "./cli/aliases.js";
 import { isInteractiveTerminal, PromptSession } from "./cli/prompts.js";
 import { runInit, runInteractiveInit } from "./init/flow.js";
 import {
@@ -137,6 +139,7 @@ import type {
 } from "./domain/types.js";
 
 const program = new Command();
+program.name("wid");
 
 function withDatabase<T>(dataDir: string | undefined, fn: (database: AppDatabase) => T): T {
   const resolvedDataDir = ConfigManager.resolveDataDir(dataDir);
@@ -178,6 +181,33 @@ function isToolAdded(config: WidConfig, toolName: string): boolean {
 
 function createPromptSessionIfInteractive(): PromptSession | undefined {
   return isInteractiveTerminal() ? new PromptSession() : undefined;
+}
+
+interface AgentRuntimeCommandOptions {
+  dataDir?: string;
+  heartbeatIntervalMs: string;
+  ingestHost?: string;
+  ingestPort?: string;
+  ingestAuthToken?: string;
+  collectorPollIntervalMs: string;
+  collectorRestartDelayMs: string;
+  gwsCalendar?: boolean;
+  gwsCalendarId?: string;
+  gwsCalendarPollIntervalMs: string;
+  gwsDrive?: boolean;
+  gwsDrivePollIntervalMs: string;
+  gwsSheets?: boolean;
+  gwsSheetsPollIntervalMs: string;
+  gitRepo?: string;
+  gitPollIntervalMs: string;
+  promptAccessibility: boolean;
+  snapshotWindows: ReportWindow[];
+  snapshotIntervalSeconds: string;
+  collectors: boolean;
+  snapshotScheduler: boolean;
+  verbose?: boolean;
+  openViewer?: boolean;
+  disableGws?: boolean;
 }
 
 function parseConfigValue(value: string): unknown {
@@ -573,6 +603,145 @@ function resolveViewerUrl(
   const port = status.state?.ingestServer?.port ?? fallback.port ?? 4318;
 
   return `http://${host}:${port}/`;
+}
+
+async function waitForAgentToStop(dataDir: string, pid: number, timeoutMs = 15_000): Promise<void> {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const status = getAgentStatusSnapshot(dataDir);
+
+    if (status.status !== "running" || status.pid !== pid) {
+      return;
+    }
+
+    await sleep(250);
+  }
+
+  throw new Error(`Timed out waiting for agent pid ${pid} to stop`);
+}
+
+async function runAgentRuntimeCommand(
+  options: AgentRuntimeCommandOptions,
+  invokedAs: "agent:run" | "agent:restart",
+): Promise<void> {
+  const { dataDir, config } = loadCommandConfig(options.dataDir);
+
+  if (invokedAs === "agent:restart") {
+    const stopResult = stopAgentRuntime(dataDir);
+
+    if (stopResult.status === "stop_requested" && stopResult.pid !== undefined) {
+      await waitForAgentToStop(dataDir, stopResult.pid);
+    }
+  }
+
+  const ingestHost = options.ingestHost ?? config.server.host ?? DEFAULT_WID_SERVER_HOST;
+  const ingestPort = Number.parseInt(
+    options.ingestPort ?? String(config.server.port ?? DEFAULT_WID_SERVER_PORT),
+    10,
+  );
+  const collectorRuntime = resolveCollectorRuntimeOptions({
+    config,
+    gwsCalendar: options.disableGws ? false : options.gwsCalendar,
+    gwsDrive: options.disableGws ? false : options.gwsDrive,
+    gwsSheets: options.disableGws ? false : options.gwsSheets,
+    gwsCalendarId: options.gwsCalendarId,
+    gitRepo: options.gitRepo,
+  });
+
+  for (const warning of collectorRuntime.warnings) {
+    console.error(`[tools] ${warning}`);
+  }
+
+  const runtime = await startAgentRuntime({
+    dataDir,
+    heartbeatIntervalMs: Number.parseInt(options.heartbeatIntervalMs, 10),
+    ingestHost,
+    ingestPort,
+    ingestAuthToken: options.ingestAuthToken,
+    collectorPollIntervalMs: Number.parseInt(options.collectorPollIntervalMs, 10),
+    collectorRestartDelayMs: Number.parseInt(options.collectorRestartDelayMs, 10),
+    enableGWSCalendar: collectorRuntime.enableGWSCalendar,
+    gwsCalendarId: collectorRuntime.gwsCalendarId,
+    gwsCalendarPollIntervalMs: Number.parseInt(options.gwsCalendarPollIntervalMs, 10),
+    enableGWSDrive: collectorRuntime.enableGWSDrive,
+    gwsDrivePollIntervalMs: Number.parseInt(options.gwsDrivePollIntervalMs, 10),
+    enableGWSSheets: collectorRuntime.enableGWSSheets,
+    gwsSheetsPollIntervalMs: Number.parseInt(options.gwsSheetsPollIntervalMs, 10),
+    gitRepoPath: collectorRuntime.gitRepoPath,
+    gitPollIntervalMs: Number.parseInt(options.gitPollIntervalMs, 10),
+    promptAccessibility: options.promptAccessibility,
+    enableCollectors: options.collectors,
+    snapshotWindows: options.snapshotWindows,
+    snapshotIntervalMs: Number.parseInt(options.snapshotIntervalSeconds, 10) * 1000,
+    enableSnapshotScheduler: options.snapshotScheduler,
+    verbose: options.verbose ?? config.agent.verbose,
+  });
+
+  const status = getAgentStatusSnapshot(dataDir);
+
+  if (options.openViewer) {
+    openSystemBrowser(resolveViewerUrl(dataDir, {
+      host: ingestHost,
+      port: ingestPort,
+    }));
+  }
+
+  console.log(JSON.stringify(status, null, 2));
+
+  await runtime.waitForStop();
+}
+
+function configureAgentRuntimeCommand(command: Command): Command {
+  return command
+    .option("--data-dir <path>", "Override application data directory")
+    .option("--heartbeat-interval-ms <ms>", "Heartbeat interval in milliseconds", "30000")
+    .option("--ingest-host <host>", "Host to bind the local ingest server")
+    .option("--ingest-port <port>", "Port to bind the local ingest server")
+    .option("--ingest-auth-token <token>", "Override and persist the shared ingest auth token")
+    .option("--collector-poll-interval-ms <ms>", "Collector polling interval in milliseconds", "1000")
+    .option("--collector-restart-delay-ms <ms>", "Collector restart delay after failures", "5000")
+    .option("--gws-calendar", "Enable the optional gws Calendar boundary collector")
+    .option("--gws-calendar-id <id>", "Calendar id for the gws Calendar collector")
+    .option(
+      "--gws-calendar-poll-interval-ms <ms>",
+      "gws Calendar polling interval in milliseconds",
+      String(DEFAULT_GWS_CALENDAR_POLL_INTERVAL_MS),
+    )
+    .option("--gws-drive", "Enable the optional gws Drive context collector")
+    .option(
+      "--gws-drive-poll-interval-ms <ms>",
+      "gws Drive polling interval in milliseconds",
+      String(DEFAULT_GWS_DRIVE_POLL_INTERVAL_MS),
+    )
+    .option("--gws-sheets", "Enable the optional gws Sheets context collector")
+    .option(
+      "--gws-sheets-poll-interval-ms <ms>",
+      "gws Sheets polling interval in milliseconds",
+      String(DEFAULT_GWS_SHEETS_POLL_INTERVAL_MS),
+    )
+    .option("--git-repo <path>", "Enable the Git context collector for one local repository path")
+    .option(
+      "--git-poll-interval-ms <ms>",
+      "Git context polling interval in milliseconds",
+      String(DEFAULT_GIT_CONTEXT_POLL_INTERVAL_MS),
+    )
+    .option("--disable-gws", "Disable all gws collectors for this run (wid up alias: --no-gws)")
+    .option(
+      "--no-prompt-accessibility",
+      "Don't ask macOS to show the Accessibility permission prompt when the collector starts",
+    )
+    .option(
+      "--snapshot-windows <windows>",
+      "Comma-separated snapshot windows",
+      parseReportWindowList,
+      ["day", "week"],
+    )
+    .option("--snapshot-interval-seconds <seconds>", "Snapshot scheduler interval in seconds", "300")
+    .option("--no-collectors", "Disable collector supervision inside the agent")
+    .option("--no-snapshot-scheduler", "Disable snapshot scheduling inside the agent")
+    .option("--open-viewer", "Open the local viewer in the default browser after startup")
+    .option("--verbose", "Enable verbose ingest and collector logging");
 }
 
 async function runServerCommand(
@@ -1457,7 +1626,7 @@ program
   .option("--data-dir <path>", "Override application data directory")
   .option("--gws-calendar-id <id>", "Calendar id to inspect for gws Calendar collector diagnostics")
   .option("--git-repo <path>", "Local Git repository path to inspect for Git collector diagnostics")
-  .action((options: { dataDir?: string; gwsCalendarId?: string; gitRepo?: string }) => {
+  .action(async (options: { dataDir?: string; gwsCalendarId?: string; gitRepo?: string }) => {
     const { dataDir, config } = loadCommandConfig(options.dataDir);
     const paths = resolveAppPaths(dataDir);
     const gwsCalendarId =
@@ -1469,6 +1638,7 @@ program
       (isToolAdded(config, "git")
         ? normalizeOptionalConfigString(config.tools.git?.["repo-path"])
         : undefined);
+    const tools = await listTools(dataDir);
 
     const result = {
       node: process.version,
@@ -1487,149 +1657,36 @@ program
       gitContext: getGitContextCollectorStatus({
         repoPath: gitRepo,
       }),
+      tools,
     };
 
     console.log(JSON.stringify(result, null, 2));
   });
 
-program
-  .command("agent:run")
-  .description("Run the resident local agent runtime")
-  .option("--data-dir <path>", "Override application data directory")
-  .option("--heartbeat-interval-ms <ms>", "Heartbeat interval in milliseconds", "30000")
-  .option("--ingest-host <host>", "Host to bind the local ingest server")
-  .option("--ingest-port <port>", "Port to bind the local ingest server")
-  .option("--ingest-auth-token <token>", "Override and persist the shared ingest auth token")
-  .option("--collector-poll-interval-ms <ms>", "Collector polling interval in milliseconds", "1000")
-  .option("--collector-restart-delay-ms <ms>", "Collector restart delay after failures", "5000")
-  .option("--gws-calendar", "Enable the optional gws Calendar boundary collector")
-  .option("--gws-calendar-id <id>", "Calendar id for the gws Calendar collector")
-  .option(
-    "--gws-calendar-poll-interval-ms <ms>",
-    "gws Calendar polling interval in milliseconds",
-    String(DEFAULT_GWS_CALENDAR_POLL_INTERVAL_MS),
-  )
-  .option("--gws-drive", "Enable the optional gws Drive context collector")
-  .option(
-    "--gws-drive-poll-interval-ms <ms>",
-    "gws Drive polling interval in milliseconds",
-    String(DEFAULT_GWS_DRIVE_POLL_INTERVAL_MS),
-  )
-  .option("--gws-sheets", "Enable the optional gws Sheets context collector")
-  .option(
-    "--gws-sheets-poll-interval-ms <ms>",
-    "gws Sheets polling interval in milliseconds",
-    String(DEFAULT_GWS_SHEETS_POLL_INTERVAL_MS),
-  )
-  .option("--git-repo <path>", "Enable the Git context collector for one local repository path")
-  .option(
-    "--git-poll-interval-ms <ms>",
-    "Git context polling interval in milliseconds",
-    String(DEFAULT_GIT_CONTEXT_POLL_INTERVAL_MS),
-  )
-  .option(
-    "--no-prompt-accessibility",
-    "Don't ask macOS to show the Accessibility permission prompt when the collector starts",
-  )
-  .option(
-    "--snapshot-windows <windows>",
-    "Comma-separated snapshot windows",
-    parseReportWindowList,
-    ["day", "week"],
-  )
-  .option("--snapshot-interval-seconds <seconds>", "Snapshot scheduler interval in seconds", "300")
-  .option("--no-collectors", "Disable collector supervision inside the agent")
-  .option("--no-snapshot-scheduler", "Disable snapshot scheduling inside the agent")
-  .option("--open-viewer", "Open the local viewer in the default browser after startup")
-  .option("--verbose", "Enable verbose ingest and collector logging")
-  .action(
-    async (options: {
-      dataDir?: string;
-      heartbeatIntervalMs: string;
-      ingestHost?: string;
-      ingestPort?: string;
-      ingestAuthToken?: string;
-      collectorPollIntervalMs: string;
-      collectorRestartDelayMs: string;
-      gwsCalendar?: boolean;
-      gwsCalendarId?: string;
-      gwsCalendarPollIntervalMs: string;
-      gwsDrive?: boolean;
-      gwsDrivePollIntervalMs: string;
-      gwsSheets?: boolean;
-      gwsSheetsPollIntervalMs: string;
-      gitRepo?: string;
-      gitPollIntervalMs: string;
-      promptAccessibility: boolean;
-      snapshotWindows: ReportWindow[];
-      snapshotIntervalSeconds: string;
-      collectors: boolean;
-      snapshotScheduler: boolean;
-      verbose?: boolean;
-      openViewer?: boolean;
-    }) => {
-    const { dataDir, config } = loadCommandConfig(options.dataDir);
-    const ingestHost = options.ingestHost ?? config.server.host ?? DEFAULT_WID_SERVER_HOST;
-    const ingestPort = Number.parseInt(
-      options.ingestPort ?? String(config.server.port ?? DEFAULT_WID_SERVER_PORT),
-      10,
-    );
-    const collectorRuntime = resolveCollectorRuntimeOptions({
-      config,
-      gwsCalendar: options.gwsCalendar,
-      gwsDrive: options.gwsDrive,
-      gwsSheets: options.gwsSheets,
-      gwsCalendarId: options.gwsCalendarId,
-      gitRepo: options.gitRepo,
-    });
+configureAgentRuntimeCommand(
+  program
+    .command("agent:run")
+    .description("Run the resident local agent runtime")
+    .alias("up"),
+)
+  .action(async (options: AgentRuntimeCommandOptions) => {
+    await runAgentRuntimeCommand(options, "agent:run");
+  });
 
-    for (const warning of collectorRuntime.warnings) {
-      console.error(`[tools] ${warning}`);
-    }
-
-    const runtime = await startAgentRuntime({
-      dataDir,
-      heartbeatIntervalMs: Number.parseInt(options.heartbeatIntervalMs, 10),
-      ingestHost,
-      ingestPort,
-      ingestAuthToken: options.ingestAuthToken,
-      collectorPollIntervalMs: Number.parseInt(options.collectorPollIntervalMs, 10),
-      collectorRestartDelayMs: Number.parseInt(options.collectorRestartDelayMs, 10),
-      enableGWSCalendar: collectorRuntime.enableGWSCalendar,
-      gwsCalendarId: collectorRuntime.gwsCalendarId,
-      gwsCalendarPollIntervalMs: Number.parseInt(options.gwsCalendarPollIntervalMs, 10),
-      enableGWSDrive: collectorRuntime.enableGWSDrive,
-      gwsDrivePollIntervalMs: Number.parseInt(options.gwsDrivePollIntervalMs, 10),
-      enableGWSSheets: collectorRuntime.enableGWSSheets,
-      gwsSheetsPollIntervalMs: Number.parseInt(options.gwsSheetsPollIntervalMs, 10),
-      gitRepoPath: collectorRuntime.gitRepoPath,
-      gitPollIntervalMs: Number.parseInt(options.gitPollIntervalMs, 10),
-      promptAccessibility: options.promptAccessibility,
-      enableCollectors: options.collectors,
-      snapshotWindows: options.snapshotWindows,
-      snapshotIntervalMs: Number.parseInt(options.snapshotIntervalSeconds, 10) * 1000,
-      enableSnapshotScheduler: options.snapshotScheduler,
-      verbose: options.verbose ?? config.agent.verbose,
-    });
-
-    const status = getAgentStatusSnapshot(dataDir);
-
-    if (options.openViewer) {
-      openSystemBrowser(resolveViewerUrl(dataDir, {
-        host: ingestHost,
-        port: ingestPort,
-      }));
-    }
-
-    console.log(JSON.stringify(status, null, 2));
-
-    await runtime.waitForStop();
-    },
-  );
+configureAgentRuntimeCommand(
+  program
+    .command("agent:restart")
+    .description("Restart the resident local agent runtime")
+    .alias("restart"),
+)
+  .action(async (options: AgentRuntimeCommandOptions) => {
+    await runAgentRuntimeCommand(options, "agent:restart");
+  });
 
 program
   .command("ingest:token")
   .description("Show or rotate the shared local ingest auth token")
+  .alias("token")
   .option("--data-dir <path>", "Override application data directory")
   .option("--rotate", "Rotate the stored auth token before printing it")
   .option("--value <token>", "Persist this token instead of generating one when used with --rotate")
@@ -1678,6 +1735,7 @@ program
 program
   .command("agent:stop")
   .description("Stop the resident agent runtime if it is running")
+  .alias("stop")
   .option("--data-dir <path>", "Override application data directory")
   .action((options: { dataDir?: string }) => {
     const result = stopAgentRuntime(options.dataDir);
@@ -1688,6 +1746,7 @@ program
 program
   .command("agent:health")
   .description("Show a concise health summary for the resident agent")
+  .alias("status")
   .option("--data-dir <path>", "Override application data directory")
   .action((options: { dataDir?: string }) => {
     const report = getAgentHealthReport(options.dataDir);
@@ -1975,6 +2034,7 @@ program
 program
   .command("debug:trace:workflow")
   .description("Trace one workflow cluster to its member sessions and boundaries")
+  .alias("trace")
   .argument("<workflow-id>", "Workflow cluster id")
   .option("--data-dir <path>", "Override application data directory")
   .action((workflowId: string, options: { dataDir?: string }) => {
@@ -2022,6 +2082,7 @@ program
 program
   .command("action:coverage")
   .description("Show semantic action coverage, unknown_action rates, and review queue data")
+  .alias("coverage")
   .option("--data-dir <path>", "Override application data directory")
   .option("--limit <count>", "Maximum number of rows to print per table", "10")
   .option("--json", "Print machine-readable JSON")
@@ -2357,6 +2418,7 @@ program
 program
   .command("report:compare")
   .description("Compare the selected day or week report against the previous matching window")
+  .alias("compare")
   .option("--data-dir <path>", "Override application data directory")
   .option("--json", "Print machine-readable JSON")
   .option("--window <window>", "Comparison window (day, week)", parseReportWindow, "week")
@@ -3282,6 +3344,7 @@ program
 program
   .command("viewer:open")
   .description("Open the local workflow viewer in the default browser")
+  .alias("viewer")
   .option("--data-dir <path>", "Override application data directory")
   .option("--host <host>", "Fallback host when no active agent state exists")
   .option("--port <port>", "Fallback port when no active agent state exists")
@@ -3397,4 +3460,4 @@ program
     console.log(JSON.stringify({ status: "reset_completed" }, null, 2));
   });
 
-await program.parseAsync(process.argv);
+await program.parseAsync(normalizeCliArgv(process.argv));
