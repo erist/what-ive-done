@@ -13,6 +13,7 @@ import { setGeminiOAuthCredentials, setLLMApiKey } from "../credentials/llm.js";
 import { resolveCredentialStore } from "../credentials/store.js";
 import { ensureIngestAuthToken, maskIngestAuthToken } from "../server/security.js";
 import { AppDatabase } from "../storage/database.js";
+import { syncConfiguredAnalyzerTool } from "../tools/service.js";
 import {
   detectClaude,
   detectGemini,
@@ -122,10 +123,12 @@ async function maybeConfigureExistingLLM(
       model,
     });
   });
-
-  const config = loadConfig(dataDir);
-  config.llm.default = provider;
-  saveConfig(config);
+  syncConfiguredAnalyzerTool({
+    dataDir,
+    provider,
+    authMethod,
+    model,
+  });
 
   process.stdout.write(`Configured default LLM: ${provider} (${authMethod})\n`);
   return provider;
@@ -173,6 +176,13 @@ async function maybeConfigureFreshLLM(
         model: getLLMProviderDescriptor(provider).defaultModel,
       });
     });
+    syncConfiguredAnalyzerTool({
+      dataDir,
+      provider,
+      authMethod,
+      model: getLLMProviderDescriptor(provider).defaultModel,
+      projectId: credentials.projectId,
+    });
   } else {
     const credentialStore = resolveCredentialStore();
 
@@ -190,11 +200,13 @@ async function maybeConfigureFreshLLM(
         model: getLLMProviderDescriptor(provider).defaultModel,
       });
     });
+    syncConfiguredAnalyzerTool({
+      dataDir,
+      provider,
+      authMethod,
+      model: getLLMProviderDescriptor(provider).defaultModel,
+    });
   }
-
-  const config = loadConfig(dataDir);
-  config.llm.default = provider;
-  saveConfig(config);
 
   process.stdout.write(`Configured default LLM: ${provider} (${authMethod})\n`);
   return provider;

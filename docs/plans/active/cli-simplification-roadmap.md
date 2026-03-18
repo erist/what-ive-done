@@ -41,7 +41,7 @@ wid up --open
 |----|-------|-------------|-------------|-----------|
 | M11 | Config System Foundation | `codex/m11-cli-config-foundation` | `.wid/config.json`, config CRUD, data-dir 탐색 fallback | 없음 |
 | M12 | Init Wizard + Environment Detection | `codex/m12-cli-init-detection` | interactive `wid init`, tool detection baseline | M11 |
-| M13 | Tool Registry + Credential Integration | `codex/m13-cli-tools-registry` | `wid tools`, collector/analyzer registry, keyring 연동 | M12 |
+| M13 | Tool Registry + Credential Integration | `codex/m13-cli-tools-system` | `wid tools`, collector/analyzer registry, keyring 연동 | M12 |
 | M14 | Short Aliases + `wid` Binary | `codex/m14-cli-short-aliases` | alias routing, `wid up`, package bin | M13 |
 | M15 | Edge Cases + Migration Chain | `codex/m15-cli-config-edge-cases` | config migration, env override chain, reconfigure/reset flow | M14 |
 
@@ -102,8 +102,15 @@ wid up --open
 
 ### M13. Tool Registry + Credential Integration
 
+- 상태
+  - 완료(2026-03-18)
 - 목표
   - collector와 analyzer를 공통 registry로 관리하고, secure credential storage와 연결한다.
+- 구현 메모
+  - `src/tools/registry.ts`, `src/tools/service.ts`, `src/tools/runtime.ts` 를 추가해 managed collector/analyzer registry, `tools add/remove/refresh/auth`, agent runtime collector resolution을 공통 레이어로 고정했다.
+  - `credential` 저장 계층에 Linux plaintext file fallback 경고 경로를 추가해 CI/Linux에서도 analyzer credential flow를 검증 가능하게 만들었다.
+  - `init`에서 설정한 analyzer가 `tools` registry와 같은 config shape를 사용하도록 맞췄고, `agent:run`은 config에 등록된 gws/git collector를 런타임 readiness 기준으로 다시 걸러 올리도록 바뀌었다.
+  - `src/tools/registry.test.ts`, `src/tools/runtime.test.ts`, `src/tools/service.test.ts`, `src/integration/cli.test.ts` 확장을 통해 registry, credential integration, refresh flow, CLI `tools` command를 검증했다.
 - 다음 단계로 넘길 입력
   - alias와 `wid up`이 재사용할 tool state
 

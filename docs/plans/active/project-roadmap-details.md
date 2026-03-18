@@ -382,11 +382,27 @@
 
 ## M13. Tool Registry + Credential Integration
 
-- 권장 branch: `codex/m13-cli-tools-registry`
+- 권장 branch: `codex/m13-cli-tools-system`
+- 상태
+  - 완료(2026-03-18)
 - 목표
   - `wid tools` 공통 인터페이스와 secure credential store integration을 도입한다.
 - 선행 조건
   - M12
+- 산출물
+  - `tools` list/add/remove/refresh/auth command surface
+  - collector/analyzer registry
+  - Linux credential fallback warning path
+  - config-driven collector runtime filtering
+- 구현 메모
+  - `src/tools/registry.ts` 로 collector/analyzer 메타데이터와 detection entrypoint를 고정했다.
+  - `src/tools/service.ts` 에 `tools add/remove/refresh/auth` 와 목록 포맷 로직을 모아 기존 `credential:*`, `auth:*`, `llm:*` 흐름을 감싸는 상위 인터페이스를 만들었다.
+  - Linux에서 analyzer credential flow가 막히지 않도록 local plaintext credential-file fallback과 warning을 추가했다.
+  - `agent:run` 이 config에 저장된 gws/git collector를 런타임 readiness 기준으로 재평가해 활성화 가능한 collector만 올리도록 정리했다.
+  - `init`이 설정한 analyzer도 동일한 `tools.<provider>` config shape를 쓰도록 맞췄다.
+- 다음 단계로 넘길 입력
+  - alias/binary가 재사용할 tool list surface
+  - `wid up` 이 재사용할 collector runtime resolution 규칙
 
 ## M14. Short Aliases + `wid` Binary
 

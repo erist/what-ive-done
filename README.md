@@ -47,7 +47,7 @@ Current limitations:
 - the browser viewer covers label/review and exclude/hide flows, but advanced merge/split review is still CLI-first
 - a packaged desktop app or tray UI does not exist yet
 - native desktop collectors still focus on active-window changes
-- secure credential storage is not implemented on Linux yet
+- Linux uses a local plaintext credential-file fallback with a warning until native secret storage is added
 
 ### Quick Start
 
@@ -96,6 +96,19 @@ npm run dev -- config path
 npm run dev -- agent:health
 WID_DATA_DIR=./tmp/agent-data npm run dev -- agent:status
 ```
+
+Managed tools:
+
+```bash
+npm run dev -- tools list --data-dir ./tmp/agent-data
+npm run dev -- tools add gws --data-dir ./tmp/agent-data
+npm run dev -- tools add git --data-dir ./tmp/agent-data --repo-path .
+npm run dev -- tools add claude --data-dir ./tmp/agent-data --api-key "$ANTHROPIC_API_KEY"
+npm run dev -- tools refresh gemini --data-dir ./tmp/agent-data
+npm run dev -- tools remove gws --data-dir ./tmp/agent-data
+```
+
+When you run from an initialized data directory, `npm run dev -- tools` prints the managed collector/analyzer status without needing `--data-dir`.
 
 Browser ingest token for the Chrome extension:
 
@@ -181,6 +194,10 @@ npm run dev -- config show --data-dir ./tmp/live-data
 npm run dev -- config get server.port --data-dir ./tmp/live-data
 npm run dev -- config set server.port 4319 --data-dir ./tmp/live-data
 npm run dev -- config path --data-dir ./tmp/live-data
+npm run dev -- tools list --data-dir ./tmp/live-data
+npm run dev -- tools add gws --data-dir ./tmp/live-data
+npm run dev -- tools add claude --data-dir ./tmp/live-data --api-key "$ANTHROPIC_API_KEY"
+npm run dev -- tools remove gws --data-dir ./tmp/live-data
 npm run dev -- ingest:token --data-dir ./tmp/live-data
 npm run dev -- agent:run --data-dir ./tmp/live-data
 npm run dev -- agent:run --data-dir ./tmp/live-data --gws-calendar --gws-calendar-id primary
@@ -320,7 +337,7 @@ Optional Calendar boundary signals store only hashed event identifiers, hashed m
 - browser viewer에서 label/review, exclude/hide는 처리할 수 있지만 merge/split 같은 고급 편집은 아직 CLI 중심입니다
 - packaged desktop app이나 tray UI는 아직 없습니다
 - native desktop collector는 현재 active-window 변화 중심입니다
-- Linux용 secure credential storage는 아직 없습니다
+- Linux에서는 native secret store 전까지 경고와 함께 plaintext credential file fallback을 사용합니다
 
 ### 빠른 시작
 
@@ -369,6 +386,19 @@ npm run dev -- config path
 npm run dev -- agent:health
 WID_DATA_DIR=./tmp/agent-data npm run dev -- agent:status
 ```
+
+관리형 tools:
+
+```bash
+npm run dev -- tools list --data-dir ./tmp/agent-data
+npm run dev -- tools add gws --data-dir ./tmp/agent-data
+npm run dev -- tools add git --data-dir ./tmp/agent-data --repo-path .
+npm run dev -- tools add claude --data-dir ./tmp/agent-data --api-key "$ANTHROPIC_API_KEY"
+npm run dev -- tools refresh gemini --data-dir ./tmp/agent-data
+npm run dev -- tools remove gws --data-dir ./tmp/agent-data
+```
+
+초기화된 data dir 안에서 실행하면 `npm run dev -- tools` 만으로 collector/analyzer 상태를 바로 볼 수 있습니다.
 
 Chrome extension에 넣을 ingest token 확인:
 
@@ -454,6 +484,10 @@ npm run dev -- config show --data-dir ./tmp/live-data
 npm run dev -- config get server.port --data-dir ./tmp/live-data
 npm run dev -- config set server.port 4319 --data-dir ./tmp/live-data
 npm run dev -- config path --data-dir ./tmp/live-data
+npm run dev -- tools list --data-dir ./tmp/live-data
+npm run dev -- tools add gws --data-dir ./tmp/live-data
+npm run dev -- tools add claude --data-dir ./tmp/live-data --api-key "$ANTHROPIC_API_KEY"
+npm run dev -- tools remove gws --data-dir ./tmp/live-data
 npm run dev -- ingest:token --data-dir ./tmp/live-data
 npm run dev -- agent:run --data-dir ./tmp/live-data
 npm run dev -- agent:run --data-dir ./tmp/live-data --gws-calendar --gws-calendar-id primary

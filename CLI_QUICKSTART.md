@@ -60,6 +60,18 @@ npm run dev -- agent:health
 WID_DATA_DIR=./tmp/demo-data npm run dev -- agent:status
 ```
 
+## Managed tools
+
+```bash
+npm run dev -- tools list --data-dir ./tmp/demo-data
+npm run dev -- tools add gws --data-dir ./tmp/demo-data
+npm run dev -- tools add git --data-dir ./tmp/demo-data --repo-path .
+npm run dev -- tools add claude --data-dir ./tmp/demo-data --api-key "$ANTHROPIC_API_KEY"
+npm run dev -- tools refresh gemini --data-dir ./tmp/demo-data
+```
+
+From inside an initialized data directory, `npm run dev -- tools` shows the managed collector/analyzer status without `--data-dir`.
+
 Run the resident agent:
 
 ```bash
@@ -121,6 +133,7 @@ npm run dev -- report --data-dir ./tmp/demo-data
 - `agent:autostart:*`: inspect or manage macOS LaunchAgent autostart
 - `viewer:open`: open the local browser viewer
 - `config show|get|set|path`: inspect or update `.wid/config.json`
+- `tools|tools list|tools add|tools remove|tools refresh|tools auth`: manage configured collectors/analyzers
 - `init`: initialize `.wid/config.json`, SQLite, and the ingest token
 - `collect:mock`: insert mock raw events
 - `analyze`: run normalization, sessionization, and workflow clustering
@@ -160,6 +173,8 @@ export GOOGLE_CLIENT_SECRET="your-client-secret"
 export GOOGLE_CLOUD_PROJECT="your-project-id"
 npm run dev -- auth:login gemini --data-dir ./tmp/demo-data
 ```
+
+Linux currently uses a local plaintext credential-file fallback with a warning until native secret storage is added.
 
 ## Date-window reports
 
