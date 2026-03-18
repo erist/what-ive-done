@@ -13,6 +13,7 @@
   - privacy-safe 원칙과 local-first 원칙은 모든 마일스톤의 공통 게이트다.
 
 세부 실행 항목은 [project-roadmap-details.md](./project-roadmap-details.md)에 정리한다.
+CLI 단순화 열차는 [cli-simplification-roadmap.md](./cli-simplification-roadmap.md)에 별도로 정리한다.
 
 ## 1. 계획 가정
 
@@ -104,3 +105,9 @@ M1 -> M2 -> M3 -> M4 -> M5 -> M6 -> M7 -> M8 -> M10
 - 다음 마일스톤의 입력이 준비되지 않았으면 현 마일스톤을 닫지 않는다.
 - 품질 문제가 fixture 없이 재현만 되는 상태라면 기능 추가보다 fixture 고정을 우선한다.
 - feedback UI는 clustering 품질이 안정되기 전까지 범위를 늘리지 않는다.
+
+## 8. Next Train: CLI Simplification
+
+- 현재 `M1-M10` 열차는 완료되었고, 다음 독립 열차는 CLI 사용성 단순화다.
+- 새 열차는 `M11-M15`로 나누어 config foundation, init wizard, tool registry, alias/binary, edge case를 순차적으로 닫는다.
+- 운영 규칙은 기존과 동일하게 `1 milestone = 1 worktree = 1 mergeable PR` 이다.

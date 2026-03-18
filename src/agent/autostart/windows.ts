@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { resolveAppPaths } from "../../app-paths.js";
+import { ConfigManager } from "../../config/manager.js";
 
 export interface WindowsStartupConfig {
   label: string;
@@ -55,7 +56,7 @@ export function resolveWindowsStartupConfig(options: {
   cliEntrypointPath?: string | undefined;
   workingDirectory?: string | undefined;
 } = {}): WindowsStartupConfig {
-  const paths = resolveAppPaths(options.dataDir);
+  const paths = resolveAppPaths(ConfigManager.resolveDataDir(options.dataDir));
   const label = "what-ive-done-agent";
   const workingDirectory = options.workingDirectory ?? resolveRepositoryRoot();
   const cliEntrypointPath = options.cliEntrypointPath ?? resolveDefaultCLIEntrypointPath();

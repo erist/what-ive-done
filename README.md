@@ -76,6 +76,16 @@ npm run dev -- agent:run-once --data-dir ./tmp/agent-data
 npm run dev -- agent:snapshot:latest --data-dir ./tmp/agent-data
 ```
 
+Config foundation and auto-discovery:
+
+```bash
+npm run dev -- init --data-dir ./tmp/agent-data
+cd ./tmp/agent-data
+npm run dev -- config show
+npm run dev -- config set server.port 4319
+npm run dev -- agent:health
+```
+
 Browser ingest token for the Chrome extension:
 
 ```bash
@@ -91,14 +101,14 @@ npm run dev -- agent:run --data-dir ./tmp/live-data --verbose
 Enable optional Calendar boundary signals through `gws`:
 
 ```bash
-npm run dev -- doctor --gws-calendar-id primary
+npm run dev -- doctor --data-dir ./tmp/live-data --gws-calendar-id primary
 npm run dev -- agent:run --data-dir ./tmp/live-data --gws-calendar --gws-calendar-id primary
 ```
 
 Enable optional Drive, Sheets, and Git context collectors:
 
 ```bash
-npm run dev -- doctor --git-repo .
+npm run dev -- doctor --data-dir ./tmp/live-data --git-repo .
 npm run dev -- collector:gws:drive:info --json
 npm run dev -- collector:gws:sheets:info --json
 npm run dev -- collector:git:info --repo-path . --json
@@ -154,8 +164,10 @@ npm run dev -- workflow:split <workflow-id> --after-action search_order --data-d
 ### Common Commands
 
 ```bash
-npm run dev -- doctor
-npm run dev -- doctor --gws-calendar-id primary
+npm run dev -- doctor --data-dir ./tmp/live-data
+npm run dev -- doctor --data-dir ./tmp/live-data --gws-calendar-id primary
+npm run dev -- config show --data-dir ./tmp/live-data
+npm run dev -- config set server.port 4319 --data-dir ./tmp/live-data
 npm run dev -- ingest:token --data-dir ./tmp/live-data
 npm run dev -- agent:run --data-dir ./tmp/live-data
 npm run dev -- agent:run --data-dir ./tmp/live-data --gws-calendar --gws-calendar-id primary
@@ -165,7 +177,7 @@ npm run dev -- agent:snapshot:latest --data-dir ./tmp/live-data
 npm run dev -- agent:collectors --data-dir ./tmp/live-data
 npm run dev -- agent:autostart:status --data-dir ./tmp/live-data
 npm run dev -- agent:autostart:install --data-dir ./tmp/live-data
-npm run dev -- credential:status
+npm run dev -- credential:status --data-dir ./tmp/live-data
 npm run dev -- collector:gws:calendar:info --calendar-id primary --json
 npm run dev -- viewer:open --data-dir ./tmp/live-data
 npm run dev -- debug:raw:list --data-dir ./tmp/live-data --limit 10
@@ -240,6 +252,7 @@ Optional Calendar boundary signals store only hashed event identifiers, hashed m
 - [Chrome Context Privacy Review](./docs/reference/chrome-context-privacy-review.md)
 - [Product Requirements](./docs/product/requirements.md)
 - [Active Implementation Plan](./docs/plans/active/mvp-implementation.md)
+- [CLI Simplification Roadmap](./docs/plans/active/cli-simplification-roadmap.md)
 
 ### Requirements
 
@@ -322,6 +335,16 @@ npm run dev -- agent:run-once --data-dir ./tmp/agent-data
 npm run dev -- agent:snapshot:latest --data-dir ./tmp/agent-data
 ```
 
+config 기반 실행과 auto-discovery:
+
+```bash
+npm run dev -- init --data-dir ./tmp/agent-data
+cd ./tmp/agent-data
+npm run dev -- config show
+npm run dev -- config set server.port 4319
+npm run dev -- agent:health
+```
+
 Chrome extension에 넣을 ingest token 확인:
 
 ```bash
@@ -337,14 +360,14 @@ npm run dev -- agent:run --data-dir ./tmp/live-data --verbose
 `gws`를 통한 optional Calendar boundary signal 켜기:
 
 ```bash
-npm run dev -- doctor --gws-calendar-id primary
+npm run dev -- doctor --data-dir ./tmp/live-data --gws-calendar-id primary
 npm run dev -- agent:run --data-dir ./tmp/live-data --gws-calendar --gws-calendar-id primary
 ```
 
 optional Drive/Sheets/Git context collector 켜기:
 
 ```bash
-npm run dev -- doctor --git-repo .
+npm run dev -- doctor --data-dir ./tmp/live-data --git-repo .
 npm run dev -- collector:gws:drive:info --json
 npm run dev -- collector:gws:sheets:info --json
 npm run dev -- collector:git:info --repo-path . --json
@@ -400,8 +423,10 @@ npm run dev -- workflow:split <workflow-id> --after-action search_order --data-d
 ### 자주 쓰는 명령
 
 ```bash
-npm run dev -- doctor
-npm run dev -- doctor --gws-calendar-id primary
+npm run dev -- doctor --data-dir ./tmp/live-data
+npm run dev -- doctor --data-dir ./tmp/live-data --gws-calendar-id primary
+npm run dev -- config show --data-dir ./tmp/live-data
+npm run dev -- config set server.port 4319 --data-dir ./tmp/live-data
 npm run dev -- ingest:token --data-dir ./tmp/live-data
 npm run dev -- agent:run --data-dir ./tmp/live-data
 npm run dev -- agent:run --data-dir ./tmp/live-data --gws-calendar --gws-calendar-id primary
@@ -411,7 +436,7 @@ npm run dev -- agent:snapshot:latest --data-dir ./tmp/live-data
 npm run dev -- agent:collectors --data-dir ./tmp/live-data
 npm run dev -- agent:autostart:status --data-dir ./tmp/live-data
 npm run dev -- agent:autostart:install --data-dir ./tmp/live-data
-npm run dev -- credential:status
+npm run dev -- credential:status --data-dir ./tmp/live-data
 npm run dev -- collector:gws:calendar:info --calendar-id primary --json
 npm run dev -- viewer:open --data-dir ./tmp/live-data
 npm run dev -- debug:raw:list --data-dir ./tmp/live-data --limit 10

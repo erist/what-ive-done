@@ -1,6 +1,7 @@
 import { startCollectorSupervisor, type RunningCollectorSupervisor } from "./collectors.js";
 import { startSnapshotScheduler, type RunningSnapshotScheduler } from "./scheduler.js";
 import { ensureAppPaths, resolveAppPaths } from "../app-paths.js";
+import { ConfigManager } from "../config/manager.js";
 import { startIngestServer, type IngestServerOptions, type RunningIngestServer } from "../server/ingest-server.js";
 import { AppDatabase } from "../storage/database.js";
 import { acquireAgentLock } from "./lock.js";
@@ -80,7 +81,8 @@ export interface RunningAgentRuntime {
 export async function startAgentRuntime(
   options: StartAgentRuntimeOptions = {},
 ): Promise<RunningAgentRuntime> {
-  const paths = resolveAppPaths(options.dataDir);
+  const resolvedDataDir = ConfigManager.resolveDataDir(options.dataDir);
+  const paths = resolveAppPaths(resolvedDataDir);
   const heartbeatIntervalMs = options.heartbeatIntervalMs ?? 30_000;
   const ingestServerFactory = options.ingestServerFactory ?? startIngestServer;
   const collectorSupervisorFactory = options.collectorSupervisorFactory ?? startCollectorSupervisor;
@@ -158,7 +160,7 @@ export async function startAgentRuntime(
 
   try {
     ingestServer = await ingestServerFactory({
-      dataDir: options.dataDir,
+      dataDir: resolvedDataDir,
       host: options.ingestHost,
       port: options.ingestPort,
       authToken: options.ingestAuthToken,
@@ -216,7 +218,7 @@ export async function startAgentRuntime(
 
     if (options.enableSnapshotScheduler !== false) {
       snapshotScheduler = await snapshotSchedulerFactory({
-        dataDir: options.dataDir,
+        dataDir: resolvedDataDir,
         windows: options.snapshotWindows,
         intervalMs: options.snapshotIntervalMs,
         onStateChange: mergeSnapshotSchedulerState,

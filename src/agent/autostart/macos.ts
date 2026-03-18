@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { resolveAppPaths } from "../../app-paths.js";
+import { ConfigManager } from "../../config/manager.js";
 
 export interface MacOSLaunchAgentConfig {
   label: string;
@@ -75,7 +76,7 @@ export function resolveMacOSLaunchAgentConfig(options: {
   cliEntrypointPath?: string | undefined;
   workingDirectory?: string | undefined;
 } = {}): MacOSLaunchAgentConfig {
-  const paths = resolveAppPaths(options.dataDir);
+  const paths = resolveAppPaths(ConfigManager.resolveDataDir(options.dataDir));
   const label = "com.whativedone.agent";
   const workingDirectory = options.workingDirectory ?? resolveRepositoryRoot();
   const cliEntrypointPath = options.cliEntrypointPath ?? resolveDefaultCLIEntrypointPath();

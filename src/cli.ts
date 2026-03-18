@@ -50,6 +50,12 @@ import {
   setLLMApiKey,
 } from "./credentials/llm.js";
 import { resolveCredentialStore } from "./credentials/store.js";
+import { ConfigManager } from "./config/manager.js";
+import {
+  DEFAULT_WID_SERVER_HOST,
+  DEFAULT_WID_SERVER_PORT,
+  type WidConfig,
+} from "./config/schema.js";
 import {
   buildRawEventTrace,
   buildSessionTrace,
@@ -122,7 +128,8 @@ import type {
 const program = new Command();
 
 function withDatabase<T>(dataDir: string | undefined, fn: (database: AppDatabase) => T): T {
-  const database = new AppDatabase(resolveAppPaths(dataDir));
+  const resolvedDataDir = ConfigManager.resolveDataDir(dataDir);
+  const database = new AppDatabase(resolveAppPaths(resolvedDataDir));
   database.initialize();
 
   try {
@@ -130,6 +137,54 @@ function withDatabase<T>(dataDir: string | undefined, fn: (database: AppDatabase
   } finally {
     database.close();
   }
+}
+
+function resolveCommandDataDir(dataDir?: string): string {
+  return ConfigManager.resolveDataDir(dataDir);
+}
+
+function loadCommandConfig(dataDir?: string): { dataDir: string; config: WidConfig } {
+  const resolvedDataDir = resolveCommandDataDir(dataDir);
+
+  return {
+    dataDir: resolvedDataDir,
+    config: ConfigManager.load(resolvedDataDir),
+  };
+}
+
+function normalizeOptionalConfigString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function isToolAdded(config: WidConfig, toolName: string): boolean {
+  return config.tools[toolName]?.added === true;
+}
+
+function parseConfigValue(value: string): unknown {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return value;
+  }
+}
+
+function printConfigValue(value: unknown): void {
+  if (typeof value === "string") {
+    console.log(value);
+    return;
+  }
+
+  if (value === undefined) {
+    console.log("undefined");
+    return;
+  }
+
+  console.log(JSON.stringify(value, null, 2));
 }
 
 function describeIngestSecurity(dataDir?: string): {
@@ -508,8 +563,8 @@ function resolveViewerUrl(
 async function runServerCommand(
   options: {
     dataDir?: string;
-    host: string;
-    port: string;
+    host?: string;
+    port?: string;
     ingestAuthToken?: string;
     verbose?: boolean;
     open?: boolean;
@@ -522,12 +577,19 @@ async function runServerCommand(
     });
   }
 
+  const { dataDir, config } = loadCommandConfig(options.dataDir);
+  const host = options.host ?? config.server.host ?? DEFAULT_WID_SERVER_HOST;
+  const port = Number.parseInt(
+    options.port ?? String(config.server.port ?? DEFAULT_WID_SERVER_PORT),
+    10,
+  );
+
   const server = await startIngestServer({
-    dataDir: options.dataDir,
-    host: options.host,
-    port: Number.parseInt(options.port, 10),
+    dataDir,
+    host,
+    port,
     authToken: options.ingestAuthToken,
-    verbose: options.verbose,
+    verbose: options.verbose ?? config.agent.verbose,
   });
   const opened = options.open ? openSystemBrowser(server.viewerUrl) : false;
 
@@ -1122,13 +1184,78 @@ program
   .version("0.1.0");
 
 program
+  .command("config")
+  .description("Show or update the persisted .wid config")
+  .addCommand(
+    new Command("show")
+      .description("Print the full config as JSON")
+      .option("--data-dir <path>", "Override application data directory")
+      .action((options: { dataDir?: string }) => {
+        const { dataDir, config } = loadCommandConfig(options.dataDir);
+
+        console.log(
+          JSON.stringify(
+            {
+              ...config,
+              dataDir,
+            },
+            null,
+            2,
+          ),
+        );
+      }),
+  )
+  .addCommand(
+    new Command("get")
+      .description("Read one config value by dot notation")
+      .argument("<key>", "Config key, for example server.port")
+      .option("--data-dir <path>", "Override application data directory")
+      .action((key: string, options: { dataDir?: string }) => {
+        const dataDir = resolveCommandDataDir(options.dataDir);
+        printConfigValue(ConfigManager.get(dataDir, key));
+      }),
+  )
+  .addCommand(
+    new Command("set")
+      .description("Write one config value by dot notation")
+      .argument("<key>", "Config key, for example server.port")
+      .argument("<value>", "Config value. JSON values such as true, false, 4318, {}, [] are supported")
+      .option("--data-dir <path>", "Override application data directory")
+      .action((key: string, value: string, options: { dataDir?: string }) => {
+        const dataDir = resolveCommandDataDir(options.dataDir);
+        ConfigManager.set(dataDir, key, parseConfigValue(value));
+        printConfigValue(ConfigManager.get(dataDir, key));
+      }),
+  )
+  .addCommand(
+    new Command("path")
+      .description("Print the config file path")
+      .option("--data-dir <path>", "Override application data directory")
+      .action((options: { dataDir?: string }) => {
+        const dataDir = resolveCommandDataDir(options.dataDir);
+        console.log(ConfigManager.resolveConfigPath(dataDir));
+      }),
+  );
+
+program
   .command("doctor")
   .description("Validate local runtime prerequisites")
   .option("--data-dir <path>", "Override application data directory")
-  .option("--gws-calendar-id <id>", "Calendar id to inspect for gws Calendar collector diagnostics", DEFAULT_GWS_CALENDAR_ID)
+  .option("--gws-calendar-id <id>", "Calendar id to inspect for gws Calendar collector diagnostics")
   .option("--git-repo <path>", "Local Git repository path to inspect for Git collector diagnostics")
-  .action((options: { dataDir?: string; gwsCalendarId: string; gitRepo?: string }) => {
-    const paths = resolveAppPaths(options.dataDir);
+  .action((options: { dataDir?: string; gwsCalendarId?: string; gitRepo?: string }) => {
+    const { dataDir, config } = loadCommandConfig(options.dataDir);
+    const paths = resolveAppPaths(dataDir);
+    const gwsCalendarId =
+      options.gwsCalendarId ??
+      normalizeOptionalConfigString(config.tools.gws?.["calendar-id"]) ??
+      DEFAULT_GWS_CALENDAR_ID;
+    const gitRepo =
+      options.gitRepo ??
+      (isToolAdded(config, "git")
+        ? normalizeOptionalConfigString(config.tools.git?.["repo-path"])
+        : undefined);
+
     const result = {
       node: process.version,
       platform: process.platform,
@@ -1136,14 +1263,15 @@ program
       dataDir: paths.dataDir,
       databasePath: paths.databasePath,
       agentLockPath: paths.agentLockPath,
-      ingestSecurity: describeIngestSecurity(options.dataDir),
+      configPath: ConfigManager.resolveConfigPath(dataDir),
+      ingestSecurity: describeIngestSecurity(dataDir),
       gwsCalendar: getGWSCalendarCollectorStatus({
-        calendarId: options.gwsCalendarId,
+        calendarId: gwsCalendarId,
       }),
       gwsDrive: getGWSDriveCollectorStatus(),
       gwsSheets: getGWSSheetsCollectorStatus(),
       gitContext: getGitContextCollectorStatus({
-        repoPath: options.gitRepo,
+        repoPath: gitRepo,
       }),
     };
 
@@ -1155,13 +1283,13 @@ program
   .description("Run the resident local agent runtime")
   .option("--data-dir <path>", "Override application data directory")
   .option("--heartbeat-interval-ms <ms>", "Heartbeat interval in milliseconds", "30000")
-  .option("--ingest-host <host>", "Host to bind the local ingest server", "127.0.0.1")
-  .option("--ingest-port <port>", "Port to bind the local ingest server", "4318")
+  .option("--ingest-host <host>", "Host to bind the local ingest server")
+  .option("--ingest-port <port>", "Port to bind the local ingest server")
   .option("--ingest-auth-token <token>", "Override and persist the shared ingest auth token")
   .option("--collector-poll-interval-ms <ms>", "Collector polling interval in milliseconds", "1000")
   .option("--collector-restart-delay-ms <ms>", "Collector restart delay after failures", "5000")
   .option("--gws-calendar", "Enable the optional gws Calendar boundary collector")
-  .option("--gws-calendar-id <id>", "Calendar id for the gws Calendar collector", DEFAULT_GWS_CALENDAR_ID)
+  .option("--gws-calendar-id <id>", "Calendar id for the gws Calendar collector")
   .option(
     "--gws-calendar-poll-interval-ms <ms>",
     "gws Calendar polling interval in milliseconds",
@@ -1204,13 +1332,13 @@ program
     async (options: {
       dataDir?: string;
       heartbeatIntervalMs: string;
-      ingestHost: string;
-      ingestPort: string;
+      ingestHost?: string;
+      ingestPort?: string;
       ingestAuthToken?: string;
       collectorPollIntervalMs: string;
       collectorRestartDelayMs: string;
       gwsCalendar?: boolean;
-      gwsCalendarId: string;
+      gwsCalendarId?: string;
       gwsCalendarPollIntervalMs: string;
       gwsDrive?: boolean;
       gwsDrivePollIntervalMs: string;
@@ -1226,37 +1354,53 @@ program
       verbose?: boolean;
       openViewer?: boolean;
     }) => {
+    const { dataDir, config } = loadCommandConfig(options.dataDir);
+    const ingestHost = options.ingestHost ?? config.server.host ?? DEFAULT_WID_SERVER_HOST;
+    const ingestPort = Number.parseInt(
+      options.ingestPort ?? String(config.server.port ?? DEFAULT_WID_SERVER_PORT),
+      10,
+    );
+    const gwsEnabled = isToolAdded(config, "gws");
+    const gitEnabled = isToolAdded(config, "git");
+    const gwsCalendarId =
+      options.gwsCalendarId ??
+      normalizeOptionalConfigString(config.tools.gws?.["calendar-id"]) ??
+      DEFAULT_GWS_CALENDAR_ID;
+    const gitRepo =
+      options.gitRepo ??
+      (gitEnabled ? normalizeOptionalConfigString(config.tools.git?.["repo-path"]) : undefined);
+
     const runtime = await startAgentRuntime({
-      dataDir: options.dataDir,
+      dataDir,
       heartbeatIntervalMs: Number.parseInt(options.heartbeatIntervalMs, 10),
-      ingestHost: options.ingestHost,
-      ingestPort: Number.parseInt(options.ingestPort, 10),
+      ingestHost,
+      ingestPort,
       ingestAuthToken: options.ingestAuthToken,
       collectorPollIntervalMs: Number.parseInt(options.collectorPollIntervalMs, 10),
       collectorRestartDelayMs: Number.parseInt(options.collectorRestartDelayMs, 10),
-      enableGWSCalendar: options.gwsCalendar,
-      gwsCalendarId: options.gwsCalendarId,
+      enableGWSCalendar: options.gwsCalendar ?? gwsEnabled,
+      gwsCalendarId,
       gwsCalendarPollIntervalMs: Number.parseInt(options.gwsCalendarPollIntervalMs, 10),
-      enableGWSDrive: options.gwsDrive,
+      enableGWSDrive: options.gwsDrive ?? gwsEnabled,
       gwsDrivePollIntervalMs: Number.parseInt(options.gwsDrivePollIntervalMs, 10),
-      enableGWSSheets: options.gwsSheets,
+      enableGWSSheets: options.gwsSheets ?? gwsEnabled,
       gwsSheetsPollIntervalMs: Number.parseInt(options.gwsSheetsPollIntervalMs, 10),
-      gitRepoPath: options.gitRepo,
+      gitRepoPath: gitRepo,
       gitPollIntervalMs: Number.parseInt(options.gitPollIntervalMs, 10),
       promptAccessibility: options.promptAccessibility,
       enableCollectors: options.collectors,
       snapshotWindows: options.snapshotWindows,
       snapshotIntervalMs: Number.parseInt(options.snapshotIntervalSeconds, 10) * 1000,
       enableSnapshotScheduler: options.snapshotScheduler,
-      verbose: options.verbose,
+      verbose: options.verbose ?? config.agent.verbose,
     });
 
-    const status = getAgentStatusSnapshot(options.dataDir);
+    const status = getAgentStatusSnapshot(dataDir);
 
     if (options.openViewer) {
-      openSystemBrowser(resolveViewerUrl(options.dataDir, {
-        host: options.ingestHost,
-        port: Number.parseInt(options.ingestPort, 10),
+      openSystemBrowser(resolveViewerUrl(dataDir, {
+        host: ingestHost,
+        port: ingestPort,
       }));
     }
 
@@ -1425,13 +1569,20 @@ program
   .description("Initialize local application storage")
   .option("--data-dir <path>", "Override application data directory")
   .action((options: { dataDir?: string }) => {
-    const paths = resolveAppPaths(options.dataDir);
-    withDatabase(options.dataDir, () => undefined);
+    const dataDir =
+      options.dataDir ??
+      ConfigManager.findDataDir() ??
+      resolveAppPaths().dataDir;
+    const config = ConfigManager.initialize(dataDir);
+    const paths = resolveAppPaths(config.dataDir);
+    withDatabase(config.dataDir, () => undefined);
 
     console.log(
       JSON.stringify(
         {
           status: "initialized",
+          dataDir: config.dataDir,
+          configPath: ConfigManager.resolveConfigPath(config.dataDir),
           databasePath: paths.databasePath,
         },
         null,
@@ -1477,9 +1628,10 @@ program
     const event = collectorRunner.captureOnce({
       promptAccessibility: options.promptAccessibility,
     });
-    const paths = resolveAppPaths(options.dataDir);
+    const dataDir = resolveCommandDataDir(options.dataDir);
+    const paths = resolveAppPaths(dataDir);
 
-    withDatabase(options.dataDir, (database) => {
+    withDatabase(dataDir, (database) => {
       database.insertRawEvent(event);
     });
 
@@ -2927,12 +3079,16 @@ program
   .command("viewer:open")
   .description("Open the local workflow viewer in the default browser")
   .option("--data-dir <path>", "Override application data directory")
-  .option("--host <host>", "Fallback host when no active agent state exists", "127.0.0.1")
-  .option("--port <port>", "Fallback port when no active agent state exists", "4318")
-  .action((options: { dataDir?: string; host: string; port: string }) => {
-    const viewerUrl = resolveViewerUrl(options.dataDir, {
-      host: options.host,
-      port: Number.parseInt(options.port, 10),
+  .option("--host <host>", "Fallback host when no active agent state exists")
+  .option("--port <port>", "Fallback port when no active agent state exists")
+  .action((options: { dataDir?: string; host?: string; port?: string }) => {
+    const { dataDir, config } = loadCommandConfig(options.dataDir);
+    const viewerUrl = resolveViewerUrl(dataDir, {
+      host: options.host ?? config.server.host ?? DEFAULT_WID_SERVER_HOST,
+      port: Number.parseInt(
+        options.port ?? String(config.server.port ?? DEFAULT_WID_SERVER_PORT),
+        10,
+      ),
     });
     const opened = openSystemBrowser(viewerUrl);
 
@@ -2953,16 +3109,16 @@ program
   .command("server:run")
   .description("Run a local HTTP server for collectors and the browser viewer")
   .option("--data-dir <path>", "Override application data directory")
-  .option("--host <host>", "Host to bind", "127.0.0.1")
-  .option("--port <port>", "Port to bind", "4318")
+  .option("--host <host>", "Host to bind")
+  .option("--port <port>", "Port to bind")
   .option("--ingest-auth-token <token>", "Override and persist the shared ingest auth token")
   .option("--verbose", "Enable verbose ingest request logging")
   .option("--open", "Open the local viewer in the default browser after startup")
   .action(
     (options: {
       dataDir?: string;
-      host: string;
-      port: string;
+      host?: string;
+      port?: string;
       ingestAuthToken?: string;
       verbose?: boolean;
       open?: boolean;
@@ -2975,16 +3131,16 @@ program
   .description("Run a local HTTP server for collectors and the browser viewer")
   .helpGroup("Deprecated Commands:")
   .option("--data-dir <path>", "Override application data directory")
-  .option("--host <host>", "Host to bind", "127.0.0.1")
-  .option("--port <port>", "Port to bind", "4318")
+  .option("--host <host>", "Host to bind")
+  .option("--port <port>", "Port to bind")
   .option("--ingest-auth-token <token>", "Override and persist the shared ingest auth token")
   .option("--verbose", "Enable verbose ingest request logging")
   .option("--open", "Open the local viewer in the default browser after startup")
   .action(
     (options: {
       dataDir?: string;
-      host: string;
-      port: string;
+      host?: string;
+      port?: string;
       ingestAuthToken?: string;
       verbose?: boolean;
       open?: boolean;

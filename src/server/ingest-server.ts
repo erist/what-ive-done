@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { URL } from "node:url";
 
 import { resolveAppPaths } from "../app-paths.js";
+import { ConfigManager } from "../config/manager.js";
 import { saveWorkflowReview } from "../feedback/service.js";
 import { parseReportWindow } from "../reporting/windows.js";
 import { AppDatabase } from "../storage/database.js";
@@ -146,7 +147,8 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
 export async function startIngestServer(options: IngestServerOptions = {}): Promise<RunningIngestServer> {
   const host = resolveLocalOnlyHost(options.host);
   const port = options.port ?? 4318;
-  const database = new AppDatabase(resolveAppPaths(options.dataDir));
+  const resolvedDataDir = ConfigManager.resolveDataDir(options.dataDir);
+  const database = new AppDatabase(resolveAppPaths(resolvedDataDir));
   database.initialize();
   const authToken = ensureIngestAuthToken(database, options.authToken);
   const security = buildIngestSecurityState({
@@ -213,7 +215,7 @@ export async function startIngestServer(options: IngestServerOptions = {}): Prom
         sendJson(
           response,
           200,
-          buildViewerDashboard(database, parseViewerOptions(requestUrl, options.dataDir)),
+          buildViewerDashboard(database, parseViewerOptions(requestUrl, resolvedDataDir)),
         );
       } catch (error) {
         sendJson(response, 400, {
@@ -231,7 +233,7 @@ export async function startIngestServer(options: IngestServerOptions = {}): Prom
         const session = getViewerSessionDetail(
           database,
           sessionId,
-          parseViewerOptions(requestUrl, options.dataDir),
+          parseViewerOptions(requestUrl, resolvedDataDir),
         );
 
         if (!session) {
@@ -259,7 +261,7 @@ export async function startIngestServer(options: IngestServerOptions = {}): Prom
         const workflow = getViewerWorkflowDetail(
           database,
           workflowId,
-          parseViewerOptions(requestUrl, options.dataDir),
+          parseViewerOptions(requestUrl, resolvedDataDir),
         );
 
         if (!workflow) {
@@ -301,7 +303,7 @@ export async function startIngestServer(options: IngestServerOptions = {}): Prom
         const workflow = getViewerWorkflowDetail(
           database,
           workflowId,
-          parseViewerOptions(requestUrl, options.dataDir),
+          parseViewerOptions(requestUrl, resolvedDataDir),
         );
 
         sendJson(response, 200, {
