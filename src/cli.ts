@@ -588,6 +588,27 @@ function printDeprecationWarning(
   console.error(message);
 }
 
+function resolveEnvOverride(name: string): string | undefined {
+  const value = process.env[name];
+
+  if (!value) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function resolveEnvBooleanOverride(name: string): boolean | undefined {
+  const value = resolveEnvOverride(name);
+
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return parseBooleanOption(value);
+}
+
 function resolveViewerUrl(
   dataDir?: string,
   fallback: { host?: string | undefined; port?: number | undefined } = {},
@@ -635,9 +656,15 @@ async function runAgentRuntimeCommand(
     }
   }
 
-  const ingestHost = options.ingestHost ?? config.server.host ?? DEFAULT_WID_SERVER_HOST;
+  const ingestHost =
+    options.ingestHost ??
+    resolveEnvOverride("WID_SERVER_HOST") ??
+    config.server.host ??
+    DEFAULT_WID_SERVER_HOST;
   const ingestPort = Number.parseInt(
-    options.ingestPort ?? String(config.server.port ?? DEFAULT_WID_SERVER_PORT),
+    options.ingestPort ??
+      resolveEnvOverride("WID_SERVER_PORT") ??
+      String(config.server.port ?? DEFAULT_WID_SERVER_PORT),
     10,
   );
   const collectorRuntime = resolveCollectorRuntimeOptions({
@@ -675,7 +702,7 @@ async function runAgentRuntimeCommand(
     snapshotWindows: options.snapshotWindows,
     snapshotIntervalMs: Number.parseInt(options.snapshotIntervalSeconds, 10) * 1000,
     enableSnapshotScheduler: options.snapshotScheduler,
-    verbose: options.verbose ?? config.agent.verbose,
+    verbose: options.verbose ?? resolveEnvBooleanOverride("WID_VERBOSE") ?? config.agent.verbose,
   });
 
   const status = getAgentStatusSnapshot(dataDir);
@@ -762,9 +789,15 @@ async function runServerCommand(
   }
 
   const { dataDir, config } = loadCommandConfig(options.dataDir);
-  const host = options.host ?? config.server.host ?? DEFAULT_WID_SERVER_HOST;
+  const host =
+    options.host ??
+    resolveEnvOverride("WID_SERVER_HOST") ??
+    config.server.host ??
+    DEFAULT_WID_SERVER_HOST;
   const port = Number.parseInt(
-    options.port ?? String(config.server.port ?? DEFAULT_WID_SERVER_PORT),
+    options.port ??
+      resolveEnvOverride("WID_SERVER_PORT") ??
+      String(config.server.port ?? DEFAULT_WID_SERVER_PORT),
     10,
   );
 
@@ -773,7 +806,7 @@ async function runServerCommand(
     host,
     port,
     authToken: options.ingestAuthToken,
-    verbose: options.verbose ?? config.agent.verbose,
+    verbose: options.verbose ?? resolveEnvBooleanOverride("WID_VERBOSE") ?? config.agent.verbose,
   });
   const opened = options.open ? openSystemBrowser(server.viewerUrl) : false;
 
@@ -1846,12 +1879,28 @@ program
   .option("--data-dir <path>", "Override application data directory")
   .option("--interactive", "Run an interactive setup wizard")
   .action(async (options: { dataDir?: string; interactive?: boolean }) => {
-    if (options.interactive) {
-      await runInteractiveInit(options.dataDir);
-      return;
-    }
+    const prompts = createPromptSessionIfInteractive();
 
-    console.log(JSON.stringify(runInit(options.dataDir), null, 2));
+    try {
+      if (options.interactive) {
+        await runInteractiveInit(options.dataDir, {
+          prompts,
+        });
+        return;
+      }
+
+      console.log(
+        JSON.stringify(
+          await runInit(options.dataDir, {
+            prompts,
+          }),
+          null,
+          2,
+        ),
+      );
+    } finally {
+      prompts?.close();
+    }
   });
 
 program
@@ -3351,9 +3400,15 @@ program
   .action((options: { dataDir?: string; host?: string; port?: string }) => {
     const { dataDir, config } = loadCommandConfig(options.dataDir);
     const viewerUrl = resolveViewerUrl(dataDir, {
-      host: options.host ?? config.server.host ?? DEFAULT_WID_SERVER_HOST,
+      host:
+        options.host ??
+        resolveEnvOverride("WID_SERVER_HOST") ??
+        config.server.host ??
+        DEFAULT_WID_SERVER_HOST,
       port: Number.parseInt(
-        options.port ?? String(config.server.port ?? DEFAULT_WID_SERVER_PORT),
+        options.port ??
+          resolveEnvOverride("WID_SERVER_PORT") ??
+          String(config.server.port ?? DEFAULT_WID_SERVER_PORT),
         10,
       ),
     });

@@ -131,8 +131,16 @@ wid up --open
 
 ### M15. Edge Cases + Migration Chain
 
+- 상태
+  - 완료(2026-03-18)
 - 목표
   - 기존 데이터 디렉토리 재설정, config version migration, env override chain을 닫아 운영 edge case를 정리한다.
+- 구현 메모
+  - `src/config/migrate.ts` 를 추가해 versionless/version 0 config를 version 1로 올리고, `ConfigManager.load` 가 migration 결과를 즉시 저장하도록 고정했다.
+  - `init` 이 기존 data dir에 대해 reconfigure/reset prompt를 띄우고, reset 시 SQLite DB와 runtime lock을 다시 만드는 흐름을 추가했다.
+  - interactive init에서 collector prompt default를 Yes, LLM setup prompt default를 No로 맞춰 계획 문서의 기본값을 코드와 테스트에 맞췄다.
+  - `WID_DATA_DIR`, `WID_VERBOSE`, `WID_SERVER_HOST`, `WID_SERVER_PORT` env override를 config보다 우선 적용하도록 정리했다.
+  - migration/reset/env override regression test를 추가해 CLI 단순화 열차의 마지막 edge case를 고정했다.
 - 닫힘 조건
   - migration과 재초기화 경로가 테스트로 고정되어 있다.
 
@@ -151,3 +159,9 @@ M11 -> M12 -> M13 -> M14 -> M15
 3. PR 생성
 4. 직접 승인 후 merge
 5. 다음 milestone worktree를 최신 `develop` 기준으로 생성
+
+현재 상태:
+
+```text
+M11 -> M12 -> M13 -> M14 -> M15 (complete)
+```

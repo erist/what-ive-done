@@ -60,6 +60,8 @@ npm run dev -- agent:health
 WID_DATA_DIR=./tmp/demo-data npm run dev -- agent:status
 ```
 
+Override priority is now `CLI flags > environment > .wid/config.json > built-in defaults`. `WID_DATA_DIR` overrides discovery and `WID_VERBOSE=1` forces verbose runtime logging for `up` and `server:run`.
+
 ## Managed tools
 
 ```bash
@@ -90,6 +92,8 @@ wid token
 ```
 
 `wid up` maps to `agent:run`, `wid status` maps to `agent:health`, and `wid compare` maps to `report:compare`.
+
+When `init` targets an already initialized data directory from an interactive terminal, the CLI now asks whether to reconfigure the setup and whether to reset the stored event database before continuing.
 
 Run the resident agent:
 

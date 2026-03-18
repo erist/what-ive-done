@@ -137,8 +137,8 @@ exit 1
     });
     const scriptedAnswers: Array<{ pattern: string; answer: string }> = [
       { pattern: "Step 1: Data directory", answer: "\n" },
-      { pattern: "Add gws context collector?", answer: "y\n" },
-      { pattern: "Add git context collector?", answer: "y\n" },
+      { pattern: "Add gws context collector?", answer: "\n" },
+      { pattern: "Add git context collector?", answer: "\n" },
       { pattern: "Git repo path", answer: "\n" },
       { pattern: "Set a default LLM from already available credentials?", answer: "\n" },
       { pattern: "Configure a new LLM credential now?", answer: "\n" },
@@ -398,22 +398,26 @@ test("agent:run remains compatible with the explicit --data-dir flow", async () 
   }
 });
 
-test("short aliases route to the expected commands and doctor reports tool state", async () => {
+test("short aliases route through WID_DATA_DIR and doctor reports tool state", async () => {
   const dataDir = mkdtempSync(join(tmpdir(), "what-ive-done-cli-aliases-"));
+  const env = {
+    ...process.env,
+    WID_DATA_DIR: dataDir,
+  };
 
   try {
     runCli(["init", "--data-dir", dataDir], repoRoot);
 
-    const doctorPayload = JSON.parse(runCli(["doctor", "--data-dir", dataDir], repoRoot)) as {
+    const doctorPayload = JSON.parse(runCli(["doctor"], repoRoot, env)) as {
       tools?: {
         collectors?: Array<{ name: string }>;
         analyzers?: Array<{ name: string }>;
       };
     };
-    const statusPayload = JSON.parse(runCli(["status", "--data-dir", dataDir], repoRoot)) as {
+    const statusPayload = JSON.parse(runCli(["status"], repoRoot, env)) as {
       status: string;
     };
-    const tokenPayload = JSON.parse(runCli(["token", "--data-dir", dataDir], repoRoot)) as {
+    const tokenPayload = JSON.parse(runCli(["token"], repoRoot, env)) as {
       configured: boolean;
       authToken: string;
     };
@@ -429,8 +433,6 @@ test("short aliases route to the expected commands and doctor reports tool state
       [
         cliEntrypoint,
         "up",
-        "--data-dir",
-        dataDir,
         "--no-gws",
         "--no-collectors",
         "--no-snapshot-scheduler",
@@ -439,9 +441,7 @@ test("short aliases route to the expected commands and doctor reports tool state
       ],
       {
         cwd: repoRoot,
-        env: {
-          ...process.env,
-        },
+        env,
         stdio: ["ignore", "pipe", "pipe"],
       },
     );

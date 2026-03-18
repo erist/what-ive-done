@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -105,6 +105,45 @@ test("ConfigManager creates config under the .wid directory", () => {
       existsSync(ConfigManager.resolveConfigPath(dataDir)),
       true,
     );
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("ConfigManager.load migrates a version 0 config and persists version 1", () => {
+  const dataDir = createTempDir("what-ive-done-config-migrate-");
+
+  try {
+    mkdirSync(join(dataDir, WID_DIRECTORY_NAME), { recursive: true });
+    writeFileSync(
+      ConfigManager.resolveConfigPath(dataDir),
+      JSON.stringify(
+        {
+          dataDir,
+          server: {
+            port: "4319",
+          },
+          agent: {
+            verbose: true,
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const loaded = ConfigManager.load(dataDir);
+    const persisted = JSON.parse(readFileSync(ConfigManager.resolveConfigPath(dataDir), "utf8")) as {
+      version: number;
+      server: { port: number };
+    };
+
+    assert.equal(loaded.version, 1);
+    assert.equal(loaded.server.port, 4319);
+    assert.equal(loaded.agent.verbose, true);
+    assert.equal(persisted.version, 1);
+    assert.equal(persisted.server.port, 4319);
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }

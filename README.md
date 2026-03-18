@@ -97,6 +97,8 @@ npm run dev -- agent:health
 WID_DATA_DIR=./tmp/agent-data npm run dev -- agent:status
 ```
 
+Runtime overrides now follow `CLI flags > environment > .wid/config.json > built-in defaults`. `WID_DATA_DIR` overrides discovery, and `WID_VERBOSE=1` forces verbose runtime/server logging without editing the saved config.
+
 Managed tools:
 
 ```bash
@@ -127,6 +129,8 @@ wid compare --data-dir ./tmp/live-data --window week --json
 ```
 
 `wid up` maps to `agent:run`, `wid status` maps to `agent:health`, and `doctor` now includes a `tools` block so runtime/config readiness can be checked in one payload.
+
+If `wid init` or `npm run dev -- init` targets an already initialized data directory from an interactive terminal, the CLI now asks whether to reconfigure the setup and whether to reset collected event data before proceeding.
 
 Browser ingest token for the Chrome extension:
 
@@ -405,6 +409,8 @@ npm run dev -- agent:health
 WID_DATA_DIR=./tmp/agent-data npm run dev -- agent:status
 ```
 
+이제 런타임 override 우선순위는 `CLI flag > environment > .wid/config.json > built-in default` 입니다. `WID_DATA_DIR` 로 data dir 탐색을 덮어쓸 수 있고, `WID_VERBOSE=1` 로 저장된 config를 바꾸지 않고도 verbose 로그를 강제할 수 있습니다.
+
 관리형 tools:
 
 ```bash
@@ -435,6 +441,8 @@ wid compare --data-dir ./tmp/live-data --window week --json
 ```
 
 `wid up` 은 `agent:run`, `wid status` 는 `agent:health` 에 매핑되며, `doctor` 출력에는 이제 `tools` 블록이 포함되어 설정/런타임 준비 상태를 한 번에 볼 수 있습니다.
+
+이미 초기화된 data dir에 대해 `wid init` 또는 `npm run dev -- init` 를 interactive terminal에서 실행하면, 이제 setup 재구성과 collected event data reset 여부를 먼저 묻고 진행합니다.
 
 Chrome extension에 넣을 ingest token 확인:
 
