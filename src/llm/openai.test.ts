@@ -66,3 +66,61 @@ test("createOpenAIWorkflowAnalyzer sends summarized payloads to Responses API", 
   assert.equal(result.provider, "openai");
   assert.equal(result.recommendedApproach, "Browser automation");
 });
+
+test("createOpenAIWorkflowAnalyzer retries once on unauthorized and preserves the provider label", async () => {
+  let attempt = 0;
+
+  const analyzer = createOpenAIWorkflowAnalyzer({
+    apiKey: "expired-api-key",
+    provider: "openai-codex",
+    model: "gpt-5.4",
+    baseUrl: "https://example.test/v1",
+    onUnauthorized: async () => "fresh-api-key",
+    fetchImpl: async (_url, init) => {
+      attempt += 1;
+      const headers = init?.headers as Record<string, string>;
+
+      if (attempt === 1) {
+        assert.equal(headers.Authorization, "Bearer expired-api-key");
+        return new Response("unauthorized", {
+          status: 401,
+        });
+      }
+
+      assert.equal(headers.Authorization, "Bearer fresh-api-key");
+      return new Response(
+        JSON.stringify({
+          output_text: JSON.stringify({
+            workflow_name: "Codex workflow",
+            workflow_summary: "Replayed after refresh.",
+            automation_suitability: "medium",
+            recommended_approach: "API integration",
+            rationale: "The retry path should refresh the token once.",
+          }),
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      );
+    },
+  });
+
+  const result = await analyzer.analyze({
+    workflowClusterId: "workflow-2",
+    workflowName: "Codex workflow",
+    payload: {
+      workflowSteps: ["Open app", "Run task"],
+      frequency: 2,
+      averageDurationSeconds: 45,
+      applications: ["chrome"],
+      domains: ["app.example.test"],
+    },
+  });
+
+  assert.equal(attempt, 2);
+  assert.equal(result.provider, "openai-codex");
+  assert.equal(result.workflowName, "Codex workflow");
+});
