@@ -37,10 +37,28 @@ npm run dev -- agent:run-once --data-dir ./tmp/demo-data
 npm run dev -- agent:snapshot:latest --data-dir ./tmp/demo-data
 ```
 
+## Config foundation
+
+Phase 1 adds `.wid/config.json` plus auto-discovery from the current working tree under an initialized data directory.
+
+```bash
+npm run dev -- init --data-dir ./tmp/demo-data
+cd ./tmp/demo-data
+npm run dev -- config show
+npm run dev -- config set server.port 4319
+npm run dev -- agent:health
+```
+
 Run the resident agent:
 
 ```bash
 npm run dev -- agent:run --data-dir ./tmp/live-data
+```
+
+Doctor diagnostics:
+
+```bash
+npm run dev -- doctor --data-dir ./tmp/live-data
 ```
 
 Run the resident agent and open the local browser viewer:
@@ -81,7 +99,7 @@ npm run dev -- report --data-dir ./tmp/demo-data
 
 ## Available commands
 
-- `doctor`: print runtime and default data paths
+- `doctor`: print runtime and discovered data-dir diagnostics
 - `agent:run`: start the resident local agent
 - `agent:status`: show agent runtime state
 - `agent:stop`: stop the resident local agent
@@ -91,6 +109,7 @@ npm run dev -- report --data-dir ./tmp/demo-data
 - `agent:collectors`: show collector states managed by the agent
 - `agent:autostart:*`: inspect or manage macOS LaunchAgent autostart
 - `viewer:open`: open the local browser viewer
+- `config show|get|set|path`: inspect or update `.wid/config.json`
 - `init`: initialize the SQLite database
 - `collect:mock`: insert mock raw events
 - `analyze`: run normalization, sessionization, and workflow clustering

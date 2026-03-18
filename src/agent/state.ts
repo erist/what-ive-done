@@ -1,4 +1,5 @@
 import { resolveAppPaths } from "../app-paths.js";
+import { ConfigManager } from "../config/manager.js";
 import { AppDatabase } from "../storage/database.js";
 import { isProcessRunning, readAgentLock } from "./lock.js";
 import type { AgentRuntimeState, AgentStatusSnapshot } from "./types.js";
@@ -18,7 +19,7 @@ export function clearAgentRuntimeState(database: AppDatabase): void {
 }
 
 export function getAgentStatusSnapshot(dataDir?: string): AgentStatusSnapshot {
-  const paths = resolveAppPaths(dataDir);
+  const paths = resolveAppPaths(ConfigManager.resolveDataDir(dataDir));
   const database = new AppDatabase(paths);
   database.initialize();
 

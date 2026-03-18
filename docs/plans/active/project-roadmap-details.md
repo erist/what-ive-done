@@ -318,3 +318,75 @@
 - packaged desktop UI/tray
 - remote sync
 - automation execution engine
+
+## CLI Simplification Train
+
+아래 `M11-M15`는 기존 workflow-quality 열차와 별개의 후속 열차다.
+세부 운영 규칙은 `docs/plans/active/cli-simplification-roadmap.md`를 따른다.
+
+## M11. Config System Foundation
+
+- 권장 branch: `codex/m11-cli-config-foundation`
+- 권장 기간: 3-5일
+- 상태
+  - 완료(2026-03-18)
+- 목표
+  - `.wid/config.json` 기반 설정 계층과 data-dir 자동 탐색을 도입해 반복 플래그를 줄이는 기반을 만든다.
+- 범위
+  - config schema와 CRUD manager 추가
+  - `wid config show|get|set|path`
+  - `.wid/` 상위 탐색과 `WID_DATA_DIR` fallback
+  - `doctor`, `agent:run`의 config fallback
+- 제외 범위
+  - interactive init wizard
+  - tools registry
+  - alias/binary 전환
+- 선행 조건
+  - 없음
+- 산출물
+  - `.wid/config.json` contract
+  - config manager test
+  - long-form CLI backward compatibility test
+- 완료 기준
+  - config CRUD와 data-dir 탐색이 자동화 테스트로 고정된다.
+  - credential/token/plain API key가 config 파일에 저장되지 않는다.
+  - 기존 `agent:run --data-dir ...` 경로가 그대로 동작한다.
+- 구현 메모
+  - `.wid/config.json` schema와 manager를 추가해 data-dir 절대경로 저장, dot-notation CRUD, `WID_DATA_DIR`/상위 `.wid` 탐색을 고정했다.
+  - `doctor`, `agent:run`, `viewer:open`, `server:run`, autostart 경로가 config 기반 data-dir 해석을 사용하도록 바뀌었다.
+  - `init`이 SQLite DB와 함께 `.wid/config.json`을 생성한다.
+  - config guard/test를 통해 credential-like key가 파일에 저장되지 않도록 막았다.
+- 다음 단계로 넘길 입력
+  - init wizard가 사용할 config persistence 계층
+
+## M12. Init Wizard + Environment Detection
+
+- 권장 branch: `codex/m12-cli-init-detection`
+- 목표
+  - interactive `wid init`과 collector/analyzer detect baseline을 도입한다.
+- 선행 조건
+  - M11
+
+## M13. Tool Registry + Credential Integration
+
+- 권장 branch: `codex/m13-cli-tools-registry`
+- 목표
+  - `wid tools` 공통 인터페이스와 secure credential store integration을 도입한다.
+- 선행 조건
+  - M12
+
+## M14. Short Aliases + `wid` Binary
+
+- 권장 branch: `codex/m14-cli-short-aliases`
+- 목표
+  - short alias와 `wid` binary를 도입해 상용 사용 흐름을 한 줄로 줄인다.
+- 선행 조건
+  - M13
+
+## M15. Edge Cases + Migration Chain
+
+- 권장 branch: `codex/m15-cli-config-edge-cases`
+- 목표
+  - config migration, reconfigure/reset, env override chain을 닫아 운영 edge case를 정리한다.
+- 선행 조건
+  - M14

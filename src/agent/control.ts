@@ -2,6 +2,7 @@ import type { ReportSnapshotSummary, ReportWindow } from "../domain/types.js";
 import { runReportSchedulerCycle } from "../reporting/service.js";
 import { AppDatabase } from "../storage/database.js";
 import { resolveAppPaths } from "../app-paths.js";
+import { ConfigManager } from "../config/manager.js";
 import { getAgentStatusSnapshot } from "./state.js";
 import type { AgentCollectorState, AgentStatusSnapshot } from "./types.js";
 
@@ -31,7 +32,7 @@ export function listLatestAgentSnapshots(
   dataDir?: string,
   windows: ReportWindow[] = ["day", "week"],
 ): ReportSnapshotSummary[] {
-  const database = new AppDatabase(resolveAppPaths(dataDir));
+  const database = new AppDatabase(resolveAppPaths(ConfigManager.resolveDataDir(dataDir)));
   database.initialize();
 
   try {
@@ -118,7 +119,7 @@ export function runAgentOnce(
     windows?: ReportWindow[] | undefined;
   } = {},
 ): AgentRunOnceResult {
-  const database = new AppDatabase(resolveAppPaths(dataDir));
+  const database = new AppDatabase(resolveAppPaths(ConfigManager.resolveDataDir(dataDir)));
   database.initialize();
 
   try {
