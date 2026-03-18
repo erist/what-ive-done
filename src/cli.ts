@@ -56,6 +56,7 @@ import {
   DEFAULT_WID_SERVER_PORT,
   type WidConfig,
 } from "./config/schema.js";
+import { runInit, runInteractiveInit } from "./init/flow.js";
 import {
   buildRawEventTrace,
   buildSessionTrace,
@@ -1568,27 +1569,14 @@ program
   .command("init")
   .description("Initialize local application storage")
   .option("--data-dir <path>", "Override application data directory")
-  .action((options: { dataDir?: string }) => {
-    const dataDir =
-      options.dataDir ??
-      ConfigManager.findDataDir() ??
-      resolveAppPaths().dataDir;
-    const config = ConfigManager.initialize(dataDir);
-    const paths = resolveAppPaths(config.dataDir);
-    withDatabase(config.dataDir, () => undefined);
+  .option("--interactive", "Run an interactive setup wizard")
+  .action(async (options: { dataDir?: string; interactive?: boolean }) => {
+    if (options.interactive) {
+      await runInteractiveInit(options.dataDir);
+      return;
+    }
 
-    console.log(
-      JSON.stringify(
-        {
-          status: "initialized",
-          dataDir: config.dataDir,
-          configPath: ConfigManager.resolveConfigPath(config.dataDir),
-          databasePath: paths.databasePath,
-        },
-        null,
-        2,
-      ),
-    );
+    console.log(JSON.stringify(runInit(options.dataDir), null, 2));
   });
 
 program

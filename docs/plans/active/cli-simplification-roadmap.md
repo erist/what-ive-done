@@ -87,8 +87,15 @@ wid up --open
 
 ### M12. Init Wizard + Environment Detection
 
+- 상태
+  - 완료(2026-03-18)
 - 목표
   - `wid init`을 데이터 디렉토리 생성, 토큰 생성, 도구 감지까지 포함한 interactive entrypoint로 바꾼다.
+- 구현 메모
+  - `src/tools/detect.ts`를 추가해 `gws`, `git`, `gh`와 analyzer credential baseline 감지를 공통 모듈로 고정했다.
+  - `src/init/flow.ts`와 `src/cli/prompts.ts`를 추가해 `init --interactive`에서 data dir, ingest token, collector 선택, 기본 LLM 설정 흐름을 연결했다.
+  - plain `init`도 첫 실행 시 ingest token을 자동 생성하도록 바뀌었다.
+  - `src/tools/detect.test.ts`, `src/integration/cli.test.ts`를 확장해 detection parsing, interactive init, ingest token provisioning을 검증했다.
 - 다음 단계로 넘길 입력
   - collector/analyzer detect surface
   - tool setup prompt 기본 흐름

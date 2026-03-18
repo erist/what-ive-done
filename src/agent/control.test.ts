@@ -7,6 +7,7 @@ import test from "node:test";
 import { generateMockRawEvents } from "../collectors/mock.js";
 import { resolveAppPaths } from "../app-paths.js";
 import { AppDatabase } from "../storage/database.js";
+import { isProcessRunning } from "./lock.js";
 import { writeAgentRuntimeState } from "./state.js";
 import { getAgentHealthReport, listLatestAgentSnapshots, runAgentOnce } from "./control.js";
 
@@ -21,6 +22,16 @@ function createEmptySummary() {
     quickWinAutomationCandidates: [],
     workflowsNeedingHumanJudgment: [],
   };
+}
+
+function findNonRunningPid(): number {
+  let candidatePid = Math.max(process.pid + 10_000, 10_000);
+
+  while (isProcessRunning(candidatePid)) {
+    candidatePid += 1;
+  }
+
+  return candidatePid;
 }
 
 test("getAgentHealthReport surfaces runtime issues and latest snapshots", () => {
@@ -46,7 +57,7 @@ test("getAgentHealthReport surfaces runtime issues and latest snapshots", () => 
 
     writeAgentRuntimeState(database, {
       status: "running",
-      pid: 1234,
+      pid: findNonRunningPid(),
       startedAt: "2026-03-14T00:00:00.000Z",
       heartbeatAt: "2026-03-14T00:05:00.000Z",
       ingestServer: {
