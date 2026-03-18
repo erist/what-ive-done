@@ -8,6 +8,7 @@ import {
   WID_DIRECTORY_NAME,
   type WidConfig,
 } from "./schema.js";
+import { getConfigVersion, migrateConfig } from "./migrate.js";
 
 const FORBIDDEN_CONFIG_KEYS = [
   /^api[-_]?key$/iu,
@@ -166,6 +167,10 @@ export class ConfigManager {
     return join(ConfigManager.resolveDirectoryPath(dataDir), WID_CONFIG_FILE_NAME);
   }
 
+  static isInitialized(dataDir: string): boolean {
+    return existsSync(ConfigManager.resolveConfigPath(dataDir));
+  }
+
   static load(dataDir: string): WidConfig {
     const resolvedDataDir = resolveDataDirCandidate(dataDir);
     const configPath = ConfigManager.resolveConfigPath(resolvedDataDir);
@@ -174,10 +179,14 @@ export class ConfigManager {
       return createDefaultWidConfig(resolvedDataDir);
     }
 
-    return normalizeWidConfig(
-      resolvedDataDir,
-      JSON.parse(readFileSync(configPath, "utf8")) as unknown,
-    );
+    const raw = JSON.parse(readFileSync(configPath, "utf8")) as unknown;
+    const migrated = migrateConfig(resolvedDataDir, raw);
+
+    if (getConfigVersion(raw) !== migrated.version) {
+      ConfigManager.save(resolvedDataDir, migrated);
+    }
+
+    return migrated;
   }
 
   static save(dataDir: string, config: WidConfig): WidConfig {

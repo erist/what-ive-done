@@ -431,7 +431,22 @@
 ## M15. Edge Cases + Migration Chain
 
 - 권장 branch: `codex/m15-cli-config-edge-cases`
+- 상태
+  - 완료(2026-03-18)
 - 목표
   - config migration, reconfigure/reset, env override chain을 닫아 운영 edge case를 정리한다.
 - 선행 조건
   - M14
+- 산출물
+  - versioned config migration path
+  - existing data-dir reconfigure/reset prompt flow
+  - `WID_DATA_DIR` / `WID_VERBOSE` env override chain
+  - edge-case regression tests
+- 구현 메모
+  - `src/config/migrate.ts` 와 migration test를 추가해 versionless/version 0 config를 version 1로 올리고, `ConfigManager.load` 가 migration 결과를 다시 저장하도록 정리했다.
+  - `init` 이 기존 data dir를 향할 때 reconfigure/reset prompt를 거치도록 바꿨고, reset 시 SQLite DB와 runtime lock을 재생성하도록 정리했다.
+  - collector prompt default를 Yes, LLM setup prompt default를 No로 맞춰 interactive init edge case를 계획서와 동일하게 맞췄다.
+  - `agent:run`, `server:run`, `viewer:open` 이 `WID_DATA_DIR`, `WID_VERBOSE`, `WID_SERVER_HOST`, `WID_SERVER_PORT` env override를 config보다 우선 적용하도록 정리했다.
+  - `src/config/migrate.test.ts`, `src/config/manager.test.ts`, `src/init/flow.test.ts`, `src/integration/cli.test.ts` 확장을 통해 migration, reset prompt, collector default, env override를 고정했다.
+- 닫힘 조건
+  - migration과 재초기화 경로가 테스트로 고정되어 있다.

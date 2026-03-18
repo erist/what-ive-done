@@ -1,3 +1,4 @@
+import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { resolveAppPaths } from "../app-paths.js";
@@ -32,6 +33,25 @@ export interface InitSummary {
   authTokenPreview: string;
 }
 
+export interface InitPromptSession {
+  text(question: string, defaultValue?: string): Promise<string>;
+  confirm(question: string, defaultValue: boolean): Promise<boolean>;
+  select(question: string, options: string[], defaultIndex?: number): Promise<string>;
+  secret(question: string, defaultValue?: string): Promise<string>;
+  close?(): void;
+}
+
+export interface RunInitOptions {
+  prompts?: Pick<InitPromptSession, "confirm"> | undefined;
+}
+
+export interface RunInteractiveInitOptions {
+  prompts?: InitPromptSession | undefined;
+}
+
+export const AUTO_DETECT_TOOLS = ["gws", "git", "gh"] as const;
+export const EXPLICIT_PROMPT_TOOLS = ["gemini", "claude", "openai"] as const;
+
 function withDatabase<T>(dataDir: string, fn: (database: AppDatabase) => T): T {
   const database = new AppDatabase(resolveAppPaths(dataDir));
   database.initialize();
@@ -55,6 +75,46 @@ function initializeStorage(dataDir: string): InitSummary {
     databasePath: paths.databasePath,
     authTokenPreview: maskIngestAuthToken(authToken),
   };
+}
+
+function resetDataDirStorage(dataDir: string): void {
+  const paths = resolveAppPaths(dataDir);
+
+  rmSync(paths.databasePath, { force: true });
+  rmSync(paths.agentLockPath, { force: true });
+}
+
+async function maybeHandleExistingInitialization(
+  dataDir: string,
+  prompts?: Pick<InitPromptSession, "confirm">,
+): Promise<"reconfigured" | "skipped" | "fresh"> {
+  if (!ConfigManager.isInitialized(dataDir)) {
+    return "fresh";
+  }
+
+  if (!prompts) {
+    return "reconfigured";
+  }
+
+  process.stdout.write("Data directory already initialized.\n");
+
+  const shouldReconfigure = await prompts.confirm("Reconfigure existing setup?", false);
+
+  if (!shouldReconfigure) {
+    return "skipped";
+  }
+
+  const shouldReset = await prompts.confirm(
+    "Reset data? This will delete all collected events.",
+    false,
+  );
+
+  if (shouldReset) {
+    resetDataDirStorage(dataDir);
+    process.stdout.write("Reset existing data.\n");
+  }
+
+  return "reconfigured";
 }
 
 function describeDetection(result: DetectionResult): string {
@@ -87,7 +147,7 @@ function setToolConfig(config: WidConfig, toolName: string, value: Record<string
 
 async function maybeConfigureExistingLLM(
   dataDir: string,
-  prompts: PromptSession,
+  prompts: InitPromptSession,
 ): Promise<LLMProvider | undefined> {
   if (!(await prompts.confirm("Set a default LLM from already available credentials?", false))) {
     return undefined;
@@ -136,7 +196,7 @@ async function maybeConfigureExistingLLM(
 
 async function maybeConfigureFreshLLM(
   dataDir: string,
-  prompts: PromptSession,
+  prompts: InitPromptSession,
 ): Promise<LLMProvider | undefined> {
   if (!(await prompts.confirm("Configure a new LLM credential now?", false))) {
     return undefined;
@@ -212,19 +272,30 @@ async function maybeConfigureFreshLLM(
   return provider;
 }
 
-export async function runInteractiveInit(initialDataDir?: string): Promise<InitSummary> {
-  const prompts = new PromptSession();
+async function runInteractiveInitWithPrompts(
+  initialDataDir: string | undefined,
+  prompts: InitPromptSession,
+  shouldClosePrompts: boolean,
+): Promise<InitSummary> {
+  const suggestedDataDir =
+    initialDataDir ??
+    ConfigManager.findDataDir() ??
+    resolveAppPaths().dataDir;
 
   try {
-    const suggestedDataDir =
-      initialDataDir ??
-      ConfigManager.findDataDir() ??
-      resolveAppPaths().dataDir;
     const requestedDataDir = await prompts.text("Step 1: Data directory", suggestedDataDir);
-    const summary = initializeStorage(resolve(requestedDataDir));
+    const resolvedDataDir = resolve(requestedDataDir);
+    const existingInitResult = await maybeHandleExistingInitialization(resolvedDataDir, prompts);
+    const summary = initializeStorage(resolvedDataDir);
 
-    process.stdout.write(`Created ${summary.configPath}\n`);
+    process.stdout.write(`${existingInitResult === "fresh" ? "Created" : "Using"} ${summary.configPath}\n`);
     process.stdout.write(`Generated ingest token: ${summary.authTokenPreview}\n`);
+
+    if (existingInitResult === "skipped") {
+      process.stdout.write("Setup complete.\n");
+      return summary;
+    }
+
     process.stdout.write("Scanning environment...\n");
 
     const [gws, git, gh] = await Promise.all([
@@ -239,7 +310,7 @@ export async function runInteractiveInit(initialDataDir?: string): Promise<InitS
 
     let config = loadConfig(summary.dataDir);
 
-    if (gws.available && await prompts.confirm("Add gws context collector?", gws.authenticated)) {
+    if (gws.available && await prompts.confirm("Add gws context collector?", true)) {
       config = setToolConfig(config, "gws", {
         "calendar-id": "primary",
       });
@@ -248,7 +319,7 @@ export async function runInteractiveInit(initialDataDir?: string): Promise<InitS
 
     if (git.available) {
       const defaultRepoPath = git.authenticated && git.details ? git.details : process.cwd();
-      const shouldAddGit = await prompts.confirm("Add git context collector?", git.authenticated);
+      const shouldAddGit = await prompts.confirm("Add git context collector?", true);
 
       if (shouldAddGit) {
         const repoPath = await prompts.text("Git repo path", defaultRepoPath);
@@ -259,7 +330,7 @@ export async function runInteractiveInit(initialDataDir?: string): Promise<InitS
       }
     }
 
-    if (gh.available && await prompts.confirm("Add GitHub CLI context collector?", gh.authenticated)) {
+    if (gh.available && await prompts.confirm("Add GitHub CLI context collector?", true)) {
       config = setToolConfig(config, "gh", {});
       process.stdout.write("Added gh collector.\n");
     }
@@ -270,14 +341,30 @@ export async function runInteractiveInit(initialDataDir?: string): Promise<InitS
     process.stdout.write("Setup complete.\n");
     return summary;
   } finally {
-    prompts.close();
+    if (shouldClosePrompts) {
+      prompts.close?.();
+    }
   }
 }
 
-export function runInit(initialDataDir?: string): InitSummary {
+export async function runInteractiveInit(
+  initialDataDir?: string,
+  options: RunInteractiveInitOptions = {},
+): Promise<InitSummary> {
+  const prompts = options.prompts ?? new PromptSession();
+  return runInteractiveInitWithPrompts(initialDataDir, prompts, options.prompts === undefined);
+}
+
+export async function runInit(
+  initialDataDir?: string,
+  options: RunInitOptions = {},
+): Promise<InitSummary> {
   const dataDir =
     initialDataDir ??
     ConfigManager.findDataDir() ??
     resolveAppPaths().dataDir;
-  return initializeStorage(dataDir);
+  const resolvedDataDir = resolve(dataDir);
+
+  await maybeHandleExistingInitialization(resolvedDataDir, options.prompts);
+  return initializeStorage(resolvedDataDir);
 }
