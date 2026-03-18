@@ -26,6 +26,11 @@ export interface OpenAICodexOAuthInteractiveLoginOptions {
   onAuthorizationUrl?: ((url: string, redirectUri: string) => void) | undefined;
 }
 
+export interface OpenAICodexOAuthRefreshOptions {
+  credentials: OpenAICodexOAuthCredentials;
+  fetchImpl?: typeof fetch | undefined;
+}
+
 interface OpenAIAuthTokenResponse {
   id_token?: string;
   access_token?: string;
@@ -146,6 +151,61 @@ async function exchangeOpenAIApiKey(
   } catch {
     return undefined;
   }
+}
+
+export function isOpenAICodexOAuthAccessTokenExpired(
+  credentials: OpenAICodexOAuthCredentials,
+  bufferSeconds = 60,
+): boolean {
+  if (!credentials.expiresAt) {
+    return false;
+  }
+
+  return Date.now() >= new Date(credentials.expiresAt).getTime() - bufferSeconds * 1000;
+}
+
+export async function refreshOpenAICodexOAuthCredentials(
+  options: OpenAICodexOAuthRefreshOptions,
+): Promise<OpenAICodexOAuthCredentials> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const tokenResponse = await exchangeOpenAIToken(
+    options.credentials.issuer,
+    new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: options.credentials.refreshToken,
+      client_id: options.credentials.clientId,
+    }),
+    fetchImpl,
+  );
+
+  if (!tokenResponse.access_token) {
+    throw new Error("OpenAI OAuth refresh response was missing an access token");
+  }
+
+  const idToken = tokenResponse.id_token ?? options.credentials.idToken;
+  const expiresAt =
+    (typeof tokenResponse.expires_in === "number"
+      ? computeExpiryIso(tokenResponse.expires_in)
+      : readJwtExpiryIso(tokenResponse.access_token) ?? readJwtExpiryIso(idToken)) ??
+    options.credentials.expiresAt;
+  const apiKey = await exchangeOpenAIApiKey(
+    options.credentials.issuer,
+    options.credentials.clientId,
+    idToken,
+    fetchImpl,
+  );
+
+  return {
+    ...options.credentials,
+    accessToken: tokenResponse.access_token,
+    refreshToken: tokenResponse.refresh_token ?? options.credentials.refreshToken,
+    idToken,
+    tokenType: tokenResponse.token_type ?? options.credentials.tokenType,
+    scope: parseScope(tokenResponse.scope, options.credentials.scope),
+    expiresAt,
+    email: readJwtEmail(idToken) ?? options.credentials.email,
+    apiKey,
+  };
 }
 
 export async function runOpenAICodexOAuthInteractiveLogin(

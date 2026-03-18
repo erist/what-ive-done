@@ -13,6 +13,8 @@ import { resolveAppPaths } from "./app-paths.js";
 import { openSystemBrowser } from "./auth/browser.js";
 import {
   DEFAULT_OPENAI_CODEX_ISSUER,
+  isOpenAICodexOAuthAccessTokenExpired,
+  refreshOpenAICodexOAuthCredentials,
   runOpenAICodexOAuthInteractiveLogin,
 } from "./auth/openai-oauth.js";
 import {
@@ -50,6 +52,7 @@ import {
   deleteLLMApiKey,
   getGeminiOAuthCredentials,
   getLLMApiKey,
+  getOpenAICodexOAuthCredentials,
   hasOpenAICodexOAuthCredentials,
   hasGeminiOAuthCredentials,
   hasLLMApiKey,
@@ -1378,6 +1381,49 @@ async function resolveGeminiOAuthRuntime(
   return {
     accessToken: credentials.accessToken,
     projectId,
+  };
+}
+
+async function resolveOpenAICodexOAuthRuntime(): Promise<{
+  apiKey: string;
+  refreshApiKey: () => Promise<string>;
+}> {
+  const credentialStore = resolveCredentialStore();
+
+  const refreshRuntimeCredentials = async (): Promise<string> => {
+    const latestCredentials = getOpenAICodexOAuthCredentials(credentialStore);
+
+    if (!latestCredentials) {
+      throw new Error("OpenAI Codex OAuth credentials not found. Run auth:login openai-codex first.");
+    }
+
+    const refreshed = await refreshOpenAICodexOAuthCredentials({
+      credentials: latestCredentials,
+    });
+
+    setOpenAICodexOAuthCredentials(credentialStore, refreshed);
+
+    if (!refreshed.apiKey) {
+      throw new Error("OpenAI Codex OAuth refresh did not yield an API token. Run auth:login openai-codex again.");
+    }
+
+    return refreshed.apiKey;
+  };
+
+  const storedCredentials = getOpenAICodexOAuthCredentials(credentialStore);
+
+  if (!storedCredentials) {
+    throw new Error("OpenAI Codex OAuth credentials not found. Run auth:login openai-codex first.");
+  }
+
+  const apiKey =
+    !storedCredentials.apiKey || isOpenAICodexOAuthAccessTokenExpired(storedCredentials)
+      ? await refreshRuntimeCredentials()
+      : storedCredentials.apiKey;
+
+  return {
+    apiKey,
+    refreshApiKey: refreshRuntimeCredentials,
   };
 }
 
@@ -2986,19 +3032,30 @@ program
         }),
       );
       const configuration = resolveLLMAnalysisConfiguration(options.dataDir, options);
-      const runtimeAuth =
-        configuration.provider === "gemini" && configuration.authMethod === "oauth2"
-          ? await resolveGeminiOAuthRuntime(options.dataDir)
-          : undefined;
+      let apiKey: string | undefined;
+      let accessToken: string | undefined;
+      let projectId = configuration.googleProjectId;
+      let refreshApiKey: (() => Promise<string>) | undefined;
+
+      if (configuration.provider === "gemini" && configuration.authMethod === "oauth2") {
+        const runtimeAuth = await resolveGeminiOAuthRuntime(options.dataDir);
+        accessToken = runtimeAuth.accessToken;
+        projectId = projectId ?? runtimeAuth.projectId;
+      } else if (configuration.provider === "openai-codex" && configuration.authMethod === "oauth2") {
+        const runtimeAuth = await resolveOpenAICodexOAuthRuntime();
+        apiKey = runtimeAuth.apiKey;
+        refreshApiKey = runtimeAuth.refreshApiKey;
+      } else if (configuration.authMethod === "api-key") {
+        apiKey = resolveProviderApiKey(configuration.provider);
+      }
+
       const analyzer = createWorkflowAnalyzer({
         provider: configuration.provider,
         authMethod: configuration.authMethod,
-        apiKey:
-          configuration.authMethod === "api-key"
-            ? resolveProviderApiKey(configuration.provider)
-            : undefined,
-        accessToken: runtimeAuth?.accessToken,
-        projectId: configuration.googleProjectId ?? runtimeAuth?.projectId,
+        apiKey,
+        accessToken,
+        projectId,
+        refreshApiKey,
         model: configuration.model,
         baseUrl: configuration.baseUrl,
       });

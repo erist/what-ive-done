@@ -508,14 +508,23 @@ npm run dev -- llm:analyze --data-dir ./tmp/local-data --json
 ```
 
 `llm:providers` lists `openai`, `openai-codex`, `gemini`, and `claude`.
-In the current M17 auth milestone, `openai-codex` supports stored OAuth login and
-credential status detection. Workflow analysis runtime still lands in the follow-up M18 milestone.
-Use `openai` for OpenAI Platform API-key analysis until the `openai-codex` runtime path ships.
+In the current M18 runtime milestone, `openai-codex` supports stored OAuth login and
+summarized workflow analysis through the OpenAI Responses API.
+The runtime refreshes stored OAuth credentials when needed and retries once on unauthorized responses.
 
 Apply LLM-generated names:
 
 ```bash
 npm run dev -- llm:analyze --data-dir ./tmp/local-data --apply-names --json
+```
+
+Run analysis through OpenAI Codex OAuth:
+
+```bash
+export OPENAI_CODEX_CLIENT_ID="your-openai-client-id"
+npm run dev -- auth:login openai-codex --data-dir ./tmp/local-data
+npm run dev -- llm:config:set --data-dir ./tmp/local-data --provider openai-codex --auth oauth2 --model gpt-5.4
+npm run dev -- llm:analyze --data-dir ./tmp/local-data --json
 ```
 
 List stored LLM results:
@@ -554,8 +563,8 @@ npm run dev -- auth:logout openai-codex --data-dir ./tmp/local-data
 ```
 
 `auth:login openai-codex` requires `--client-id` or `OPENAI_CODEX_CLIENT_ID`.
-The command stores OAuth credentials securely and surfaces readiness in `credential:status`
-and `tools list`, but summarized workflow execution still waits for the M18 runtime milestone.
+The command stores OAuth credentials securely, surfaces readiness in `credential:status`
+and `tools list`, and powers `llm:analyze` for the `openai-codex` provider.
 
 ## CLI Command Reference
 

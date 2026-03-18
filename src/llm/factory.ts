@@ -1,5 +1,9 @@
 import { createClaudeWorkflowAnalyzer } from "./claude.js";
-import type { LLMAuthMethod, LLMProvider } from "./catalog.js";
+import {
+  getLLMProviderDescriptor,
+  type LLMAuthMethod,
+  type LLMProvider,
+} from "./catalog.js";
 import { createGeminiWorkflowAnalyzer } from "./gemini.js";
 import { createOpenAIWorkflowAnalyzer } from "./openai.js";
 
@@ -9,6 +13,7 @@ export interface CreateWorkflowAnalyzerOptions {
   apiKey?: string | undefined;
   accessToken?: string | undefined;
   projectId?: string | undefined;
+  refreshApiKey?: (() => Promise<string>) | undefined;
   model?: string | undefined;
   baseUrl?: string | undefined;
 }
@@ -26,12 +31,27 @@ export function createWorkflowAnalyzer(options: CreateWorkflowAnalyzerOptions) {
 
       return createOpenAIWorkflowAnalyzer({
         apiKey: options.apiKey,
-        model: options.model,
+        provider: "openai",
+        model: options.model ?? getLLMProviderDescriptor("openai").defaultModel,
         baseUrl: options.baseUrl,
       });
 
     case "openai-codex":
-      throw new Error("OpenAI Codex workflow analysis is not available until the OAuth runtime milestone");
+      if (options.authMethod !== "oauth2") {
+        throw new Error("OpenAI Codex workflow analysis requires OAuth authentication");
+      }
+
+      if (!options.apiKey) {
+        throw new Error("OpenAI Codex workflow analysis requires a refreshed API token");
+      }
+
+      return createOpenAIWorkflowAnalyzer({
+        apiKey: options.apiKey,
+        provider: "openai-codex",
+        model: options.model ?? getLLMProviderDescriptor("openai-codex").defaultModel,
+        baseUrl: options.baseUrl,
+        onUnauthorized: options.refreshApiKey,
+      });
 
     case "gemini":
       if (options.authMethod === "oauth2") {

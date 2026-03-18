@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { runOpenAICodexOAuthInteractiveLogin } from "./openai-oauth.js";
+import {
+  isOpenAICodexOAuthAccessTokenExpired,
+  refreshOpenAICodexOAuthCredentials,
+  runOpenAICodexOAuthInteractiveLogin,
+} from "./openai-oauth.js";
 
 function createJwt(payload: Record<string, unknown>): string {
   const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" }), "utf8").toString("base64url");
@@ -119,4 +123,118 @@ test("runOpenAICodexOAuthInteractiveLogin exchanges the browser code and stores 
   assert.equal(credentials.email, "tester@example.com");
   assert.equal(credentials.apiKey, "sk-openai-api-key");
   assert.ok(credentials.expiresAt);
+});
+
+test("refreshOpenAICodexOAuthCredentials refreshes tokens and exchanges a new API token", async () => {
+  const refreshedAccessToken = createJwt({
+    exp: Math.floor(Date.now() / 1000) + 7200,
+  });
+  const refreshedIdToken = createJwt({
+    exp: Math.floor(Date.now() / 1000) + 7200,
+    email: "tester@example.com",
+  });
+
+  const refreshed = await refreshOpenAICodexOAuthCredentials({
+    credentials: {
+      provider: "openai-codex",
+      clientId: "client-id",
+      issuer: "https://auth.example.test",
+      accessToken: "old-access-token",
+      refreshToken: "refresh-token",
+      idToken: "old-id-token",
+      tokenType: "Bearer",
+      scope: ["openid", "profile", "email"],
+      expiresAt: new Date(Date.now() - 60_000).toISOString(),
+      email: "tester@example.com",
+      apiKey: "old-api-key",
+    },
+    fetchImpl: async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      assert.equal(url, "https://auth.example.test/oauth/token");
+
+      const params = new URLSearchParams(String(init?.body ?? ""));
+
+      if (params.get("grant_type") === "refresh_token") {
+        assert.equal(params.get("client_id"), "client-id");
+        assert.equal(params.get("refresh_token"), "refresh-token");
+
+        return new Response(
+          JSON.stringify({
+            id_token: refreshedIdToken,
+            access_token: refreshedAccessToken,
+            refresh_token: "next-refresh-token",
+            token_type: "Bearer",
+            scope: "openid profile email offline_access api.connectors.read api.connectors.invoke",
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          },
+        );
+      }
+
+      assert.equal(params.get("grant_type"), "urn:ietf:params:oauth:grant-type:token-exchange");
+      assert.equal(params.get("requested_token"), "openai-api-key");
+      assert.equal(params.get("subject_token"), refreshedIdToken);
+
+      return new Response(
+        JSON.stringify({
+          access_token: "new-api-key",
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      );
+    },
+  });
+
+  assert.equal(refreshed.accessToken, refreshedAccessToken);
+  assert.equal(refreshed.refreshToken, "next-refresh-token");
+  assert.equal(refreshed.idToken, refreshedIdToken);
+  assert.equal(refreshed.apiKey, "new-api-key");
+  assert.deepEqual(refreshed.scope, [
+    "openid",
+    "profile",
+    "email",
+    "offline_access",
+    "api.connectors.read",
+    "api.connectors.invoke",
+  ]);
+  assert.equal(refreshed.email, "tester@example.com");
+  assert.ok(refreshed.expiresAt);
+});
+
+test("isOpenAICodexOAuthAccessTokenExpired respects optional expiry timestamps", () => {
+  assert.equal(
+    isOpenAICodexOAuthAccessTokenExpired({
+      provider: "openai-codex",
+      clientId: "client-id",
+      issuer: "https://auth.openai.com",
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      idToken: "id-token",
+      tokenType: "Bearer",
+      scope: ["openid"],
+      expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+    }),
+    false,
+  );
+  assert.equal(
+    isOpenAICodexOAuthAccessTokenExpired({
+      provider: "openai-codex",
+      clientId: "client-id",
+      issuer: "https://auth.openai.com",
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      idToken: "id-token",
+      tokenType: "Bearer",
+      scope: ["openid"],
+    }),
+    false,
+  );
 });

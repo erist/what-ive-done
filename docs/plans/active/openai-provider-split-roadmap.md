@@ -107,7 +107,7 @@
 
 ## 6. 현재 시작 지점
 
-현재 작업은 `M18 OpenAI Codex Runtime` 준비 단계다.
+현재 열차는 `M18 OpenAI Codex Runtime`까지 완료됐다.
 
 ## 7. 진행 상태
 
@@ -141,3 +141,19 @@
   - `npm run build`
 - 후속:
   - M18에서 stored OAuth credential을 analyzer runtime auth resolution과 refresh/retry handling에 연결
+
+### M18. OpenAI Codex Runtime
+
+- 상태: 완료
+- 완료일: 2026-03-18
+- 산출물:
+  - stored `openai-codex` OAuth credential을 `llm:analyze` runtime auth resolution에 연결
+  - OpenAI Responses adapter에 provider label 분리와 401 1회 refresh/retry 경로 추가
+  - OpenAI Codex OAuth refresh + API-token exchange helper 추가
+  - reference 문서를 실제 runtime 사용 예시와 자동 refresh 동작으로 갱신
+- 검증:
+  - `npm run typecheck`
+  - `npm test`
+  - `npm run build`
+- 후속:
+  - 이 열차 기준의 후속 작업은 없음. 추가 개선이 필요하면 별도 plan doc로 분리
