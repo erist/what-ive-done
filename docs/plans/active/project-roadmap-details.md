@@ -362,10 +362,23 @@
 ## M12. Init Wizard + Environment Detection
 
 - 권장 branch: `codex/m12-cli-init-detection`
+- 상태
+  - 완료(2026-03-18)
 - 목표
   - interactive `wid init`과 collector/analyzer detect baseline을 도입한다.
 - 선행 조건
   - M11
+- 산출물
+  - interactive init flow
+  - `gws/git/gh` detect baseline
+  - init token provisioning regression test
+- 구현 메모
+  - `init --interactive`가 data dir 선택, `.wid/config.json` 생성, SQLite 초기화, ingest token 생성, collector 선택까지 처리한다.
+  - detect baseline을 `src/tools/detect.ts` 로 분리해 이후 `M13`의 tools registry가 그대로 재사용할 수 있게 고정했다.
+  - init integration test를 확장해 interactive prompt 흐름과 token/config 반영을 검증했다.
+- 다음 단계로 넘길 입력
+  - tools registry가 재사용할 detection surface
+  - collector/analyzer setup prompt baseline
 
 ## M13. Tool Registry + Credential Integration
 

@@ -37,6 +37,14 @@ npm run dev -- agent:run-once --data-dir ./tmp/demo-data
 npm run dev -- agent:snapshot:latest --data-dir ./tmp/demo-data
 ```
 
+## Interactive init
+
+```bash
+npm run dev -- init --data-dir ./tmp/demo-data --interactive
+```
+
+`init` now creates `.wid/config.json`, initializes SQLite, and provisions an ingest token on the first run.
+
 ## Config foundation
 
 Phase 1 adds `.wid/config.json` plus auto-discovery from the current working tree under an initialized data directory.
@@ -45,8 +53,11 @@ Phase 1 adds `.wid/config.json` plus auto-discovery from the current working tre
 npm run dev -- init --data-dir ./tmp/demo-data
 cd ./tmp/demo-data
 npm run dev -- config show
+npm run dev -- config get server.port
 npm run dev -- config set server.port 4319
+npm run dev -- config path
 npm run dev -- agent:health
+WID_DATA_DIR=./tmp/demo-data npm run dev -- agent:status
 ```
 
 Run the resident agent:
@@ -110,7 +121,7 @@ npm run dev -- report --data-dir ./tmp/demo-data
 - `agent:autostart:*`: inspect or manage macOS LaunchAgent autostart
 - `viewer:open`: open the local browser viewer
 - `config show|get|set|path`: inspect or update `.wid/config.json`
-- `init`: initialize the SQLite database
+- `init`: initialize `.wid/config.json`, SQLite, and the ingest token
 - `collect:mock`: insert mock raw events
 - `analyze`: run normalization, sessionization, and workflow clustering
 - `llm:providers`: list supported ChatGPT, Gemini, and Claude providers

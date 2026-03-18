@@ -76,14 +76,25 @@ npm run dev -- agent:run-once --data-dir ./tmp/agent-data
 npm run dev -- agent:snapshot:latest --data-dir ./tmp/agent-data
 ```
 
+Interactive init wizard:
+
+```bash
+npm run dev -- init --data-dir ./tmp/agent-data --interactive
+```
+
+`init` now creates `.wid/config.json`, initializes SQLite, and provisions an ingest token on the first run.
+
 Config foundation and auto-discovery:
 
 ```bash
 npm run dev -- init --data-dir ./tmp/agent-data
 cd ./tmp/agent-data
 npm run dev -- config show
+npm run dev -- config get server.port
 npm run dev -- config set server.port 4319
+npm run dev -- config path
 npm run dev -- agent:health
+WID_DATA_DIR=./tmp/agent-data npm run dev -- agent:status
 ```
 
 Browser ingest token for the Chrome extension:
@@ -167,10 +178,13 @@ npm run dev -- workflow:split <workflow-id> --after-action search_order --data-d
 npm run dev -- doctor --data-dir ./tmp/live-data
 npm run dev -- doctor --data-dir ./tmp/live-data --gws-calendar-id primary
 npm run dev -- config show --data-dir ./tmp/live-data
+npm run dev -- config get server.port --data-dir ./tmp/live-data
 npm run dev -- config set server.port 4319 --data-dir ./tmp/live-data
+npm run dev -- config path --data-dir ./tmp/live-data
 npm run dev -- ingest:token --data-dir ./tmp/live-data
 npm run dev -- agent:run --data-dir ./tmp/live-data
 npm run dev -- agent:run --data-dir ./tmp/live-data --gws-calendar --gws-calendar-id primary
+npm run dev -- agent:status --data-dir ./tmp/live-data
 npm run dev -- agent:health --data-dir ./tmp/live-data
 npm run dev -- agent:run-once --data-dir ./tmp/live-data
 npm run dev -- agent:snapshot:latest --data-dir ./tmp/live-data
@@ -335,14 +349,25 @@ npm run dev -- agent:run-once --data-dir ./tmp/agent-data
 npm run dev -- agent:snapshot:latest --data-dir ./tmp/agent-data
 ```
 
+interactive init wizard:
+
+```bash
+npm run dev -- init --data-dir ./tmp/agent-data --interactive
+```
+
+이제 `init`은 첫 실행 시 `.wid/config.json`, SQLite, ingest token까지 함께 준비합니다.
+
 config 기반 실행과 auto-discovery:
 
 ```bash
 npm run dev -- init --data-dir ./tmp/agent-data
 cd ./tmp/agent-data
 npm run dev -- config show
+npm run dev -- config get server.port
 npm run dev -- config set server.port 4319
+npm run dev -- config path
 npm run dev -- agent:health
+WID_DATA_DIR=./tmp/agent-data npm run dev -- agent:status
 ```
 
 Chrome extension에 넣을 ingest token 확인:
@@ -426,10 +451,13 @@ npm run dev -- workflow:split <workflow-id> --after-action search_order --data-d
 npm run dev -- doctor --data-dir ./tmp/live-data
 npm run dev -- doctor --data-dir ./tmp/live-data --gws-calendar-id primary
 npm run dev -- config show --data-dir ./tmp/live-data
+npm run dev -- config get server.port --data-dir ./tmp/live-data
 npm run dev -- config set server.port 4319 --data-dir ./tmp/live-data
+npm run dev -- config path --data-dir ./tmp/live-data
 npm run dev -- ingest:token --data-dir ./tmp/live-data
 npm run dev -- agent:run --data-dir ./tmp/live-data
 npm run dev -- agent:run --data-dir ./tmp/live-data --gws-calendar --gws-calendar-id primary
+npm run dev -- agent:status --data-dir ./tmp/live-data
 npm run dev -- agent:health --data-dir ./tmp/live-data
 npm run dev -- agent:run-once --data-dir ./tmp/live-data
 npm run dev -- agent:snapshot:latest --data-dir ./tmp/live-data
