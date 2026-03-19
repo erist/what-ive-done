@@ -19,6 +19,8 @@ test("ConfigManager saves, loads, and updates config values via dot notation", (
 
     assert.equal(initialized.dataDir, resolve(dataDir));
     assert.equal(existsSync(ConfigManager.resolveConfigPath(dataDir)), true);
+    assert.equal(initialized.analysis.confirmationWindowDays, 7);
+    assert.equal(initialized.analysis.minSessionDurationSeconds, 45);
 
     ConfigManager.set(dataDir, "server.port", 4319);
     ConfigManager.set(dataDir, "tools.gws", {
@@ -33,6 +35,31 @@ test("ConfigManager saves, loads, and updates config values via dot notation", (
     assert.equal(loaded.server.port, 4319);
     assert.equal(loaded.tools.gws?.added, false);
     assert.equal(ConfigManager.get(dataDir, "tools.gws.calendar-id"), undefined);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("ConfigManager persists positive analysis thresholds and normalizes invalid values back to defaults", () => {
+  const dataDir = createTempDir("what-ive-done-config-analysis-");
+
+  try {
+    ConfigManager.initialize(dataDir);
+    ConfigManager.set(dataDir, "analysis.confirmationWindowDays", 14);
+    ConfigManager.set(dataDir, "analysis.minSessionDurationSeconds", 12);
+
+    const configured = ConfigManager.load(dataDir);
+
+    assert.equal(configured.analysis.confirmationWindowDays, 14);
+    assert.equal(configured.analysis.minSessionDurationSeconds, 12);
+
+    ConfigManager.set(dataDir, "analysis.confirmationWindowDays", 0);
+    ConfigManager.set(dataDir, "analysis.minSessionDurationSeconds", -5);
+
+    const normalized = ConfigManager.load(dataDir);
+
+    assert.equal(normalized.analysis.confirmationWindowDays, 7);
+    assert.equal(normalized.analysis.minSessionDurationSeconds, 45);
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }

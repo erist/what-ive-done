@@ -9,6 +9,7 @@ import type {
   WorkflowSimilarityWeights,
   WorkflowVariant,
 } from "../domain/types.js";
+import { DEFAULT_WORKFLOW_CONFIRMATION_CONFIG } from "../config/analysis.js";
 import { stableId } from "../domain/ids.js";
 
 export type ClusterScoringStrategy = "legacy" | "hybrid_v2";
@@ -17,6 +18,7 @@ export interface ClusterOptions {
   similarityThreshold?: number;
   minSessionDurationSeconds?: number;
   minimumWorkflowFrequency?: number;
+  confirmationWindowDays?: number;
   scoringStrategy?: ClusterScoringStrategy | undefined;
   similarityWeights?: Partial<WorkflowSimilarityWeights> | undefined;
   confidenceWeights?: Partial<WorkflowConfidenceWeights> | undefined;
@@ -46,9 +48,7 @@ interface SimilarityBreakdown {
 }
 
 export const DEFAULT_CLUSTER_SIMILARITY_THRESHOLD = 0.74;
-const DEFAULT_MIN_SESSION_DURATION_SECONDS = 45;
 const DEFAULT_MINIMUM_WORKFLOW_FREQUENCY = 3;
-const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 export const DEFAULT_CLUSTER_SIMILARITY_WEIGHTS: WorkflowSimilarityWeights = {
   sequence: 0.35,
@@ -303,7 +303,11 @@ function clusterMembershipScore(args: {
   return average(scores.slice(0, windowSize));
 }
 
-function hasMinimumFrequencyWithinSevenDays(descriptors: SessionDescriptor[], minimumFrequency: number): boolean {
+function hasMinimumFrequencyWithinWindow(
+  descriptors: SessionDescriptor[],
+  minimumFrequency: number,
+  confirmationWindowMs: number,
+): boolean {
   const timestamps = descriptors
     .map((descriptor) => new Date(descriptor.session.startTime).getTime())
     .sort((left, right) => left - right);
@@ -311,7 +315,10 @@ function hasMinimumFrequencyWithinSevenDays(descriptors: SessionDescriptor[], mi
   for (let startIndex = 0; startIndex < timestamps.length; startIndex += 1) {
     let endIndex = startIndex;
 
-    while (endIndex < timestamps.length && timestamps[endIndex]! - timestamps[startIndex]! <= SEVEN_DAYS_MS) {
+    while (
+      endIndex < timestamps.length &&
+      timestamps[endIndex]! - timestamps[startIndex]! <= confirmationWindowMs
+    ) {
       endIndex += 1;
     }
 
@@ -659,7 +666,12 @@ export function clusterSessions(sessions: Session[], options: ClusterOptions = {
   const similarityThreshold = options.similarityThreshold ?? DEFAULT_CLUSTER_SIMILARITY_THRESHOLD;
   const minimumWorkflowFrequency = options.minimumWorkflowFrequency ?? DEFAULT_MINIMUM_WORKFLOW_FREQUENCY;
   const minSessionDurationSeconds =
-    options.minSessionDurationSeconds ?? DEFAULT_MIN_SESSION_DURATION_SECONDS;
+    options.minSessionDurationSeconds ??
+    DEFAULT_WORKFLOW_CONFIRMATION_CONFIG.minSessionDurationSeconds;
+  const confirmationWindowDays =
+    options.confirmationWindowDays ??
+    DEFAULT_WORKFLOW_CONFIRMATION_CONFIG.confirmationWindowDays;
+  const confirmationWindowMs = confirmationWindowDays * 24 * 60 * 60 * 1000;
   const scoringStrategy = options.scoringStrategy ?? "hybrid_v2";
   const similarityWeights = normalizeSimilarityWeights(options.similarityWeights);
   const confidenceWeights = normalizeConfidenceWeights(options.confidenceWeights);
@@ -706,7 +718,11 @@ export function clusterSessions(sessions: Session[], options: ClusterOptions = {
     .filter(
       (cluster) =>
         cluster.descriptors.length >= minimumWorkflowFrequency &&
-        hasMinimumFrequencyWithinSevenDays(cluster.descriptors, minimumWorkflowFrequency),
+        hasMinimumFrequencyWithinWindow(
+          cluster.descriptors,
+          minimumWorkflowFrequency,
+          confirmationWindowMs,
+        ),
     )
     .map((cluster) => {
       const durations = cluster.descriptors.map((descriptor) => descriptor.durationSeconds);

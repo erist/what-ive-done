@@ -61,6 +61,14 @@ wid status
 wid stop
 ```
 
+Tune confirmed-workflow thresholds:
+
+```bash
+wid config set analysis.confirmationWindowDays 14
+wid config set analysis.minSessionDurationSeconds 15
+wid analyze
+```
+
 ### Detailed Docs
 
 - [CLI Quickstart](./CLI_QUICKSTART.md)
@@ -122,6 +130,14 @@ wid token --rotate
 ```bash
 wid status
 wid stop
+```
+
+confirmed workflow 기준 조정:
+
+```bash
+wid config set analysis.confirmationWindowDays 14
+wid config set analysis.minSessionDurationSeconds 15
+wid analyze
 ```
 
 ### 상세 문서 링크

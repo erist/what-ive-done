@@ -1,11 +1,13 @@
+import { resolveConfiguredAnalyzeOptions } from "../config/workflow-analysis.js";
 import type {
   ReportSnapshot,
   ReportWindow,
   WorkflowReport,
   WorkflowReportComparison,
 } from "../domain/types.js";
+import { analyzeRawEvents } from "../pipeline/analyze.js";
 import type { AppDatabase } from "../storage/database.js";
-import { buildWorkflowReport, buildWorkflowReportComparison } from "./report.js";
+import { buildWorkflowReportComparison, buildWorkflowReportFromAnalysis } from "./report.js";
 import { resolveReportTimeWindow } from "./windows.js";
 
 export interface BuildStoredWorkflowReportOptions {
@@ -47,13 +49,20 @@ export function buildWorkflowReportFromDatabase(
       ? database.getRawEventsInRange(timeWindow.startTime, timeWindow.endTime)
       : database.getRawEventsChronological();
 
-  return buildWorkflowReport({
+  const feedbackByClusterId = database.listWorkflowFeedbackSummary();
+  const analysisResult = analyzeRawEvents(rawEvents, {
+    ...resolveConfiguredAnalyzeOptions(database.paths.dataDir),
+    feedbackByWorkflowSignature: feedbackByClusterId,
+  });
+
+  return buildWorkflowReportFromAnalysis({
     rawEvents,
     timeWindow,
+    analysisResult,
     options: {
       includeExcluded: options.includeExcluded,
       includeHidden: options.includeHidden,
-      feedbackByClusterId: database.listWorkflowFeedbackSummary(),
+      feedbackByClusterId,
     },
   });
 }

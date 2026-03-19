@@ -1,5 +1,6 @@
 import type { AgentHealthReport } from "../agent/control.js";
 import { getAgentHealthReport, listLatestAgentSnapshots } from "../agent/control.js";
+import { resolveConfiguredAnalyzeOptions } from "../config/workflow-analysis.js";
 import type {
   AutomationDifficulty,
   AutomationHint,
@@ -124,6 +125,7 @@ function buildLiveAnalysisState(
   const rawEvents = getRawEventsForTimeWindow(database, timeWindow);
   const feedbackByClusterId = database.listWorkflowFeedbackSummary();
   const analysisResult = analyzeRawEvents(rawEvents, {
+    ...resolveConfiguredAnalyzeOptions(database.paths.dataDir),
     feedbackByWorkflowSignature: feedbackByClusterId,
   });
 

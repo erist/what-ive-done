@@ -22,6 +22,8 @@ test("migrateConfig upgrades version 0 configs to version 1", () => {
   assert.equal(migrated.version, 1);
   assert.equal(migrated.dataDir, "/tmp/what-ive-done-config");
   assert.equal(migrated.tools.gws?.added, true);
+  assert.equal(migrated.analysis.confirmationWindowDays, 7);
+  assert.equal(migrated.analysis.minSessionDurationSeconds, 45);
   assert.equal(migrated.server.port, 4319);
   assert.equal(migrated.agent.verbose, true);
 });
