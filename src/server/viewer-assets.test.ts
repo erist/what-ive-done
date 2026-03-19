@@ -16,6 +16,7 @@ test("renderViewerHtml exposes the feedback review surface", () => {
   assert.match(html, /feedback-workflow-list/u);
   assert.match(html, /workflow-detail/u);
   assert.match(html, /analysis-ready-list/u);
+  assert.match(html, /analysis-results-list/u);
   assert.match(html, /name="wid-viewer-action-token"/u);
 });
 

@@ -167,7 +167,7 @@ export function renderViewerHtml(options: { viewerActionToken?: string | undefin
               <div class="section-header">
                 <div>
                   <p class="section-title">Analysis Surface</p>
-                  <p class="section-subtitle">The request surface lands next. This milestone prepares the information architecture and analysis-ready context.</p>
+                  <p class="section-subtitle">Run a summarized analysis request from the local console and review the latest interpretation without leaving the browser.</p>
                 </div>
               </div>
               <div id="analysis-surface" class="analysis-layout">
@@ -185,21 +185,14 @@ export function renderViewerHtml(options: { viewerActionToken?: string | undefin
               <div id="analysis-ready-list" class="card-list"></div>
             </section>
 
-            <section class="panel">
+            <section class="panel panel-span-3">
               <div class="section-header">
                 <div>
-                  <p class="section-title">Privacy Boundary</p>
-                  <p class="section-subtitle">The console keeps the future analysis surface aligned with the local-first contract.</p>
+                  <p class="section-title">Latest Results</p>
+                  <p class="section-subtitle">Stored workflow interpretations from the most recent completed manual analysis run.</p>
                 </div>
               </div>
-              <div class="analysis-note">
-                <p>Only summarized workflow payloads should leave the machine when manual analysis is requested.</p>
-                <div class="workflow-chip-row">
-                  <span class="workflow-chip subtle">No raw event dump</span>
-                  <span class="workflow-chip subtle">No raw URLs or window titles</span>
-                  <span class="workflow-chip subtle">No content fields</span>
-                </div>
-              </div>
+              <div id="analysis-results-list" class="card-list"></div>
             </section>
           </div>
         </section>
@@ -544,7 +537,7 @@ textarea {
 
 .analysis-layout {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -589,6 +582,25 @@ textarea {
   border: 1px solid rgba(29, 36, 31, 0.08);
 }
 
+.analysis-result-card {
+  display: grid;
+  gap: 10px;
+  padding: 16px 18px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(29, 36, 31, 0.08);
+}
+
+.analysis-result-card p,
+.analysis-result-card h3 {
+  margin: 0;
+}
+
+.analysis-result-summary {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
 .analysis-note {
   display: grid;
   gap: 14px;
@@ -599,6 +611,37 @@ textarea {
 }
 
 .analysis-note p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.analysis-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.analysis-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(244, 239, 229, 0.82);
+  border: 1px solid rgba(29, 36, 31, 0.08);
+  color: var(--text);
+  font-size: 0.92rem;
+}
+
+.analysis-toggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+.analysis-status-copy {
   margin: 0;
   color: var(--muted);
   line-height: 1.6;
@@ -1196,6 +1239,11 @@ const state = {
   selectedSessionId: null,
   selectedWorkflowId: null,
   workflowActionMessage: "",
+  analysisActionMessage: "",
+  analysisApplyNames: false,
+  analysisPollTimer: null,
+  analysisRefreshing: false,
+  latestDashboard: null,
   refreshTimer: null,
 };
 
@@ -1225,6 +1273,7 @@ const elements = {
   sessionDetail: document.getElementById("session-detail"),
   analysisSurface: document.getElementById("analysis-surface"),
   analysisReadyList: document.getElementById("analysis-ready-list"),
+  analysisResultsList: document.getElementById("analysis-results-list"),
   viewButtons: Array.from(document.querySelectorAll("[data-view-target]")),
   viewPanels: Array.from(document.querySelectorAll("[data-view-panel]")),
 };
@@ -1356,6 +1405,21 @@ function buildViewerActionHeaders() {
         "X-What-Ive-Done-Viewer-Action-Token": viewerActionToken,
       }
     : {};
+}
+
+function clearAnalysisPoll() {
+  if (state.analysisPollTimer) {
+    window.clearTimeout(state.analysisPollTimer);
+    state.analysisPollTimer = null;
+  }
+}
+
+function scheduleAnalysisPoll() {
+  clearAnalysisPoll();
+
+  state.analysisPollTimer = window.setTimeout(() => {
+    void refreshAnalysisPanel();
+  }, 2000);
 }
 
 function buildQueryString() {
@@ -1754,56 +1818,238 @@ function renderAnalysisReadyList(workflows) {
   }).join("");
 }
 
-function renderAnalysisSurface(data) {
-  const quickWins =
-    data.report.summary && data.report.summary.quickWinAutomationCandidates
-      ? data.report.summary.quickWinAutomationCandidates
-      : [];
-  const readyCount = data.report.workflows.length;
+function renderAnalysisResults(analyses, latestRun) {
+  if (!analyses || analyses.length === 0) {
+    const emptyMessage =
+      latestRun && latestRun.status === "failed"
+        ? latestRun.summary && latestRun.summary.error
+          ? latestRun.summary.error
+          : "The last analysis run failed before it could store workflow interpretations."
+        : "No stored analysis results yet. Start a manual run from this tab.";
+
+    elements.analysisResultsList.innerHTML = \`<div class="empty-state">\${escapeHtml(emptyMessage)}</div>\`;
+    return;
+  }
+
+  elements.analysisResultsList.innerHTML = analyses.slice(0, 8).map((analysis) => {
+    return \`
+      <article class="analysis-result-card">
+        <div>
+          <p class="panel-label">Workflow Interpretation</p>
+          <h3>\${escapeHtml(analysis.workflowName)}</h3>
+        </div>
+        <p class="analysis-result-summary">\${escapeHtml(analysis.workflowSummary)}</p>
+        <div class="analysis-meta">
+          <span class="workflow-chip subtle">\${escapeHtml(analysis.provider)}</span>
+          <span class="workflow-chip subtle">\${escapeHtml(analysis.model)}</span>
+          <span class="workflow-chip">\${escapeHtml(analysis.automationSuitability)} fit</span>
+        </div>
+        <p class="analysis-copy">\${escapeHtml(analysis.recommendedApproach)}</p>
+        <p class="analysis-result-summary">\${escapeHtml(analysis.rationale)}</p>
+      </article>
+    \`;
+  }).join("");
+}
+
+function renderAnalysisSurface(dashboardData, statusData, resultsData) {
+  const selectedProvider = (statusData.credentialStatus.providers || []).find((provider) => provider.selected);
+  const currentModel =
+    (statusData.credentialStatus.configuration && statusData.credentialStatus.configuration.model) ||
+    (selectedProvider ? selectedProvider.defaultModel : "default");
+  const credentialReady = selectedProvider
+    ? selectedProvider.hasApiKey || selectedProvider.hasOAuthCredentials || selectedProvider.envApiKeyAvailable
+    : false;
+  const latestRun = statusData.latestRun || resultsData.latestRun || null;
+  const latestResultCount = Array.isArray(resultsData.analyses)
+    ? resultsData.analyses.length
+    : statusData.latestResultCount || 0;
+  const runDisabled = statusData.running || statusData.payloadCount === 0;
+  const runButtonLabel = statusData.running
+    ? "Running..."
+    : statusData.payloadCount === 0
+      ? "Nothing To Analyze"
+      : "Run Analysis";
+  const latestRunCopy = !latestRun
+    ? "No manual analysis run has been started from the viewer yet."
+    : latestRun.status === "running"
+      ? "The local console has sent summarized workflow payloads and is waiting for the provider response."
+      : latestRun.status === "failed"
+        ? latestRun.summary && latestRun.summary.error
+          ? latestRun.summary.error
+          : "The latest analysis run failed."
+        : "Stored interpretation results are available below and will stay visible after refresh.";
+  const credentialCopy = !selectedProvider
+    ? "No provider is selected in the saved CLI configuration."
+    : credentialReady
+      ? "Viewer analysis can use the same provider configuration that is already available to the CLI."
+      : "The selected provider is missing credentials. Configure auth from the CLI before starting a viewer run.";
 
   elements.analysisSurface.innerHTML = \`
     <article class="analysis-card accent">
       <div>
-        <p class="panel-label">Current Window</p>
-        <h3>\${escapeHtml(data.timeWindow.reportDate)}</h3>
+        <p class="panel-label">Run Manual Analysis</p>
+        <h3>\${escapeHtml(dashboardData.timeWindow.reportDate)}</h3>
       </div>
       <p class="analysis-copy">
-        The viewer shell is now ready for a dedicated analysis request surface. In the next milestone, this panel will submit local summarized workflow payloads directly from the browser console.
+        Send only summarized workflow payloads for the current \${escapeHtml(dashboardData.timeWindow.window)} window. Raw events, raw URLs, and window titles stay local.
       </p>
       <div class="analysis-meta">
-        <span class="workflow-chip">\${escapeHtml(data.timeWindow.window)} window</span>
-        <span class="workflow-chip">\${escapeHtml(String(readyCount))} confirmed workflows</span>
+        <span class="workflow-chip">\${escapeHtml(String(statusData.workflowCount))} confirmed workflows</span>
+        <span class="workflow-chip subtle">\${escapeHtml(String(statusData.payloadCount))} summarized payloads</span>
       </div>
+      <div class="analysis-action-row">
+        <button id="analysis-run-button" class="\${runDisabled ? "button-secondary" : ""}" type="button" \${runDisabled ? "disabled" : ""}>\${escapeHtml(runButtonLabel)}</button>
+        <label class="analysis-toggle" for="analysis-apply-names">
+          <input id="analysis-apply-names" type="checkbox" \${state.analysisApplyNames ? "checked" : ""} />
+          <span>Apply suggested names</span>
+        </label>
+      </div>
+      <p class="analysis-status-copy">\${escapeHtml(state.analysisActionMessage || latestRunCopy)}</p>
     </article>
     <article class="analysis-card">
       <div>
-        <p class="panel-label">Ready Now</p>
-        <h3>\${escapeHtml(String(quickWins.length || readyCount))} workflows</h3>
+        <p class="panel-label">Provider Status</p>
+        <h3>\${escapeHtml(selectedProvider ? selectedProvider.label : "Not configured")}</h3>
       </div>
-      <p class="analysis-copy">
-        The console can already identify the strongest automation and interpretation candidates in the selected window.
-      </p>
+      <p class="analysis-copy">\${escapeHtml(credentialCopy)}</p>
       <div class="analysis-meta">
-        <span class="workflow-chip subtle">\${escapeHtml(String(data.report.emergingWorkflows.length))} emerging patterns</span>
-        <span class="workflow-chip subtle">\${escapeHtml(String(data.rawEventCount))} raw events kept local</span>
+        <span class="workflow-chip subtle">\${escapeHtml(currentModel)}</span>
+        <span class="workflow-chip subtle">\${escapeHtml(
+          statusData.credentialStatus.configuration && statusData.credentialStatus.configuration.authMethod
+            ? statusData.credentialStatus.configuration.authMethod
+            : "unknown auth",
+        )}</span>
+        <span class="workflow-chip subtle">\${escapeHtml(statusData.credentialStatus.backend || "unknown backend")}</span>
       </div>
+      \${statusData.credentialStatus.warning
+        ? \`<p class="analysis-status-copy">\${escapeHtml(statusData.credentialStatus.warning)}</p>\`
+        : ""}
     </article>
     <article class="analysis-card">
       <div>
-        <p class="panel-label">Next Milestones</p>
-        <h3>Request, Run, Review</h3>
+        <p class="panel-label">Latest Run</p>
+        <h3>\${escapeHtml(latestRun ? latestRun.status : "idle")}</h3>
       </div>
-      <p class="analysis-copy">
-        M20 extracts the shared LLM service and adds a secure viewer API. M21 adds run controls, progress, and stored analysis results in this same surface.
-      </p>
+      <p class="analysis-copy">\${escapeHtml(latestRunCopy)}</p>
       <div class="analysis-meta">
-        <span class="workflow-chip subtle">Shared CLI + viewer logic</span>
-        <span class="workflow-chip subtle">Secure local write API</span>
+        <span class="workflow-chip subtle">\${escapeHtml(String(latestResultCount))} results</span>
+        <span class="workflow-chip subtle">\${escapeHtml(formatDateTime(latestRun ? latestRun.startedAt : undefined))} started</span>
+        \${latestRun && latestRun.completedAt
+          ? \`<span class="workflow-chip subtle">\${escapeHtml(formatDateTime(latestRun.completedAt))} finished</span>\`
+          : ""}
+      </div>
+    </article>
+    <article class="analysis-note">
+      <p>Only summarized workflow payloads leave the machine during manual analysis.</p>
+      <div class="workflow-chip-row">
+        <span class="workflow-chip subtle">No raw event dump</span>
+        <span class="workflow-chip subtle">No raw URLs or window titles</span>
+        <span class="workflow-chip subtle">No content fields</span>
       </div>
     </article>
   \`;
 
-  renderAnalysisReadyList(quickWins.length > 0 ? quickWins : data.report.workflows);
+  const applyNamesToggle = document.getElementById("analysis-apply-names");
+  const runButton = document.getElementById("analysis-run-button");
+
+  if (applyNamesToggle) {
+    applyNamesToggle.addEventListener("change", () => {
+      state.analysisApplyNames = Boolean(applyNamesToggle.checked);
+    });
+  }
+
+  if (runButton) {
+    runButton.addEventListener("click", () => {
+      void submitAnalysisRun().catch((error) => {
+        state.analysisActionMessage =
+          error instanceof Error ? error.message : "Unknown viewer analysis error";
+        void refreshAnalysisPanel();
+      });
+    });
+  }
+}
+
+async function submitAnalysisRun() {
+  state.analysisActionMessage = "Starting analysis...";
+  await refreshAnalysisPanel();
+
+  const response = await fetch(\`/api/viewer/analysis/runs?\${buildQueryString()}\`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...buildViewerActionHeaders(),
+    },
+    body: JSON.stringify({
+      applyNames: state.analysisApplyNames,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorPayload = await response.json().catch(() => null);
+    throw new Error(errorPayload && errorPayload.message ? errorPayload.message : "Failed to start viewer analysis.");
+  }
+
+  state.analysisActionMessage = "Analysis run started.";
+  await refreshAnalysisPanel();
+}
+
+async function refreshAnalysisPanel(dashboardData = state.latestDashboard) {
+  if (!dashboardData || state.analysisRefreshing) {
+    return;
+  }
+
+  state.analysisRefreshing = true;
+
+  try {
+    const [statusResponse, resultsResponse] = await Promise.all([
+      fetch(\`/api/viewer/analysis/status?\${buildQueryString()}\`),
+      fetch("/api/viewer/analysis/results"),
+    ]);
+
+    if (!statusResponse.ok) {
+      throw new Error("Failed to load analysis status.");
+    }
+
+    if (!resultsResponse.ok) {
+      throw new Error("Failed to load analysis results.");
+    }
+
+    const statusData = await statusResponse.json();
+    const resultsData = await resultsResponse.json();
+    const latestRun = resultsData.latestRun || statusData.latestRun || null;
+    const quickWins =
+      dashboardData.report.summary && dashboardData.report.summary.quickWinAutomationCandidates
+        ? dashboardData.report.summary.quickWinAutomationCandidates
+        : [];
+
+    if (!statusData.running && latestRun && latestRun.status === "completed" && state.analysisActionMessage === "Analysis run started.") {
+      state.analysisActionMessage = "Analysis run completed.";
+    }
+
+    if (!statusData.running && latestRun && latestRun.status === "failed" && state.analysisActionMessage === "Analysis run started.") {
+      state.analysisActionMessage =
+        latestRun.summary && latestRun.summary.error
+          ? latestRun.summary.error
+          : "Analysis run failed.";
+    }
+
+    renderAnalysisReadyList(quickWins.length > 0 ? quickWins : dashboardData.report.workflows);
+    renderAnalysisSurface(dashboardData, statusData, resultsData);
+    renderAnalysisResults(resultsData.analyses, latestRun);
+
+    if (statusData.running || (statusData.latestRun && statusData.latestRun.status === "running")) {
+      scheduleAnalysisPoll();
+    } else {
+      clearAnalysisPoll();
+    }
+  } catch (error) {
+    clearAnalysisPoll();
+    elements.analysisSurface.innerHTML = \`<div class="empty-state">\${escapeHtml(error instanceof Error ? error.message : "Unknown viewer analysis error")}</div>\`;
+    elements.analysisResultsList.innerHTML =
+      '<div class="empty-state">Analysis results are unavailable right now.</div>';
+  } finally {
+    state.analysisRefreshing = false;
+  }
 }
 
 function renderEmergingWorkflowList(container, workflows, emptyMessage) {
@@ -2173,6 +2419,7 @@ async function refreshDashboard() {
     }
 
     const data = await response.json();
+    state.latestDashboard = data;
 
     if (!state.date) {
       state.date = data.timeWindow.reportDate;
@@ -2186,7 +2433,6 @@ async function refreshDashboard() {
     renderSnapshotList(data.latestSnapshots);
     renderComparisonView(data.comparison);
     renderFeedbackWorkflowList(data.reviewableWorkflows);
-    renderAnalysisSurface(data);
     renderWorkflowTable(
       elements.workflowList,
       data.report.workflows,
@@ -2198,6 +2444,7 @@ async function refreshDashboard() {
       data.report.emergingWorkflows,
       "No emerging workflows yet for this window.",
     );
+    await refreshAnalysisPanel(data);
     await refreshWorkflowDetail();
     renderSessionList(data.sessionSummaries);
     await refreshSessionDetail();
@@ -2230,6 +2477,10 @@ function bindEvents() {
       state.view = nextView;
       syncView();
       syncUrl();
+
+      if (state.view === "analysis" && state.latestDashboard) {
+        void refreshAnalysisPanel();
+      }
     });
   }
 
