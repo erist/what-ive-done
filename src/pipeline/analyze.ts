@@ -24,6 +24,7 @@ export interface AnalyzeOptions {
   similarityThreshold?: number;
   minSessionDurationSeconds?: number;
   minimumWorkflowFrequency?: number;
+  confirmationWindowDays?: number;
   feedbackByWorkflowSignature?: Map<string, WorkflowFeedbackSummary> | undefined;
 }
 
@@ -317,6 +318,9 @@ export function analyzeRawEvents(rawEvents: RawEvent[], options: AnalyzeOptions 
       : {}),
     ...(options.minimumWorkflowFrequency !== undefined
       ? { minimumWorkflowFrequency: options.minimumWorkflowFrequency }
+      : {}),
+    ...(options.confirmationWindowDays !== undefined
+      ? { confirmationWindowDays: options.confirmationWindowDays }
       : {}),
   };
   const sessions = sessionizeNormalizedEvents(normalizedEvents, sessionizeOptions);

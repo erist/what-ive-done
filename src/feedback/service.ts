@@ -1,3 +1,4 @@
+import { resolveConfiguredAnalyzeOptions } from "../config/workflow-analysis.js";
 import type { WorkflowCluster, WorkflowFeedback, WorkflowFeedbackSummary } from "../domain/types.js";
 import { analyzeRawEvents } from "../pipeline/analyze.js";
 import type { AppDatabase } from "../storage/database.js";
@@ -90,6 +91,7 @@ function ensureWorkflowArtifacts(
 
   const feedbackByWorkflowSignature = database.listWorkflowFeedbackSummary();
   const analysisResult = analyzeRawEvents(database.getRawEventsChronological(), {
+    ...resolveConfiguredAnalyzeOptions(database.paths.dataDir),
     feedbackByWorkflowSignature,
   });
 

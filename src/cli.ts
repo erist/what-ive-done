@@ -52,6 +52,7 @@ import {
 } from "./credentials/llm.js";
 import { resolveCredentialStore } from "./credentials/store.js";
 import { ConfigManager } from "./config/manager.js";
+import { resolveConfiguredAnalyzeOptions } from "./config/workflow-analysis.js";
 import {
   DEFAULT_WID_SERVER_HOST,
   DEFAULT_WID_SERVER_PORT,
@@ -1854,6 +1855,7 @@ program
     const { analysisResult, rawEventCount } = withDatabase(options.dataDir, (database) => {
       const rawEvents = database.getRawEventsChronological();
       const result = analyzeRawEvents(rawEvents, {
+        ...resolveConfiguredAnalyzeOptions(options.dataDir),
         feedbackByWorkflowSignature: database.listWorkflowFeedbackSummary(),
       });
 
@@ -2749,6 +2751,7 @@ program
       const deletedRawEventCount = database.deleteSessionSourceEvents(sessionId);
       const remainingRawEvents = database.getRawEventsChronological();
       const analysisResult = analyzeRawEvents(remainingRawEvents, {
+        ...resolveConfiguredAnalyzeOptions(options.dataDir),
         feedbackByWorkflowSignature: database.listWorkflowFeedbackSummary(),
       });
 
@@ -3412,6 +3415,7 @@ program
 
       const rawEvents = database.getRawEventsChronological();
       const analysisResult = analyzeRawEvents(rawEvents, {
+        ...resolveConfiguredAnalyzeOptions(options.dataDir),
         feedbackByWorkflowSignature: database.listWorkflowFeedbackSummary(),
       });
 

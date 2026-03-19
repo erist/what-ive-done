@@ -32,6 +32,11 @@ export interface SessionSegmentationConfig {
   rollingMinimumGapMs: number;
 }
 
+export interface WorkflowConfirmationConfig {
+  confirmationWindowDays: number;
+  minSessionDurationSeconds: number;
+}
+
 export const DEFAULT_NORMALIZATION_CONFIG: NormalizationConfig = {
   browser: {
     schemaVersion: 2,
@@ -114,4 +119,9 @@ export const DEFAULT_SESSION_SEGMENTATION_CONFIG: SessionSegmentationConfig = {
   significantContextScore: 2,
   rollingWindowMs: 5 * 60 * 1000,
   rollingMinimumGapMs: 45 * 1000,
+};
+
+export const DEFAULT_WORKFLOW_CONFIRMATION_CONFIG: WorkflowConfirmationConfig = {
+  confirmationWindowDays: 7,
+  minSessionDurationSeconds: 45,
 };

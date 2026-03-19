@@ -35,6 +35,7 @@ Implemented today:
 - collector supervision for macOS, Windows, and optional `gws` command paths
 - agent-managed snapshot scheduler
 - normalization, semantic action abstraction, sessionization, workflow clustering, and all-time/daily/weekly reporting
+- persisted analysis thresholds for workflow confirmation window and minimum session duration
 - hybrid clustering benchmark command with legacy-vs-v2 error comparison
 - persisted daily and weekly report snapshots
 - live browser dashboard for agent health, workflow reports, snapshots, session drill-down, and minimal feedback write actions
@@ -117,8 +118,9 @@ Current heuristic defaults in code:
 - rolling-context suppression minimum gap: 45 seconds
 - clustering similarity threshold: 0.74
 - clustering weights: sequence 0.35, action set 0.25, context 0.25, time of day 0.15
-- minimum workflow session duration: 45 seconds
+- minimum workflow session duration: 45 seconds, configurable via `analysis.minSessionDurationSeconds`
 - minimum workflow frequency: 3 similar sessions within 7 days
+- workflow confirmation window: 7 days, configurable via `analysis.confirmationWindowDays`
 
 ## Debugging and Quality Gates
 

@@ -55,6 +55,8 @@ cd ./tmp/demo-data
 npm run dev -- config show
 npm run dev -- config get server.port
 npm run dev -- config set server.port 4319
+npm run dev -- config set analysis.confirmationWindowDays 14
+npm run dev -- config set analysis.minSessionDurationSeconds 15
 npm run dev -- config path
 npm run dev -- agent:health
 WID_DATA_DIR=./tmp/demo-data npm run dev -- agent:status
@@ -141,6 +143,8 @@ npm run dev -- agent:stop --data-dir ./tmp/live-data
 ```bash
 npm run dev -- init --data-dir ./tmp/demo-data
 npm run dev -- collect:mock --data-dir ./tmp/demo-data
+npm run dev -- config set analysis.confirmationWindowDays 14
+npm run dev -- config set analysis.minSessionDurationSeconds 15
 npm run dev -- analyze --data-dir ./tmp/demo-data
 npm run dev -- report --data-dir ./tmp/demo-data
 ```

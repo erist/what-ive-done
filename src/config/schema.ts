@@ -1,5 +1,7 @@
 import { resolve } from "node:path";
 
+import { DEFAULT_WORKFLOW_CONFIRMATION_CONFIG } from "./analysis.js";
+
 export const WID_CONFIG_VERSION = 1;
 export const WID_DIRECTORY_NAME = ".wid";
 export const WID_CONFIG_FILE_NAME = "config.json";
@@ -15,6 +17,10 @@ export interface WidConfig {
   version: 1;
   dataDir: string;
   tools: Record<string, WidToolConfig>;
+  analysis: {
+    confirmationWindowDays: number;
+    minSessionDurationSeconds: number;
+  };
   llm: {
     default?: string | undefined;
   };
@@ -56,6 +62,22 @@ function normalizePort(value: unknown): number {
   return DEFAULT_WID_SERVER_PORT;
 }
 
+function normalizePositiveInteger(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10);
+
+    if (Number.isInteger(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  return fallback;
+}
+
 function normalizeTools(value: unknown): Record<string, WidToolConfig> {
   if (!isRecord(value)) {
     return {};
@@ -85,6 +107,10 @@ export function createDefaultWidConfig(dataDir: string): WidConfig {
     version: WID_CONFIG_VERSION,
     dataDir: resolve(dataDir),
     tools: {},
+    analysis: {
+      confirmationWindowDays: DEFAULT_WORKFLOW_CONFIRMATION_CONFIG.confirmationWindowDays,
+      minSessionDurationSeconds: DEFAULT_WORKFLOW_CONFIRMATION_CONFIG.minSessionDurationSeconds,
+    },
     llm: {},
     server: {
       host: DEFAULT_WID_SERVER_HOST,
@@ -99,6 +125,7 @@ export function createDefaultWidConfig(dataDir: string): WidConfig {
 export function normalizeWidConfig(dataDir: string, raw: unknown): WidConfig {
   const defaults = createDefaultWidConfig(dataDir);
   const candidate = isRecord(raw) ? raw : {};
+  const analysis = isRecord(candidate.analysis) ? candidate.analysis : {};
   const llm = isRecord(candidate.llm) ? candidate.llm : {};
   const server = isRecord(candidate.server) ? candidate.server : {};
   const agent = isRecord(candidate.agent) ? candidate.agent : {};
@@ -107,6 +134,16 @@ export function normalizeWidConfig(dataDir: string, raw: unknown): WidConfig {
     version: WID_CONFIG_VERSION,
     dataDir: defaults.dataDir,
     tools: normalizeTools(candidate.tools),
+    analysis: {
+      confirmationWindowDays: normalizePositiveInteger(
+        analysis.confirmationWindowDays,
+        DEFAULT_WORKFLOW_CONFIRMATION_CONFIG.confirmationWindowDays,
+      ),
+      minSessionDurationSeconds: normalizePositiveInteger(
+        analysis.minSessionDurationSeconds,
+        DEFAULT_WORKFLOW_CONFIRMATION_CONFIG.minSessionDurationSeconds,
+      ),
+    },
     llm: {
       default: normalizeOptionalString(llm.default),
     },

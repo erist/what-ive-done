@@ -107,3 +107,79 @@ test("clusterSessions keeps same action sequences apart when domain context dive
   assert.equal(clusters.length, 2);
   assert.notEqual(clusters[0]?.workflowSignature, clusters[1]?.workflowSignature);
 });
+
+test("clusterSessions can widen the confirmation window beyond the default seven days", () => {
+  const sessions = [
+    createSession({
+      id: "session-1",
+      startTime: "2026-03-01T09:00:00.000Z",
+      endTime: "2026-03-01T09:03:00.000Z",
+      application: "chrome",
+      actions: ["open_admin", "search_order", "update_status"],
+    }),
+    createSession({
+      id: "session-2",
+      startTime: "2026-03-05T09:00:00.000Z",
+      endTime: "2026-03-05T09:03:00.000Z",
+      application: "chrome",
+      actions: ["open_admin", "search_order", "update_status"],
+    }),
+    createSession({
+      id: "session-3",
+      startTime: "2026-03-09T09:00:00.000Z",
+      endTime: "2026-03-09T09:03:00.000Z",
+      application: "chrome",
+      actions: ["open_admin", "search_order", "update_status"],
+    }),
+  ];
+
+  const defaultWindowClusters = clusterSessions(sessions, {
+    minSessionDurationSeconds: 0,
+    minimumWorkflowFrequency: 3,
+  });
+  const widenedWindowClusters = clusterSessions(sessions, {
+    minSessionDurationSeconds: 0,
+    minimumWorkflowFrequency: 3,
+    confirmationWindowDays: 9,
+  });
+
+  assert.equal(defaultWindowClusters.length, 0);
+  assert.equal(widenedWindowClusters.length, 1);
+});
+
+test("clusterSessions honors a lowered minimum session duration threshold", () => {
+  const sessions = [
+    createSession({
+      id: "session-1",
+      startTime: "2026-03-10T09:00:00.000Z",
+      endTime: "2026-03-10T09:00:10.000Z",
+      application: "chrome",
+      actions: ["search_order"],
+    }),
+    createSession({
+      id: "session-2",
+      startTime: "2026-03-10T10:00:00.000Z",
+      endTime: "2026-03-10T10:00:10.000Z",
+      application: "chrome",
+      actions: ["search_order"],
+    }),
+    createSession({
+      id: "session-3",
+      startTime: "2026-03-10T11:00:00.000Z",
+      endTime: "2026-03-10T11:00:10.000Z",
+      application: "chrome",
+      actions: ["search_order"],
+    }),
+  ];
+
+  const defaultClusters = clusterSessions(sessions, {
+    minimumWorkflowFrequency: 3,
+  });
+  const loweredDurationClusters = clusterSessions(sessions, {
+    minimumWorkflowFrequency: 3,
+    minSessionDurationSeconds: 10,
+  });
+
+  assert.equal(defaultClusters.length, 0);
+  assert.equal(loweredDurationClusters.length, 1);
+});
