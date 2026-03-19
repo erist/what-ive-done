@@ -1,9 +1,10 @@
-export function renderViewerHtml(): string {
+export function renderViewerHtml(options: { viewerActionToken?: string | undefined } = {}): string {
   return `<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="wid-viewer-action-token" content="${options.viewerActionToken ?? ""}" />
     <title>What I've Done Viewer</title>
     <link rel="stylesheet" href="/viewer.css" />
   </head>
@@ -1198,6 +1199,11 @@ const state = {
   refreshTimer: null,
 };
 
+const viewerActionTokenMeta = document.querySelector('meta[name="wid-viewer-action-token"]');
+const viewerActionToken = viewerActionTokenMeta
+  ? viewerActionTokenMeta.getAttribute("content") || ""
+  : "";
+
 const elements = {
   windowSelect: document.getElementById("window-select"),
   dateInput: document.getElementById("date-input"),
@@ -1342,6 +1348,14 @@ function setError(message) {
 
   elements.errorBanner.textContent = message;
   elements.errorBanner.classList.remove("hidden");
+}
+
+function buildViewerActionHeaders() {
+  return viewerActionToken
+    ? {
+        "X-What-Ive-Done-Viewer-Action-Token": viewerActionToken,
+      }
+    : {};
 }
 
 function buildQueryString() {
@@ -1859,6 +1873,7 @@ async function submitWorkflowFeedback(payload, successMessage) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      ...buildViewerActionHeaders(),
     },
     body: JSON.stringify(payload),
   });

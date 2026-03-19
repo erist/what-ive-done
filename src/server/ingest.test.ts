@@ -13,6 +13,49 @@ import { startIngestServer } from "./ingest-server.js";
 
 const TEST_AUTH_TOKEN = "test-ingest-auth-token";
 
+async function readViewerSurface(viewerUrl: string): Promise<{
+  status: number;
+  html: string;
+  viewerActionToken: string;
+}> {
+  const response = await fetch(viewerUrl);
+  const html = await response.text();
+  const viewerActionToken =
+    html.match(/<meta name="wid-viewer-action-token" content="([^"]*)"/u)?.[1] ?? "";
+
+  assert.ok(viewerActionToken);
+
+  return {
+    status: response.status,
+    html,
+    viewerActionToken,
+  };
+}
+
+async function waitForAnalysisRun(
+  viewerUrl: string,
+  runId: string,
+): Promise<{ id: string; status: string; summary: Record<string, unknown> }> {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const response = await fetch(
+      `${viewerUrl}api/viewer/analysis/runs/${encodeURIComponent(runId)}`,
+    );
+    const payload = (await response.json()) as {
+      run: { id: string; status: string; summary: Record<string, unknown> };
+    };
+
+    assert.equal(response.status, 200);
+
+    if (payload.run.status !== "running") {
+      return payload.run;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+
+  throw new Error(`Timed out waiting for analysis run ${runId}`);
+}
+
 test("coerceIncomingEvents accepts a single event or events wrapper", () => {
   const single = coerceIncomingEvents({
     sourceEventType: "browser.click",
@@ -250,11 +293,10 @@ test("startIngestServer serves the local viewer and live viewer API", async () =
   });
 
   try {
-    const htmlResponse = await fetch(server.viewerUrl);
-    const html = await htmlResponse.text();
+    const viewerSurface = await readViewerSurface(server.viewerUrl);
 
-    assert.equal(htmlResponse.status, 200);
-    assert.ok(html.includes("What I've Done"));
+    assert.equal(viewerSurface.status, 200);
+    assert.ok(viewerSurface.html.includes("What I've Done"));
 
     const dashboardResponse = await fetch(`${server.viewerUrl}api/viewer/dashboard?window=all`);
     const dashboard = (await dashboardResponse.json()) as {
@@ -318,6 +360,7 @@ test("startIngestServer serves the local viewer and live viewer API", async () =
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "X-What-Ive-Done-Viewer-Action-Token": viewerSurface.viewerActionToken,
         },
         body: JSON.stringify({
           name: "Viewer-reviewed workflow",
@@ -379,6 +422,178 @@ test("startIngestServer serves the local viewer and live viewer API", async () =
     assert.ok(weekDashboard.comparison);
     assert.equal(weekDashboard.comparison?.currentTimeWindow.reportDate >= weekDashboard.comparison?.previousTimeWindow.reportDate, true);
     assert.ok(Array.isArray(weekDashboard.comparison?.newlyAppearedWorkflows));
+  } finally {
+    await server.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("startIngestServer rejects viewer workflow writes without an action token", async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-viewer-write-auth-"));
+  const database = new AppDatabase({
+    dataDir: tempDir,
+    databasePath: join(tempDir, "what-ive-done.sqlite"),
+    agentLockPath: join(tempDir, "agent.lock"),
+  });
+  database.initialize();
+
+  for (const event of generateMockRawEvents()) {
+    database.insertRawEvent(event);
+  }
+
+  database.close();
+
+  const server = await startIngestServer({
+    dataDir: tempDir,
+    host: "127.0.0.1",
+    port: 0,
+    authToken: TEST_AUTH_TOKEN,
+  });
+
+  try {
+    const dashboardResponse = await fetch(`${server.viewerUrl}api/viewer/dashboard?window=all`);
+    const dashboard = (await dashboardResponse.json()) as {
+      reviewableWorkflows: Array<{ id: string }>;
+    };
+    const firstWorkflowId = dashboard.reviewableWorkflows[0]?.id;
+
+    assert.equal(dashboardResponse.status, 200);
+    assert.ok(firstWorkflowId);
+
+    const response = await fetch(
+      `${server.viewerUrl}api/viewer/workflows/${encodeURIComponent(firstWorkflowId ?? "")}?window=all`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          hidden: true,
+        }),
+      },
+    );
+
+    assert.equal(response.status, 401);
+  } finally {
+    await server.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("startIngestServer runs viewer analysis and persists results", async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-viewer-analysis-"));
+  const database = new AppDatabase({
+    dataDir: tempDir,
+    databasePath: join(tempDir, "what-ive-done.sqlite"),
+    agentLockPath: join(tempDir, "agent.lock"),
+  });
+  database.initialize();
+
+  for (const event of generateMockRawEvents()) {
+    database.insertRawEvent(event);
+  }
+
+  database.close();
+
+  let capturedPayloadCount = 0;
+  const server = await startIngestServer({
+    dataDir: tempDir,
+    host: "127.0.0.1",
+    port: 0,
+    authToken: TEST_AUTH_TOKEN,
+    analysisRunner: async ({ payloadRecords }) => {
+      capturedPayloadCount = payloadRecords.length;
+
+      return {
+        configuration: {
+          provider: "openai",
+          authMethod: "api-key",
+          model: "gpt-5-mini",
+        },
+        analyses: payloadRecords.map((record, index) => ({
+          workflowClusterId: record.workflowClusterId,
+          provider: "openai",
+          model: "gpt-5-mini",
+          workflowName: `Analyzed Workflow ${index + 1}`,
+          workflowSummary: `Summary for ${record.workflowName}`,
+          automationSuitability: "medium",
+          recommendedApproach: "Browser automation",
+          rationale: "Repeated workflow with stable steps.",
+          createdAt: new Date().toISOString(),
+        })),
+      };
+    },
+  });
+
+  try {
+    const viewerSurface = await readViewerSurface(server.viewerUrl);
+
+    const statusResponse = await fetch(`${server.viewerUrl}api/viewer/analysis/status?window=all`);
+    const statusPayload = (await statusResponse.json()) as {
+      payloadCount: number;
+      workflowCount: number;
+      latestRun: unknown;
+      latestResultCount: number;
+      credentialStatus: { configuration: { provider: string } };
+    };
+
+    assert.equal(statusResponse.status, 200);
+    assert.ok(statusPayload.payloadCount > 0);
+    assert.ok(statusPayload.workflowCount > 0);
+    assert.equal(statusPayload.latestRun, null);
+    assert.equal(statusPayload.latestResultCount, 0);
+    assert.equal(statusPayload.credentialStatus.configuration.provider, "openai");
+
+    const runResponse = await fetch(`${server.viewerUrl}api/viewer/analysis/runs?window=all`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-What-Ive-Done-Viewer-Action-Token": viewerSurface.viewerActionToken,
+      },
+      body: JSON.stringify({
+        applyNames: true,
+      }),
+    });
+    const runPayload = (await runResponse.json()) as {
+      status: string;
+      run: { id: string; status: string; summary: { payloadCount: number } };
+    };
+
+    assert.equal(runResponse.status, 202);
+    assert.equal(runPayload.status, "analysis_run_started");
+    assert.equal(runPayload.run.status, "running");
+    assert.equal(runPayload.run.summary.payloadCount, statusPayload.payloadCount);
+
+    const completedRun = await waitForAnalysisRun(server.viewerUrl, runPayload.run.id);
+
+    assert.equal(completedRun.status, "completed");
+    assert.equal(completedRun.summary.resultCount, statusPayload.payloadCount);
+    assert.equal(capturedPayloadCount, statusPayload.payloadCount);
+
+    const resultsResponse = await fetch(`${server.viewerUrl}api/viewer/analysis/results`);
+    const resultsPayload = (await resultsResponse.json()) as {
+      latestRun: { id: string; status: string };
+      analyses: Array<{ workflowName: string }>;
+    };
+
+    assert.equal(resultsResponse.status, 200);
+    assert.equal(resultsPayload.latestRun.id, runPayload.run.id);
+    assert.equal(resultsPayload.latestRun.status, "completed");
+    assert.equal(resultsPayload.analyses.length, statusPayload.payloadCount);
+    assert.equal(resultsPayload.analyses[0]?.workflowName, "Analyzed Workflow 1");
+
+    const refreshedDashboardResponse = await fetch(`${server.viewerUrl}api/viewer/dashboard?window=all`);
+    const refreshedDashboard = (await refreshedDashboardResponse.json()) as {
+      reviewableWorkflows: Array<{ workflowName: string }>;
+    };
+
+    assert.equal(refreshedDashboardResponse.status, 200);
+    assert.equal(
+      refreshedDashboard.reviewableWorkflows.some((workflow) =>
+        workflow.workflowName.startsWith("Analyzed Workflow"),
+      ),
+      true,
+    );
   } finally {
     await server.close();
     rmSync(tempDir, { recursive: true, force: true });

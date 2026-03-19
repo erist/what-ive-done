@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 
 import { ensureAppPaths, resolveAppPaths, type AppPaths } from "../app-paths.js";
 import type {
+  AnalysisRun,
   LLMWorkflowSummaryPayload,
   NormalizedEvent,
   RawEvent,
@@ -159,6 +160,14 @@ interface WorkflowLLMAnalysisRow {
   created_at: string;
 }
 
+interface AnalysisRunRow {
+  id: string;
+  started_at: string;
+  completed_at: string | null;
+  status: AnalysisRun["status"];
+  summary_json: string;
+}
+
 interface SettingRow {
   key: string;
   value_json: string;
@@ -232,6 +241,16 @@ function mapNormalizedEventRow(row: NormalizedEventRow): NormalizedEvent {
     target: row.target ?? undefined,
     metadata: JSON.parse(row.metadata_json) as Record<string, unknown>,
     createdAt: row.created_at,
+  };
+}
+
+function mapAnalysisRunRow(row: AnalysisRunRow): AnalysisRun {
+  return {
+    id: row.id,
+    startedAt: row.started_at,
+    completedAt: row.completed_at ?? undefined,
+    status: row.status,
+    summary: JSON.parse(row.summary_json) as AnalysisRun["summary"],
   };
 }
 
@@ -1395,16 +1414,9 @@ export class AppDatabase {
     return rawEventIds.length;
   }
 
-  listWorkflowSummaryPayloadRecords(options?: {
-    includeExcluded?: boolean | undefined;
-    includeHidden?: boolean | undefined;
-  }): WorkflowSummaryPayloadRecord[] {
-    const includeExcluded = options?.includeExcluded ?? false;
-    const includeHidden = options?.includeHidden ?? false;
-    const clusters = this.listWorkflowClusters().filter(
-      (cluster) => (includeExcluded || !cluster.excluded) && (includeHidden || !cluster.hidden),
-    );
-
+  buildWorkflowSummaryPayloadRecordsForClusters(
+    clusters: WorkflowCluster[],
+  ): WorkflowSummaryPayloadRecord[] {
     if (clusters.length === 0) {
       return [];
     }
@@ -1469,6 +1481,19 @@ export class AppDatabase {
         payload,
       };
     });
+  }
+
+  listWorkflowSummaryPayloadRecords(options?: {
+    includeExcluded?: boolean | undefined;
+    includeHidden?: boolean | undefined;
+  }): WorkflowSummaryPayloadRecord[] {
+    const includeExcluded = options?.includeExcluded ?? false;
+    const includeHidden = options?.includeHidden ?? false;
+    const clusters = this.listWorkflowClusters().filter(
+      (cluster) => (includeExcluded || !cluster.excluded) && (includeHidden || !cluster.hidden),
+    );
+
+    return this.buildWorkflowSummaryPayloadRecordsForClusters(clusters);
   }
 
   replaceWorkflowLLMAnalyses(analyses: WorkflowLLMAnalysis[]): void {
@@ -1541,6 +1566,97 @@ export class AppDatabase {
       rationale: row.rationale,
       createdAt: row.created_at,
     }));
+  }
+
+  createAnalysisRun(summary: AnalysisRun["summary"] = {}): AnalysisRun {
+    const run: AnalysisRun = {
+      id: randomUUID(),
+      startedAt: new Date().toISOString(),
+      status: "running",
+      summary,
+    };
+
+    this.connection
+      .prepare(`
+        INSERT INTO analysis_runs (
+          id,
+          started_at,
+          completed_at,
+          status,
+          summary_json
+        ) VALUES (?, ?, ?, ?, ?)
+      `)
+      .run(run.id, run.startedAt, null, run.status, JSON.stringify(run.summary));
+
+    return run;
+  }
+
+  updateAnalysisRun(input: {
+    id: string;
+    status?: AnalysisRun["status"] | undefined;
+    completedAt?: string | null | undefined;
+    summary?: AnalysisRun["summary"] | undefined;
+  }): AnalysisRun {
+    const current = this.getAnalysisRun(input.id);
+
+    if (!current) {
+      throw new Error(`Analysis run not found: ${input.id}`);
+    }
+
+    const next: AnalysisRun = {
+      ...current,
+      status: input.status ?? current.status,
+      completedAt:
+        input.completedAt === undefined
+          ? current.completedAt
+          : input.completedAt ?? undefined,
+      summary: input.summary ?? current.summary,
+    };
+
+    this.connection
+      .prepare(`
+        UPDATE analysis_runs
+        SET completed_at = ?, status = ?, summary_json = ?
+        WHERE id = ?
+      `)
+      .run(next.completedAt ?? null, next.status, JSON.stringify(next.summary), next.id);
+
+    return next;
+  }
+
+  getAnalysisRun(id: string): AnalysisRun | undefined {
+    const row = this.connection
+      .prepare(`
+        SELECT
+          id,
+          started_at,
+          completed_at,
+          status,
+          summary_json
+        FROM analysis_runs
+        WHERE id = ?
+      `)
+      .get(id) as AnalysisRunRow | undefined;
+
+    return row ? mapAnalysisRunRow(row) : undefined;
+  }
+
+  getLatestAnalysisRun(): AnalysisRun | undefined {
+    const row = this.connection
+      .prepare(`
+        SELECT
+          id,
+          started_at,
+          completed_at,
+          status,
+          summary_json
+        FROM analysis_runs
+        ORDER BY started_at DESC
+        LIMIT 1
+      `)
+      .get() as AnalysisRunRow | undefined;
+
+    return row ? mapAnalysisRunRow(row) : undefined;
   }
 
   upsertReportSnapshot(report: Omit<ReportSnapshot, "id" | "generatedAt">): ReportSnapshot {

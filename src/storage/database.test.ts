@@ -584,6 +584,48 @@ test("workflow LLM analyses can be stored and surfaced through workflow names", 
   }
 });
 
+test("analysis runs can be created, updated, and queried", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-analysis-runs-"));
+
+  try {
+    const database = createTestDatabase(tempDir);
+    database.initialize();
+
+    const createdRun = database.createAnalysisRun({
+      window: "day",
+      reportDate: "2026-03-19",
+      workflowCount: 3,
+      payloadCount: 2,
+      applyNames: true,
+    });
+
+    assert.equal(createdRun.status, "running");
+    assert.equal(createdRun.summary.payloadCount, 2);
+
+    const completedRun = database.updateAnalysisRun({
+      id: createdRun.id,
+      status: "completed",
+      completedAt: "2026-03-19T01:02:03.000Z",
+      summary: {
+        ...createdRun.summary,
+        provider: "openai",
+        model: "gpt-5-mini",
+        resultCount: 2,
+      },
+    });
+
+    assert.equal(completedRun.status, "completed");
+    assert.equal(completedRun.completedAt, "2026-03-19T01:02:03.000Z");
+    assert.equal(completedRun.summary.resultCount, 2);
+    assert.equal(database.getAnalysisRun(createdRun.id)?.summary.provider, "openai");
+    assert.equal(database.getLatestAnalysisRun()?.id, createdRun.id);
+
+    database.close();
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("settings can be stored, updated, and deleted as JSON values", () => {
   const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-settings-"));
 

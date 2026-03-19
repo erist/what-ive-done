@@ -13,13 +13,9 @@ import { resolveAppPaths } from "./app-paths.js";
 import { openSystemBrowser } from "./auth/browser.js";
 import {
   DEFAULT_OPENAI_CODEX_ISSUER,
-  isOpenAICodexOAuthAccessTokenExpired,
-  refreshOpenAICodexOAuthCredentials,
   runOpenAICodexOAuthInteractiveLogin,
 } from "./auth/openai-oauth.js";
 import {
-  isGoogleOAuthAccessTokenExpired,
-  refreshGoogleOAuthCredentials,
   runGoogleOAuthInteractiveLogin,
 } from "./auth/google-oauth.js";
 import { getAvailableCollectors } from "./collectors/index.js";
@@ -50,12 +46,6 @@ import {
   deleteOpenAICodexOAuthCredentials,
   deleteGeminiOAuthCredentials,
   deleteLLMApiKey,
-  getGeminiOAuthCredentials,
-  getLLMApiKey,
-  getOpenAICodexOAuthCredentials,
-  hasOpenAICodexOAuthCredentials,
-  hasGeminiOAuthCredentials,
-  hasLLMApiKey,
   setOpenAICodexOAuthCredentials,
   setGeminiOAuthCredentials,
   setLLMApiKey,
@@ -91,21 +81,20 @@ import {
 import { generateMockRawEvents } from "./collectors/mock.js";
 import { importEventsFromFile } from "./importers/events.js";
 import {
-  getDefaultLLMAuthMethod,
   getLLMProviderDescriptor,
   LLM_PROVIDERS,
-  normalizeLLMAuthMethod,
   normalizeLLMProvider,
   supportsLLMAuthMethod,
-  type LLMAuthMethod,
-  type LLMProvider,
 } from "./llm/catalog.js";
 import {
   getStoredLLMConfiguration,
   updateLLMConfiguration,
-  type LLMConfiguration,
 } from "./llm/config.js";
-import { createWorkflowAnalyzer } from "./llm/factory.js";
+import {
+  analyzeWorkflowPayloadRecords,
+  buildProviderCredentialStatus,
+  persistWorkflowLLMAnalysisResults,
+} from "./llm/service.js";
 import { analyzeRawEvents } from "./pipeline/analyze.js";
 import {
   DEFAULT_CLUSTER_CONFIDENCE_WEIGHTS,
@@ -1257,204 +1246,6 @@ function requireEnv(name: string): string {
   }
 
   return value;
-}
-
-function getStoredAnalysisConfiguration(dataDir?: string): LLMConfiguration {
-  return withDatabase(dataDir, (database) => getStoredLLMConfiguration(database));
-}
-
-function resolveApiKeyFromEnv(provider: LLMProvider): string | undefined {
-  const descriptor = getLLMProviderDescriptor(provider);
-
-  for (const envVar of descriptor.apiKeyEnvVars) {
-    const value = process.env[envVar];
-
-    if (value) {
-      return value;
-    }
-  }
-
-  return undefined;
-}
-
-function resolveProviderApiKey(provider: LLMProvider): string {
-  if (!supportsLLMAuthMethod(provider, "api-key")) {
-    throw new Error(`${provider} does not support API key authentication`);
-  }
-
-  const credentialStore = resolveCredentialStore();
-  const storedKey = getLLMApiKey(credentialStore, provider);
-
-  if (storedKey) {
-    return storedKey;
-  }
-
-  const envKey = resolveApiKeyFromEnv(provider);
-
-  if (envKey) {
-    return envKey;
-  }
-
-  const descriptor = getLLMProviderDescriptor(provider);
-  throw new Error(
-    `${descriptor.label} API key is required. Use credential:set ${provider} or set ${descriptor.apiKeyEnvVars.join(", ")}`,
-  );
-}
-
-function resolveLLMAnalysisConfiguration(
-  dataDir: string | undefined,
-  options: {
-    provider?: string | undefined;
-    auth?: string | undefined;
-    model?: string | undefined;
-    baseUrl?: string | undefined;
-    projectId?: string | undefined;
-  },
-): LLMConfiguration {
-  const stored = getStoredAnalysisConfiguration(dataDir);
-  const provider = options.provider ? normalizeLLMProvider(options.provider) : stored.provider;
-  const providerChanged = provider !== stored.provider;
-  const authMethod = options.auth
-    ? normalizeLLMAuthMethod(options.auth)
-    : providerChanged && !supportsLLMAuthMethod(provider, stored.authMethod)
-      ? getDefaultLLMAuthMethod(provider)
-      : stored.authMethod;
-
-  if (!supportsLLMAuthMethod(provider, authMethod)) {
-    throw new Error(`Provider ${provider} does not support auth method ${authMethod}`);
-  }
-
-  const configuration: LLMConfiguration = {
-    provider,
-    authMethod,
-  };
-
-  const model = options.model ?? (providerChanged ? undefined : stored.model);
-  const baseUrl = options.baseUrl ?? (providerChanged ? undefined : stored.baseUrl);
-  const googleProjectId =
-    provider === "gemini"
-      ? options.projectId ?? (providerChanged ? undefined : stored.googleProjectId)
-      : undefined;
-
-  if (model) {
-    configuration.model = model;
-  }
-
-  if (baseUrl) {
-    configuration.baseUrl = baseUrl;
-  }
-
-  if (googleProjectId) {
-    configuration.googleProjectId = googleProjectId;
-  }
-
-  return configuration;
-}
-
-async function resolveGeminiOAuthRuntime(
-  dataDir: string | undefined,
-): Promise<{ accessToken: string; projectId: string }> {
-  const credentialStore = resolveCredentialStore();
-  const storedCredentials = getGeminiOAuthCredentials(credentialStore);
-
-  if (!storedCredentials) {
-    throw new Error("Gemini OAuth credentials not found. Run auth:login gemini first.");
-  }
-
-  const credentials = isGoogleOAuthAccessTokenExpired(storedCredentials)
-    ? await refreshGoogleOAuthCredentials({
-        credentials: storedCredentials,
-      })
-    : storedCredentials;
-
-  if (credentials !== storedCredentials) {
-    setGeminiOAuthCredentials(credentialStore, credentials);
-  }
-
-  const configuredProjectId = getStoredAnalysisConfiguration(dataDir).googleProjectId;
-  const projectId = configuredProjectId ?? credentials.projectId;
-
-  if (!projectId) {
-    throw new Error("Gemini OAuth analysis requires a Google Cloud project id");
-  }
-
-  return {
-    accessToken: credentials.accessToken,
-    projectId,
-  };
-}
-
-async function resolveOpenAICodexOAuthRuntime(): Promise<{
-  apiKey: string;
-  refreshApiKey: () => Promise<string>;
-}> {
-  const credentialStore = resolveCredentialStore();
-
-  const refreshRuntimeCredentials = async (): Promise<string> => {
-    const latestCredentials = getOpenAICodexOAuthCredentials(credentialStore);
-
-    if (!latestCredentials) {
-      throw new Error("OpenAI Codex OAuth credentials not found. Run auth:login openai-codex first.");
-    }
-
-    const refreshed = await refreshOpenAICodexOAuthCredentials({
-      credentials: latestCredentials,
-    });
-
-    setOpenAICodexOAuthCredentials(credentialStore, refreshed);
-
-    if (!refreshed.apiKey) {
-      throw new Error("OpenAI Codex OAuth refresh did not yield an API token. Run auth:login openai-codex again.");
-    }
-
-    return refreshed.apiKey;
-  };
-
-  const storedCredentials = getOpenAICodexOAuthCredentials(credentialStore);
-
-  if (!storedCredentials) {
-    throw new Error("OpenAI Codex OAuth credentials not found. Run auth:login openai-codex first.");
-  }
-
-  const apiKey =
-    !storedCredentials.apiKey || isOpenAICodexOAuthAccessTokenExpired(storedCredentials)
-      ? await refreshRuntimeCredentials()
-      : storedCredentials.apiKey;
-
-  return {
-    apiKey,
-    refreshApiKey: refreshRuntimeCredentials,
-  };
-}
-
-function buildProviderCredentialStatus(dataDir?: string) {
-  const credentialStore = resolveCredentialStore();
-  const configuration = getStoredAnalysisConfiguration(dataDir);
-
-  return {
-    backend: credentialStore.backend,
-    warning: credentialStore.warning,
-    supported: credentialStore.isSupported(),
-    configuration,
-    hasOpenAIKey: hasLLMApiKey(credentialStore, "openai"),
-    providers: LLM_PROVIDERS.map((provider) => {
-      const descriptor = getLLMProviderDescriptor(provider);
-      return {
-        provider,
-        label: descriptor.label,
-        defaultModel: descriptor.defaultModel,
-        supportedAuthMethods: descriptor.supportedAuthMethods,
-        hasApiKey: hasLLMApiKey(credentialStore, provider),
-        envApiKeyAvailable: Boolean(resolveApiKeyFromEnv(provider)),
-        hasOAuthCredentials: provider === "gemini"
-          ? hasGeminiOAuthCredentials(credentialStore)
-          : provider === "openai-codex"
-            ? hasOpenAICodexOAuthCredentials(credentialStore)
-            : false,
-        selected: configuration.provider === provider,
-      };
-    }),
-  };
 }
 
 program
@@ -3031,51 +2822,18 @@ program
           includeHidden: options.includeHidden,
         }),
       );
-      const configuration = resolveLLMAnalysisConfiguration(options.dataDir, options);
-      let apiKey: string | undefined;
-      let accessToken: string | undefined;
-      let projectId = configuration.googleProjectId;
-      let refreshApiKey: (() => Promise<string>) | undefined;
-
-      if (configuration.provider === "gemini" && configuration.authMethod === "oauth2") {
-        const runtimeAuth = await resolveGeminiOAuthRuntime(options.dataDir);
-        accessToken = runtimeAuth.accessToken;
-        projectId = projectId ?? runtimeAuth.projectId;
-      } else if (configuration.provider === "openai-codex" && configuration.authMethod === "oauth2") {
-        const runtimeAuth = await resolveOpenAICodexOAuthRuntime();
-        apiKey = runtimeAuth.apiKey;
-        refreshApiKey = runtimeAuth.refreshApiKey;
-      } else if (configuration.authMethod === "api-key") {
-        apiKey = resolveProviderApiKey(configuration.provider);
-      }
-
-      const analyzer = createWorkflowAnalyzer({
-        provider: configuration.provider,
-        authMethod: configuration.authMethod,
-        apiKey,
-        accessToken,
-        projectId,
-        refreshApiKey,
-        model: configuration.model,
-        baseUrl: configuration.baseUrl,
+      const { analyses } = await analyzeWorkflowPayloadRecords({
+        dataDir: options.dataDir,
+        payloadRecords,
+        provider: options.provider,
+        auth: options.auth,
+        model: options.model,
+        baseUrl: options.baseUrl,
+        projectId: options.projectId,
       });
-      const analyses: WorkflowLLMAnalysis[] = [];
 
-      for (const record of payloadRecords) {
-        analyses.push(await analyzer.analyze(record));
-      }
-
-      withDatabase(options.dataDir, (database) => {
-        database.replaceWorkflowLLMAnalyses(analyses);
-
-        if (options.applyNames) {
-          for (const analysis of analyses) {
-            database.saveWorkflowFeedback({
-              workflowClusterId: analysis.workflowClusterId,
-              renameTo: analysis.workflowName,
-            });
-          }
-        }
+      persistWorkflowLLMAnalysisResults(options.dataDir, analyses, {
+        applyNames: options.applyNames,
       });
 
       if (options.json) {
@@ -3232,10 +2990,14 @@ program
       throw new Error(`${provider} does not support API key storage`);
     }
 
-    const resolvedApiKey = apiKey ?? resolveApiKeyFromEnv(provider);
+    const descriptor = getLLMProviderDescriptor(provider);
+    const resolvedApiKey =
+      apiKey ??
+      descriptor.apiKeyEnvVars
+        .map((envVar) => process.env[envVar]?.trim())
+        .find((value): value is string => Boolean(value));
 
     if (!resolvedApiKey) {
-      const descriptor = getLLMProviderDescriptor(provider);
       throw new Error(`API key is required. Expected one of: ${descriptor.apiKeyEnvVars.join(", ")}`);
     }
 

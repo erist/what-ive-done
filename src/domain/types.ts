@@ -349,6 +349,30 @@ export interface WorkflowSummaryPayloadRecord {
   payload: LLMWorkflowSummaryPayload;
 }
 
+export type AnalysisRunStatus = "running" | "completed" | "failed";
+
+export interface AnalysisRunSummary {
+  provider?: string | undefined;
+  model?: string | undefined;
+  applyNames?: boolean | undefined;
+  includeExcluded?: boolean | undefined;
+  includeHidden?: boolean | undefined;
+  workflowCount?: number | undefined;
+  payloadCount?: number | undefined;
+  resultCount?: number | undefined;
+  window?: ReportWindow | undefined;
+  reportDate?: string | undefined;
+  error?: string | undefined;
+}
+
+export interface AnalysisRun {
+  id: string;
+  startedAt: string;
+  completedAt?: string | undefined;
+  status: AnalysisRunStatus;
+  summary: AnalysisRunSummary;
+}
+
 export interface WorkflowLLMAnalysis {
   workflowClusterId: string;
   provider: string;
