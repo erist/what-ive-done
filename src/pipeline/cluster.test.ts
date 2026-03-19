@@ -2,7 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import type { Session } from "../domain/types.js";
-import { clusterSessions } from "./cluster.js";
+import {
+  buildWorkflowSignatureForDetectionMode,
+  buildWorkflowSignatureFromSteps,
+  clusterSessions,
+} from "./cluster.js";
 
 function createSession(input: {
   id: string;
@@ -182,4 +186,46 @@ test("clusterSessions honors a lowered minimum session duration threshold", () =
 
   assert.equal(defaultClusters.length, 0);
   assert.equal(loweredDurationClusters.length, 1);
+});
+
+test("clusterSessions marks short-form clusters with a mode-specific signature", () => {
+  const sessions = [
+    createSession({
+      id: "session-1",
+      startTime: "2026-03-10T09:00:00.000Z",
+      endTime: "2026-03-10T09:00:05.000Z",
+      application: "system settings",
+      actions: ["switch_to_system settings"],
+    }),
+    createSession({
+      id: "session-2",
+      startTime: "2026-03-10T10:00:00.000Z",
+      endTime: "2026-03-10T10:00:05.000Z",
+      application: "system settings",
+      actions: ["switch_to_system settings"],
+    }),
+    createSession({
+      id: "session-3",
+      startTime: "2026-03-10T11:00:00.000Z",
+      endTime: "2026-03-10T11:00:05.000Z",
+      application: "system settings",
+      actions: ["switch_to_system settings"],
+    }),
+  ];
+
+  const clusters = clusterSessions(sessions, {
+    detectionMode: "short_form",
+    minSessionDurationSeconds: 0,
+    maxSessionDurationSeconds: 20,
+    minimumWorkflowFrequency: 3,
+  });
+  const baseSignature = buildWorkflowSignatureFromSteps(sessions[0]?.steps ?? []);
+
+  assert.equal(clusters.length, 1);
+  assert.equal(clusters[0]?.detectionMode, "short_form");
+  assert.notEqual(clusters[0]?.workflowSignature, baseSignature);
+  assert.equal(
+    clusters[0]?.workflowSignature,
+    buildWorkflowSignatureForDetectionMode(baseSignature, "short_form"),
+  );
 });

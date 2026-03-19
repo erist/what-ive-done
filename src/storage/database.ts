@@ -79,6 +79,7 @@ interface NormalizedEventRow {
 interface WorkflowClusterRow {
   id: string;
   workflow_signature: string | null;
+  detection_mode: WorkflowCluster["detectionMode"] | null;
   name: string;
   occurrence_count: number | null;
   frequency: number;
@@ -880,6 +881,7 @@ export class AppDatabase {
         INSERT INTO workflow_clusters (
           id,
           workflow_signature,
+          detection_mode,
           name,
           occurrence_count,
           frequency,
@@ -896,9 +898,10 @@ export class AppDatabase {
           automation_hints_json,
           excluded,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           workflow_signature = excluded.workflow_signature,
+          detection_mode = excluded.detection_mode,
           name = excluded.name,
           occurrence_count = excluded.occurrence_count,
           frequency = excluded.frequency,
@@ -927,6 +930,7 @@ export class AppDatabase {
         insertWorkflowCluster.run(
           cluster.id,
           cluster.workflowSignature,
+          cluster.detectionMode,
           cluster.name,
           cluster.occurrenceCount,
           cluster.frequency,
@@ -975,6 +979,7 @@ export class AppDatabase {
         SELECT
           id,
           workflow_signature,
+          detection_mode,
           name,
           occurrence_count,
           frequency,
@@ -1020,6 +1025,7 @@ export class AppDatabase {
       return {
         id: row.id,
         workflowSignature: row.workflow_signature ?? row.id,
+        detectionMode: row.detection_mode ?? "standard",
         name: feedback?.renameTo ?? row.name,
         businessPurpose: feedback?.businessPurpose,
         sessionIds: sessionIdsByClusterId.get(row.id) ?? [],

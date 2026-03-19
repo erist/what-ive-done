@@ -6,17 +6,24 @@ import type {
   WorkflowCluster,
   WorkflowConfidenceDetails,
   WorkflowConfidenceWeights,
+  WorkflowDetectionMode,
   WorkflowSimilarityWeights,
   WorkflowVariant,
 } from "../domain/types.js";
-import { DEFAULT_WORKFLOW_CONFIRMATION_CONFIG } from "../config/analysis.js";
+import {
+  DEFAULT_WORKFLOW_CONFIRMATION_CONFIG,
+  DEFAULT_WORKFLOW_SHORT_FORM_CONFIG,
+} from "../config/analysis.js";
 import { stableId } from "../domain/ids.js";
 
 export type ClusterScoringStrategy = "legacy" | "hybrid_v2";
 
 export interface ClusterOptions {
+  detectionMode?: WorkflowDetectionMode | undefined;
   similarityThreshold?: number;
   minSessionDurationSeconds?: number;
+  maxSessionDurationSeconds?: number | undefined;
+  maxActionSequenceLength?: number | undefined;
   minimumWorkflowFrequency?: number;
   confirmationWindowDays?: number;
   scoringStrategy?: ClusterScoringStrategy | undefined;
@@ -121,6 +128,27 @@ export function buildWorkflowSignatureFromSteps(steps: SessionStep[]): string {
   const contextSignature = buildContextTokens(steps).join(">");
 
   return stableId("workflow_signature", `${actionSignature}||${contextSignature}`);
+}
+
+export function buildWorkflowSignatureForDetectionMode(
+  workflowSignature: string,
+  detectionMode: WorkflowDetectionMode,
+): string {
+  if (detectionMode === "standard") {
+    return workflowSignature;
+  }
+
+  return stableId("workflow_signature", `${detectionMode}:${workflowSignature}`);
+}
+
+export function buildWorkflowSignatureFromStepsForDetectionMode(
+  steps: SessionStep[],
+  detectionMode: WorkflowDetectionMode,
+): string {
+  return buildWorkflowSignatureForDetectionMode(
+    buildWorkflowSignatureFromSteps(steps),
+    detectionMode,
+  );
 }
 
 function buildDescriptor(session: Session): SessionDescriptor {
@@ -663,11 +691,18 @@ function computeConfidence(args: {
 }
 
 export function clusterSessions(sessions: Session[], options: ClusterOptions = {}): WorkflowCluster[] {
+  const detectionMode = options.detectionMode ?? "standard";
   const similarityThreshold = options.similarityThreshold ?? DEFAULT_CLUSTER_SIMILARITY_THRESHOLD;
   const minimumWorkflowFrequency = options.minimumWorkflowFrequency ?? DEFAULT_MINIMUM_WORKFLOW_FREQUENCY;
   const minSessionDurationSeconds =
     options.minSessionDurationSeconds ??
     DEFAULT_WORKFLOW_CONFIRMATION_CONFIG.minSessionDurationSeconds;
+  const maxSessionDurationSeconds = options.maxSessionDurationSeconds ?? Number.POSITIVE_INFINITY;
+  const maxActionSequenceLength =
+    options.maxActionSequenceLength ??
+    (detectionMode === "short_form"
+      ? DEFAULT_WORKFLOW_SHORT_FORM_CONFIG.maxActionSequenceLength
+      : Number.POSITIVE_INFINITY);
   const confirmationWindowDays =
     options.confirmationWindowDays ??
     DEFAULT_WORKFLOW_CONFIRMATION_CONFIG.confirmationWindowDays;
@@ -681,7 +716,10 @@ export function clusterSessions(sessions: Session[], options: ClusterOptions = {
     .map((session) => buildDescriptor(session))
     .filter(
       (descriptor) =>
-        descriptor.durationSeconds >= minSessionDurationSeconds && descriptor.actionSequence.length > 0,
+        descriptor.durationSeconds >= minSessionDurationSeconds &&
+        descriptor.durationSeconds <= maxSessionDurationSeconds &&
+        descriptor.actionSequence.length > 0 &&
+        descriptor.actionSequence.length <= maxActionSequenceLength,
     );
 
   const mutableClusters: MutableCluster[] = [];
@@ -746,8 +784,9 @@ export function clusterSessions(sessions: Session[], options: ClusterOptions = {
         similarityWeights,
         confidenceWeights,
       });
-      const workflowSignature = buildWorkflowSignatureFromSteps(
+      const workflowSignature = buildWorkflowSignatureFromStepsForDetectionMode(
         representativeDescriptor.session.steps,
+        detectionMode,
       );
       const suitability = determineSuitability(
         cluster.descriptors,
@@ -764,6 +803,7 @@ export function clusterSessions(sessions: Session[], options: ClusterOptions = {
       return {
         id: stableId("workflow_cluster", workflowSignature),
         workflowSignature,
+        detectionMode,
         name: buildWorkflowName(representativeSequence, involvedApps),
         sessionIds: unique(cluster.descriptors.map((descriptor) => descriptor.session.id)),
         occurrenceCount: cluster.descriptors.length,

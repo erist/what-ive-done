@@ -37,6 +37,12 @@ export interface WorkflowConfirmationConfig {
   minSessionDurationSeconds: number;
 }
 
+export interface WorkflowShortFormConfig {
+  maxSessionDurationSeconds: number;
+  maxActionSequenceLength: number;
+  similarityThreshold: number;
+}
+
 export const DEFAULT_NORMALIZATION_CONFIG: NormalizationConfig = {
   browser: {
     schemaVersion: 2,
@@ -124,4 +130,10 @@ export const DEFAULT_SESSION_SEGMENTATION_CONFIG: SessionSegmentationConfig = {
 export const DEFAULT_WORKFLOW_CONFIRMATION_CONFIG: WorkflowConfirmationConfig = {
   confirmationWindowDays: 7,
   minSessionDurationSeconds: 45,
+};
+
+export const DEFAULT_WORKFLOW_SHORT_FORM_CONFIG: WorkflowShortFormConfig = {
+  maxSessionDurationSeconds: 20,
+  maxActionSequenceLength: 3,
+  similarityThreshold: 0.86,
 };

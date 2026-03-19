@@ -67,7 +67,10 @@ Tune confirmed-workflow thresholds:
 wid config set analysis.confirmationWindowDays 14
 wid config set analysis.minSessionDurationSeconds 15
 wid analyze
+wid workflow:list --json
 ```
+
+Repeated quick sessions that stay below the standard duration threshold can now be promoted as `short_form` workflow clusters. JSON workflow output includes a `detectionMode` field so standard and short-form clusters can be separated downstream.
 
 ### Detailed Docs
 
@@ -138,7 +141,10 @@ confirmed workflow 기준 조정:
 wid config set analysis.confirmationWindowDays 14
 wid config set analysis.minSessionDurationSeconds 15
 wid analyze
+wid workflow:list --json
 ```
+
+표준 duration 기준보다 짧은 반복 세션도 이제 `short_form` workflow cluster로 승격될 수 있습니다. JSON 기반 workflow 출력에는 `detectionMode`가 포함되어 standard cluster와 short-form cluster를 구분할 수 있습니다.
 
 ### 상세 문서 링크
 

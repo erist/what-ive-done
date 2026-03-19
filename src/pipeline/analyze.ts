@@ -5,8 +5,17 @@ import type {
   WorkflowCluster,
   WorkflowFeedbackSummary,
 } from "../domain/types.js";
+import {
+  DEFAULT_WORKFLOW_CONFIRMATION_CONFIG,
+  DEFAULT_WORKFLOW_SHORT_FORM_CONFIG,
+} from "../config/analysis.js";
 import { stableId } from "../domain/ids.js";
-import { buildWorkflowSignatureFromSteps, clusterSessions } from "./cluster.js";
+import {
+  DEFAULT_CLUSTER_SIMILARITY_THRESHOLD,
+  buildWorkflowSignatureForDetectionMode,
+  buildWorkflowSignatureFromSteps,
+  clusterSessions,
+} from "./cluster.js";
 import { normalizeRawEvents } from "./normalize.js";
 import { sessionizeNormalizedEvents } from "./sessionize.js";
 
@@ -39,16 +48,21 @@ function buildLegacyWorkflowSignature(steps: Session["steps"]): string {
 }
 
 function resolveWorkflowFeedbackSummary(args: {
-  workflowSignature: string;
+  workflowSignatures: string[];
   legacyWorkflowSignature?: string | undefined;
   feedbackByWorkflowSignature: Map<string, WorkflowFeedbackSummary>;
 }): WorkflowFeedbackSummary | undefined {
-  return (
-    args.feedbackByWorkflowSignature.get(args.workflowSignature) ??
-    (args.legacyWorkflowSignature
-      ? args.feedbackByWorkflowSignature.get(args.legacyWorkflowSignature)
-      : undefined)
-  );
+  for (const workflowSignature of args.workflowSignatures) {
+    const feedback = args.feedbackByWorkflowSignature.get(workflowSignature);
+
+    if (feedback) {
+      return feedback;
+    }
+  }
+
+  return args.legacyWorkflowSignature
+    ? args.feedbackByWorkflowSignature.get(args.legacyWorkflowSignature)
+    : undefined;
 }
 
 function countMostCommon(values: string[]): string {
@@ -80,9 +94,13 @@ function splitSessionsWithFeedback(
   const splitSessions: Session[] = [];
 
   for (const session of sessions) {
-    const signature = buildWorkflowSignatureFromSteps(session.steps);
+    const standardSignature = buildWorkflowSignatureFromSteps(session.steps);
+    const shortFormSignature = buildWorkflowSignatureForDetectionMode(
+      standardSignature,
+      "short_form",
+    );
     const splitAfterActionName = resolveWorkflowFeedbackSummary({
-      workflowSignature: signature,
+      workflowSignatures: [standardSignature, shortFormSignature],
       legacyWorkflowSignature: buildLegacyWorkflowSignature(session.steps),
       feedbackByWorkflowSignature,
     })?.splitAfterActionName;
@@ -147,7 +165,7 @@ function mergeWorkflowClusters(
 
   for (const cluster of clusters) {
     const mergeIntoWorkflowSignature = resolveWorkflowFeedbackSummary({
-      workflowSignature: cluster.workflowSignature,
+      workflowSignatures: [cluster.workflowSignature],
       legacyWorkflowSignature: stableId(
         "workflow_signature",
         cluster.representativeSequence.join(">"),
@@ -155,11 +173,17 @@ function mergeWorkflowClusters(
       feedbackByWorkflowSignature,
     })?.mergeIntoWorkflowSignature;
     const targetSignature = mergeIntoWorkflowSignature ?? cluster.workflowSignature;
-    grouped.set(targetSignature, [...(grouped.get(targetSignature) ?? []), cluster]);
+    const targetKey = `${cluster.detectionMode}:${targetSignature}`;
+    grouped.set(targetKey, [...(grouped.get(targetKey) ?? []), cluster]);
   }
 
   return [...grouped.entries()]
-    .map(([targetSignature, members]) => {
+    .map(([groupKey, members]) => {
+      const [detectionMode, targetSignature] = groupKey.split(":", 2) as [
+        WorkflowCluster["detectionMode"],
+        string,
+      ];
+
       if (members.length === 1) {
         const onlyCluster = members[0];
 
@@ -170,6 +194,7 @@ function mergeWorkflowClusters(
         return {
           ...onlyCluster,
           id: stableId("workflow_cluster", targetSignature),
+          detectionMode,
           workflowSignature: targetSignature,
         };
       }
@@ -210,6 +235,7 @@ function mergeWorkflowClusters(
       return {
         ...representative,
         id: stableId("workflow_cluster", targetSignature),
+        detectionMode,
         workflowSignature: targetSignature,
         sessionIds: [...new Set(members.flatMap((cluster) => cluster.sessionIds))],
         occurrenceCount,
@@ -323,13 +349,50 @@ export function analyzeRawEvents(rawEvents: RawEvent[], options: AnalyzeOptions 
       ? { confirmationWindowDays: options.confirmationWindowDays }
       : {}),
   };
+  const standardMinSessionDurationSeconds =
+    options.minSessionDurationSeconds ??
+    DEFAULT_WORKFLOW_CONFIRMATION_CONFIG.minSessionDurationSeconds;
+  const shortFormMaxSessionDurationSeconds = Math.min(
+    DEFAULT_WORKFLOW_SHORT_FORM_CONFIG.maxSessionDurationSeconds,
+    Math.max(0, standardMinSessionDurationSeconds - 1),
+  );
   const sessions = sessionizeNormalizedEvents(normalizedEvents, sessionizeOptions);
   const splitSessions = splitSessionsWithFeedback(
     sessions,
     options.feedbackByWorkflowSignature,
   );
+  const standardClusters = clusterSessions(splitSessions, {
+    ...clusterOptions,
+    detectionMode: "standard",
+  });
+  const standardSessionIds = new Set(
+    standardClusters.flatMap((cluster) => cluster.sessionIds),
+  );
+  const shortFormClusters =
+    shortFormMaxSessionDurationSeconds > 0
+      ? clusterSessions(
+          splitSessions.filter((session) => !standardSessionIds.has(session.id)),
+          {
+            ...clusterOptions,
+            detectionMode: "short_form",
+            minSessionDurationSeconds: 0,
+            maxSessionDurationSeconds: shortFormMaxSessionDurationSeconds,
+            maxActionSequenceLength:
+              DEFAULT_WORKFLOW_SHORT_FORM_CONFIG.maxActionSequenceLength,
+            similarityThreshold: Math.max(
+              clusterOptions.similarityThreshold ??
+                DEFAULT_CLUSTER_SIMILARITY_THRESHOLD,
+              DEFAULT_WORKFLOW_SHORT_FORM_CONFIG.similarityThreshold,
+            ),
+            minimumWorkflowFrequency: Math.max(
+              clusterOptions.minimumWorkflowFrequency ?? 3,
+              3,
+            ),
+          },
+        )
+      : [];
   const workflowClusters = mergeWorkflowClusters(
-    clusterSessions(splitSessions, clusterOptions),
+    [...standardClusters, ...shortFormClusters],
     options.feedbackByWorkflowSignature,
   );
 
