@@ -2,8 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { generateMockRawEvents } from "../collectors/mock.js";
-import type { RawEvent } from "../domain/types.js";
-import { buildWorkflowReport, buildWorkflowReportComparison } from "./report.js";
+import type { RawEvent, WorkflowCluster } from "../domain/types.js";
+import {
+  buildWorkflowReport,
+  buildWorkflowReportComparison,
+  buildWorkflowReportFromAnalysis,
+} from "./report.js";
 import { resolveReportTimeWindow } from "./windows.js";
 
 function toRawEvents(referenceDate: Date): RawEvent[] {
@@ -22,6 +26,67 @@ function toRawEvents(referenceDate: Date): RawEvent[] {
     sensitiveFiltered: true,
     createdAt: input.timestamp,
   }));
+}
+
+function createWorkflowCluster(input: {
+  id: string;
+  workflowSignature: string;
+  detectionMode: WorkflowCluster["detectionMode"];
+  name: string;
+  frequency: number;
+  averageDurationSeconds: number;
+  totalDurationSeconds: number;
+  automationSuitability: WorkflowCluster["automationSuitability"];
+  confidenceScore: number;
+}): WorkflowCluster {
+  return {
+    id: input.id,
+    workflowSignature: input.workflowSignature,
+    detectionMode: input.detectionMode,
+    name: input.name,
+    sessionIds: [],
+    occurrenceCount: input.frequency,
+    frequency: input.frequency,
+    averageDurationSeconds: input.averageDurationSeconds,
+    totalDurationSeconds: input.totalDurationSeconds,
+    representativeSequence: [input.name.toLowerCase().replace(/\s+/g, "_")],
+    representativeSteps: [input.name],
+    involvedApps: ["chrome"],
+    confidenceScore: input.confidenceScore,
+    confidenceDetails: {
+      similarityWeights: {
+        sequence: 0.35,
+        actionSet: 0.25,
+        context: 0.25,
+        timeOfDay: 0.15,
+      },
+      confidenceWeights: {
+        compositeSimilarity: 0.55,
+        topVariantConcentration: 0.25,
+        repetition: 0.2,
+      },
+      averageSequenceSimilarity: input.confidenceScore,
+      averageActionSetSimilarity: input.confidenceScore,
+      averageContextSimilarity: input.confidenceScore,
+      averageTimeOfDaySimilarity: input.confidenceScore,
+      averageCompositeSimilarity: input.confidenceScore,
+      topVariantConcentration: 1,
+      repetitionScore: 1,
+    },
+    topVariants: [
+      {
+        sequence: [input.name.toLowerCase().replace(/\s+/g, "_")],
+        occurrenceCount: input.frequency,
+        averageDurationSeconds: input.averageDurationSeconds,
+      },
+    ],
+    automationSuitability: input.automationSuitability,
+    recommendedApproach: "Browser automation",
+    automationHints: [],
+    excluded: false,
+    hidden: false,
+    userLabeled: false,
+  };
 }
 
 test("buildWorkflowReport produces emerging workflows for a single local day", () => {
@@ -91,6 +156,56 @@ test("buildWorkflowReport produces confirmed workflows for a weekly window", () 
   assert.deepEqual(
     report.workflows.map((entry) => entry.frequency),
     [3, 3, 3, 3, 3],
+  );
+});
+
+test("buildWorkflowReportFromAnalysis keeps short-form workflows visible but out of quick-win automation candidates", () => {
+  const reportWindow = resolveReportTimeWindow({
+    window: "week",
+    reportDate: "2026-03-14",
+    timezone: "UTC",
+    timezoneOffsetMinutes: 0,
+  });
+  const report = buildWorkflowReportFromAnalysis({
+    rawEvents: [],
+    timeWindow: reportWindow,
+    analysisResult: {
+      normalizedEvents: [],
+      sessions: [],
+      workflowClusters: [
+        createWorkflowCluster({
+          id: "workflow-standard",
+          workflowSignature: "signature-standard",
+          detectionMode: "standard",
+          name: "Review Orders",
+          frequency: 3,
+          averageDurationSeconds: 120,
+          totalDurationSeconds: 360,
+          automationSuitability: "high",
+          confidenceScore: 0.9,
+        }),
+        createWorkflowCluster({
+          id: "workflow-short-form",
+          workflowSignature: "signature-short-form",
+          detectionMode: "short_form",
+          name: "Switch To Settings",
+          frequency: 6,
+          averageDurationSeconds: 6,
+          totalDurationSeconds: 36,
+          automationSuitability: "high",
+          confidenceScore: 0.92,
+        }),
+      ],
+    },
+  });
+
+  assert.deepEqual(
+    report.workflows.map((workflow) => workflow.detectionMode),
+    ["standard", "short_form"],
+  );
+  assert.deepEqual(
+    report.summary.quickWinAutomationCandidates.map((workflow) => workflow.workflowName),
+    ["Review Orders"],
   );
 });
 
@@ -251,6 +366,7 @@ test("buildWorkflowReportComparison highlights new, disappeared, and approved-ca
       {
         workflowClusterId: "workflow-existing",
         workflowSignature: "signature-existing",
+        detectionMode: "standard" as const,
         workflowName: "Review Orders",
         frequency: 3,
         frequencyPerWeek: 21,
@@ -276,6 +392,7 @@ test("buildWorkflowReportComparison highlights new, disappeared, and approved-ca
       {
         workflowClusterId: "workflow-disappeared",
         workflowSignature: "signature-disappeared",
+        detectionMode: "standard" as const,
         workflowName: "Old Workflow",
         frequency: 2,
         frequencyPerWeek: 14,
@@ -319,6 +436,7 @@ test("buildWorkflowReportComparison highlights new, disappeared, and approved-ca
       {
         workflowClusterId: "workflow-existing",
         workflowSignature: "signature-existing",
+        detectionMode: "standard" as const,
         workflowName: "Review Orders",
         frequency: 4,
         frequencyPerWeek: 28,
@@ -344,6 +462,7 @@ test("buildWorkflowReportComparison highlights new, disappeared, and approved-ca
       {
         workflowClusterId: "workflow-new",
         workflowSignature: "signature-new",
+        detectionMode: "standard" as const,
         workflowName: "New Workflow",
         frequency: 3,
         frequencyPerWeek: 21,

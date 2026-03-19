@@ -123,6 +123,7 @@ Current heuristic defaults in code:
 - workflow confirmation window: 7 days, configurable via `analysis.confirmationWindowDays`
 - short-form workflow lane: repeated sessions below the standard duration threshold, capped at 20 seconds and 3 representative actions
 - persisted workflow clusters now carry `detectionMode: "standard" | "short_form"`
+- report output keeps `short_form` workflows visible, but quick-win automation summaries stay focused on `standard` workflows
 
 ## Debugging and Quality Gates
 
@@ -500,6 +501,7 @@ Print LLM-safe payloads:
 
 ```bash
 npm run dev -- llm:payloads --data-dir ./tmp/local-data
+npm run dev -- llm:payloads --data-dir ./tmp/local-data --include-short-form
 ```
 
 Configure a default provider and run workflow analysis:
@@ -509,7 +511,10 @@ npm run dev -- llm:providers --json
 npm run dev -- llm:config:set --data-dir ./tmp/local-data --provider gemini --auth api-key --model gemini-2.5-flash
 export GEMINI_API_KEY="your-api-key"
 npm run dev -- llm:analyze --data-dir ./tmp/local-data --json
+npm run dev -- llm:analyze --data-dir ./tmp/local-data --include-short-form --json
 ```
+
+By default, `llm:payloads`, `llm:analyze`, and the local viewer's manual analysis path exclude `short_form` workflows. Use `--include-short-form` when you explicitly want those quick repeated sessions in the payload set.
 
 `llm:providers` lists `openai`, `openai-codex`, `gemini`, and `claude`.
 In the current M18 runtime milestone, `openai-codex` supports stored OAuth login and
@@ -623,11 +628,11 @@ and `tools list`, and powers `llm:analyze` for the `openai-codex` provider.
 | `session:list` | List analyzed sessions. |
 | `session:show` | Show one analyzed session with ordered steps. |
 | `session:delete` | Delete a session's source events and rerun analysis. |
-| `llm:payloads` | Print summarized workflow payloads without raw logs. |
+| `llm:payloads` | Print summarized workflow payloads without raw logs; `short_form` workflows stay out unless `--include-short-form` is passed. |
 | `llm:providers` | List supported OpenAI, OpenAI Codex, Gemini, and Claude providers with auth methods. |
 | `llm:config:show` | Show the saved default LLM provider/model/auth configuration. |
 | `llm:config:set` | Update the saved default LLM provider/model/auth configuration. |
-| `llm:analyze` | Run summarized workflow analysis through the configured provider or CLI override. |
+| `llm:analyze` | Run summarized workflow analysis through the configured provider or CLI override; `short_form` workflows stay out unless `--include-short-form` is passed. |
 | `llm:results` | List stored LLM analysis results. |
 | `credential:status` | Show secure credential backend status for macOS Keychain or Windows DPAPI. |
 | `credential:set` | Store an API-key provider credential in secure OS credential storage. |

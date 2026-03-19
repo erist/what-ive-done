@@ -1,4 +1,4 @@
-import type { LLMWorkflowSummaryPayload } from "../domain/types.js";
+import type { LLMWorkflowSummaryPayload, WorkflowCluster } from "../domain/types.js";
 
 export interface WorkflowSummaryPayloadInput {
   representativeSteps: string[];
@@ -6,6 +6,12 @@ export interface WorkflowSummaryPayloadInput {
   averageDurationSeconds: number;
   applications: string[];
   domains: string[];
+}
+
+export interface WorkflowPayloadFilterOptions {
+  includeExcluded?: boolean | undefined;
+  includeHidden?: boolean | undefined;
+  includeShortForm?: boolean | undefined;
 }
 
 function unique(values: string[]): string[] {
@@ -22,4 +28,20 @@ export function buildWorkflowSummaryPayload(
     applications: unique(input.applications),
     domains: unique(input.domains.filter((domain) => domain.length > 0)),
   };
+}
+
+export function filterWorkflowClustersForPayloads(
+  clusters: WorkflowCluster[],
+  options: WorkflowPayloadFilterOptions = {},
+): WorkflowCluster[] {
+  const includeExcluded = options.includeExcluded ?? false;
+  const includeHidden = options.includeHidden ?? false;
+  const includeShortForm = options.includeShortForm ?? false;
+
+  return clusters.filter(
+    (cluster) =>
+      (includeExcluded || !cluster.excluded) &&
+      (includeHidden || !cluster.hidden) &&
+      (includeShortForm || cluster.detectionMode !== "short_form"),
+  );
 }

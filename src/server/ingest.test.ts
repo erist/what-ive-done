@@ -532,6 +532,8 @@ test("startIngestServer runs viewer analysis and persists results", async () => 
     const statusPayload = (await statusResponse.json()) as {
       payloadCount: number;
       workflowCount: number;
+      shortFormExcludedCount: number;
+      includeShortForm: boolean;
       latestRun: unknown;
       latestResultCount: number;
       credentialStatus: { configuration: { provider: string } };
@@ -540,6 +542,8 @@ test("startIngestServer runs viewer analysis and persists results", async () => 
     assert.equal(statusResponse.status, 200);
     assert.ok(statusPayload.payloadCount > 0);
     assert.ok(statusPayload.workflowCount > 0);
+    assert.equal(statusPayload.shortFormExcludedCount, 0);
+    assert.equal(statusPayload.includeShortForm, false);
     assert.equal(statusPayload.latestRun, null);
     assert.equal(statusPayload.latestResultCount, 0);
     assert.equal(statusPayload.credentialStatus.configuration.provider, "openai");

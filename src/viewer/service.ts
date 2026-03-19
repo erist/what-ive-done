@@ -16,7 +16,10 @@ import type {
   WorkflowReportComparison,
 } from "../domain/types.js";
 import { applyWorkflowFeedbackToClusters } from "../feedback/service.js";
-import { buildWorkflowSummaryPayload } from "../llm/payloads.js";
+import {
+  buildWorkflowSummaryPayload,
+  filterWorkflowClustersForPayloads,
+} from "../llm/payloads.js";
 import type { AnalysisResult } from "../pipeline/analyze.js";
 import { analyzeRawEvents } from "../pipeline/analyze.js";
 import { buildWorkflowReportFromAnalysis } from "../reporting/report.js";
@@ -31,6 +34,7 @@ export interface ViewerDashboardOptions {
   timezone?: string | undefined;
   timezoneOffsetMinutes?: number | undefined;
   now?: Date | undefined;
+  includeShortForm?: boolean | undefined;
 }
 
 export interface ViewerSessionSummary {
@@ -47,6 +51,7 @@ export interface ViewerSessionSummary {
 export interface ViewerWorkflowSummary {
   id: string;
   workflowSignature: string;
+  detectionMode: WorkflowCluster["detectionMode"];
   workflowName: string;
   businessPurpose?: string | undefined;
   frequency: number;
@@ -87,6 +92,8 @@ export interface ViewerAnalysisPreparation {
   timeWindow: ReportTimeWindow;
   rawEventCount: number;
   workflowCount: number;
+  shortFormExcludedCount: number;
+  includeShortForm: boolean;
   payloadRecords: WorkflowSummaryPayloadRecord[];
 }
 
@@ -155,6 +162,10 @@ function compareWorkflowSummaries(
   left: ViewerWorkflowSummary,
   right: ViewerWorkflowSummary,
 ): number {
+  if (left.detectionMode !== right.detectionMode) {
+    return Number(left.detectionMode === "short_form") - Number(right.detectionMode === "short_form");
+  }
+
   if (left.hidden !== right.hidden) {
     return Number(left.hidden) - Number(right.hidden);
   }
@@ -178,6 +189,7 @@ function toViewerWorkflowSummary(
   return {
     id: workflow.id,
     workflowSignature: workflow.workflowSignature,
+    detectionMode: workflow.detectionMode,
     workflowName: workflow.name,
     businessPurpose: workflow.businessPurpose,
     frequency: workflow.frequency,
@@ -220,10 +232,16 @@ function buildViewerWorkflowSummaries(
 function buildWorkflowSummaryPayloadRecordsForViewerClusters(
   clusters: WorkflowCluster[],
   sessions: Session[],
+  options: { includeShortForm?: boolean | undefined } = {},
 ): WorkflowSummaryPayloadRecord[] {
   const sessionsById = new Map(sessions.map((session) => [session.id, session]));
+  const eligibleClusters = filterWorkflowClustersForPayloads(clusters, {
+    includeExcluded: true,
+    includeHidden: true,
+    includeShortForm: options.includeShortForm,
+  });
 
-  return clusters.map((cluster) => {
+  return eligibleClusters.map((cluster) => {
     const applications: string[] = [];
     const domains: string[] = [];
 
@@ -252,6 +270,7 @@ function buildWorkflowSummaryPayloadRecordsForViewerClusters(
     return {
       workflowClusterId: cluster.id,
       workflowName: cluster.name,
+      detectionMode: cluster.detectionMode,
       payload: buildWorkflowSummaryPayload({
         representativeSteps: cluster.representativeSteps,
         frequency: cluster.frequency,
@@ -332,6 +351,7 @@ export function buildViewerAnalysisPreparation(
   database: AppDatabase,
   options: ViewerDashboardOptions = {},
 ): ViewerAnalysisPreparation {
+  const includeShortForm = options.includeShortForm ?? false;
   const { rawEvents, timeWindow, analysisResult } = buildLiveAnalysisState(database, options);
   const feedbackByClusterId = database.listWorkflowFeedbackSummary();
   const report = buildWorkflowReportFromAnalysis({
@@ -347,15 +367,24 @@ export function buildViewerAnalysisPreparation(
     analysisResult.workflowClusters,
     feedbackByClusterId,
   ).filter((workflow) => visibleWorkflowIds.has(workflow.id));
+  const shortFormExcludedCount = includeShortForm
+    ? 0
+    : reportWorkflows.filter((workflow) => workflow.detectionMode === "short_form").length;
+  const payloadRecords = buildWorkflowSummaryPayloadRecordsForViewerClusters(
+    reportWorkflows,
+    analysisResult.sessions,
+    {
+      includeShortForm,
+    },
+  );
 
   return {
     generatedAt: new Date().toISOString(),
     timeWindow,
     rawEventCount: rawEvents.length,
     workflowCount: reportWorkflows.length,
-    payloadRecords: buildWorkflowSummaryPayloadRecordsForViewerClusters(
-      reportWorkflows,
-      analysisResult.sessions,
-    ),
+    shortFormExcludedCount,
+    includeShortForm,
+    payloadRecords,
   };
 }

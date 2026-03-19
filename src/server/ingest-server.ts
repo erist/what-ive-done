@@ -138,6 +138,21 @@ function parseViewerOptions(
   return options;
 }
 
+function parseViewerAnalysisOptions(
+  requestUrl: URL,
+  dataDir?: string,
+): {
+  dataDir?: string;
+  window?: "all" | "day" | "week";
+  date?: string | undefined;
+  includeShortForm?: boolean | undefined;
+} {
+  return {
+    ...parseViewerOptions(requestUrl, dataDir),
+    includeShortForm: requestUrl.searchParams.get("includeShortForm") === "1",
+  };
+}
+
 function sendJson(
   response: ServerResponse,
   statusCode: number,
@@ -298,7 +313,7 @@ export async function startIngestServer(options: IngestServerOptions = {}): Prom
       try {
         const preparation = buildViewerAnalysisPreparation(
           database,
-          parseViewerOptions(requestUrl, resolvedDataDir),
+          parseViewerAnalysisOptions(requestUrl, resolvedDataDir),
         );
 
         sendJson(response, 200, {
@@ -307,6 +322,8 @@ export async function startIngestServer(options: IngestServerOptions = {}): Prom
           rawEventCount: preparation.rawEventCount,
           workflowCount: preparation.workflowCount,
           payloadCount: preparation.payloadRecords.length,
+          shortFormExcludedCount: preparation.shortFormExcludedCount,
+          includeShortForm: preparation.includeShortForm,
           latestRun: database.getLatestAnalysisRun() ?? null,
           latestResultCount: database.listWorkflowLLMAnalyses().length,
           running: Boolean(activeAnalysisRunPromise),
@@ -470,9 +487,13 @@ export async function startIngestServer(options: IngestServerOptions = {}): Prom
 
         const body = (await readJsonBody(request)) as Record<string, unknown>;
         const applyNames = normalizeOptionalBoolean(body.applyNames) ?? false;
+        const includeShortForm = normalizeOptionalBoolean(body.includeShortForm) ?? false;
         const preparation = buildViewerAnalysisPreparation(
           database,
-          parseViewerOptions(requestUrl, resolvedDataDir),
+          {
+            ...parseViewerOptions(requestUrl, resolvedDataDir),
+            includeShortForm,
+          },
         );
 
         if (preparation.payloadRecords.length === 0) {
@@ -485,6 +506,7 @@ export async function startIngestServer(options: IngestServerOptions = {}): Prom
 
         const run = database.createAnalysisRun({
           applyNames,
+          includeShortForm,
           workflowCount: preparation.workflowCount,
           payloadCount: preparation.payloadRecords.length,
           window: preparation.timeWindow.window,

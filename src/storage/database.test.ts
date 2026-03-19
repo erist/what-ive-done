@@ -815,6 +815,160 @@ test("workflow cluster detection modes persist when analysis artifacts are repla
   }
 });
 
+test("LLM payload records exclude short-form workflows unless explicitly included", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-short-form-payloads-"));
+
+  try {
+    const database = createTestDatabase(tempDir);
+    database.initialize();
+
+    const rawEvents: RawEventInput[] = [
+      {
+        source: "mock",
+        sourceEventType: "chrome.navigation",
+        timestamp: "2026-03-14T09:00:00.000Z",
+        application: "chrome",
+        domain: "admin.internal",
+        url: "https://admin.internal/orders",
+        action: "navigation",
+        metadata: {},
+      },
+      {
+        source: "mock",
+        sourceEventType: "browser.click",
+        timestamp: "2026-03-14T09:00:30.000Z",
+        application: "chrome",
+        domain: "admin.internal",
+        action: "click",
+        target: "search_order",
+        metadata: {},
+      },
+      {
+        source: "mock",
+        sourceEventType: "browser.click",
+        timestamp: "2026-03-14T09:01:00.000Z",
+        application: "chrome",
+        domain: "admin.internal",
+        action: "click",
+        target: "update_status",
+        metadata: {},
+      },
+      {
+        source: "mock",
+        sourceEventType: "browser.click",
+        timestamp: "2026-03-14T10:00:00.000Z",
+        application: "chrome",
+        domain: "admin.internal",
+        action: "click",
+        target: "switch_to_system_settings",
+        metadata: {},
+      },
+      {
+        source: "mock",
+        sourceEventType: "chrome.navigation",
+        timestamp: "2026-03-14T11:00:00.000Z",
+        application: "chrome",
+        domain: "admin.internal",
+        url: "https://admin.internal/orders",
+        action: "navigation",
+        metadata: {},
+      },
+      {
+        source: "mock",
+        sourceEventType: "browser.click",
+        timestamp: "2026-03-14T11:00:30.000Z",
+        application: "chrome",
+        domain: "admin.internal",
+        action: "click",
+        target: "search_order",
+        metadata: {},
+      },
+      {
+        source: "mock",
+        sourceEventType: "browser.click",
+        timestamp: "2026-03-14T11:01:00.000Z",
+        application: "chrome",
+        domain: "admin.internal",
+        action: "click",
+        target: "update_status",
+        metadata: {},
+      },
+      {
+        source: "mock",
+        sourceEventType: "browser.click",
+        timestamp: "2026-03-14T12:00:00.000Z",
+        application: "chrome",
+        domain: "admin.internal",
+        action: "click",
+        target: "switch_to_system_settings",
+        metadata: {},
+      },
+      {
+        source: "mock",
+        sourceEventType: "chrome.navigation",
+        timestamp: "2026-03-14T13:00:00.000Z",
+        application: "chrome",
+        domain: "admin.internal",
+        url: "https://admin.internal/orders",
+        action: "navigation",
+        metadata: {},
+      },
+      {
+        source: "mock",
+        sourceEventType: "browser.click",
+        timestamp: "2026-03-14T13:00:30.000Z",
+        application: "chrome",
+        domain: "admin.internal",
+        action: "click",
+        target: "search_order",
+        metadata: {},
+      },
+      {
+        source: "mock",
+        sourceEventType: "browser.click",
+        timestamp: "2026-03-14T13:01:00.000Z",
+        application: "chrome",
+        domain: "admin.internal",
+        action: "click",
+        target: "update_status",
+        metadata: {},
+      },
+      {
+        source: "mock",
+        sourceEventType: "browser.click",
+        timestamp: "2026-03-14T14:00:00.000Z",
+        application: "chrome",
+        domain: "admin.internal",
+        action: "click",
+        target: "switch_to_system_settings",
+        metadata: {},
+      },
+    ];
+
+    for (const rawEvent of rawEvents) {
+      database.insertRawEvent(rawEvent);
+    }
+
+    database.replaceAnalysisArtifacts(analyzeRawEvents(database.getRawEventsChronological()));
+
+    const defaultPayloads = database.listWorkflowSummaryPayloadRecords();
+    const includedPayloads = database.listWorkflowSummaryPayloadRecords({
+      includeShortForm: true,
+    });
+
+    assert.equal(defaultPayloads.length, 1);
+    assert.equal(defaultPayloads[0]?.detectionMode, "standard");
+    assert.deepEqual(
+      includedPayloads.map((payload) => payload.detectionMode).sort(),
+      ["short_form", "standard"],
+    );
+
+    database.close();
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("workflow LLM analyses can be stored and surfaced through workflow names", () => {
   const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-llm-store-"));
 

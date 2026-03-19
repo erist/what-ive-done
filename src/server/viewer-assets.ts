@@ -1241,6 +1241,7 @@ const state = {
   workflowActionMessage: "",
   analysisActionMessage: "",
   analysisApplyNames: false,
+  analysisIncludeShortForm: false,
   analysisPollTimer: null,
   analysisRefreshing: false,
   latestDashboard: null,
@@ -1366,6 +1367,11 @@ function buildWorkflowStatusChips(workflow) {
   const chips = [];
 
   chips.push('<span class="workflow-chip subtle">' + escapeHtml(workflow.visibleInReport ? "Visible in report" : "Removed from report") + "</span>");
+  chips.push(
+    '<span class="workflow-chip subtle">' +
+      escapeHtml(workflow.detectionMode === "short_form" ? "Short form" : "Standard") +
+      "</span>",
+  );
 
   if (workflow.userLabeled) {
     chips.push('<span class="workflow-chip">Labeled</span>');
@@ -1431,6 +1437,10 @@ function buildQueryString() {
     params.set("date", state.date);
   }
 
+  if (state.analysisIncludeShortForm) {
+    params.set("includeShortForm", "1");
+  }
+
   return params.toString();
 }
 
@@ -1445,6 +1455,7 @@ function initializeStateFromUrl() {
   const selectedWindow = url.searchParams.get("window");
   const selectedDate = url.searchParams.get("date");
   const selectedView = url.searchParams.get("view");
+  const includeShortForm = url.searchParams.get("includeShortForm");
 
   if (selectedWindow === "day" || selectedWindow === "week" || selectedWindow === "all") {
     state.window = selectedWindow;
@@ -1456,6 +1467,10 @@ function initializeStateFromUrl() {
 
   if (selectedDate) {
     state.date = selectedDate;
+  }
+
+  if (includeShortForm === "1") {
+    state.analysisIncludeShortForm = true;
   }
 
   elements.windowSelect.value = state.window;
@@ -1756,6 +1771,11 @@ function renderWorkflowTable(container, workflows, emptyMessage, isEmerging = fa
       <tr>
         <td>
           <strong>\${escapeHtml(workflow.workflowName)}</strong>
+          \${!isEmerging
+            ? \`<div class="workflow-chip-row"><span class="workflow-chip subtle">\${escapeHtml(
+                workflow.detectionMode === "short_form" ? "Short form" : "Standard",
+              )}</span></div>\`
+            : ""}
           <div class="step-preview">
             \${previewSteps.map((step) => \`<span class="step-pill">\${escapeHtml(step)}</span>\`).join("")}
             \${remainingStepCount > 0 ? \`<span class="step-pill more">+\${escapeHtml(String(remainingStepCount))} more</span>\` : ""}
@@ -1802,6 +1822,9 @@ function renderAnalysisReadyList(workflows) {
           <h3>\${escapeHtml(workflow.workflowName)}</h3>
         </div>
         <div class="analysis-meta">
+          <span class="workflow-chip subtle">\${escapeHtml(
+            workflow.detectionMode === "short_form" ? "short form" : "standard",
+          )}</span>
           <span class="workflow-chip subtle">\${escapeHtml(String(workflow.frequency))} repeats</span>
           <span class="workflow-chip subtle">\${escapeHtml(formatDuration(workflow.totalDurationSeconds))} total</span>
           <span class="workflow-chip subtle">confidence \${escapeHtml(String(workflow.confidenceScore))}</span>
@@ -1896,12 +1919,21 @@ function renderAnalysisSurface(dashboardData, statusData, resultsData) {
       <div class="analysis-meta">
         <span class="workflow-chip">\${escapeHtml(String(statusData.workflowCount))} confirmed workflows</span>
         <span class="workflow-chip subtle">\${escapeHtml(String(statusData.payloadCount))} summarized payloads</span>
+        \${!statusData.includeShortForm && statusData.shortFormExcludedCount > 0
+          ? \`<span class="workflow-chip subtle">\${escapeHtml(String(statusData.shortFormExcludedCount))} short-form excluded by default</span>\`
+          : statusData.includeShortForm
+            ? '<span class="workflow-chip subtle">Short-form included</span>'
+            : ""}
       </div>
       <div class="analysis-action-row">
         <button id="analysis-run-button" class="\${runDisabled ? "button-secondary" : ""}" type="button" \${runDisabled ? "disabled" : ""}>\${escapeHtml(runButtonLabel)}</button>
         <label class="analysis-toggle" for="analysis-apply-names">
           <input id="analysis-apply-names" type="checkbox" \${state.analysisApplyNames ? "checked" : ""} />
           <span>Apply suggested names</span>
+        </label>
+        <label class="analysis-toggle" for="analysis-include-short-form">
+          <input id="analysis-include-short-form" type="checkbox" \${state.analysisIncludeShortForm ? "checked" : ""} />
+          <span>Include short-form workflows</span>
         </label>
       </div>
       <p class="analysis-status-copy">\${escapeHtml(state.analysisActionMessage || latestRunCopy)}</p>
@@ -1950,11 +1982,20 @@ function renderAnalysisSurface(dashboardData, statusData, resultsData) {
   \`;
 
   const applyNamesToggle = document.getElementById("analysis-apply-names");
+  const includeShortFormToggle = document.getElementById("analysis-include-short-form");
   const runButton = document.getElementById("analysis-run-button");
 
   if (applyNamesToggle) {
     applyNamesToggle.addEventListener("change", () => {
       state.analysisApplyNames = Boolean(applyNamesToggle.checked);
+    });
+  }
+
+  if (includeShortFormToggle) {
+    includeShortFormToggle.addEventListener("change", () => {
+      state.analysisIncludeShortForm = Boolean(includeShortFormToggle.checked);
+      syncUrl();
+      void refreshAnalysisPanel();
     });
   }
 
@@ -1981,6 +2022,7 @@ async function submitAnalysisRun() {
     },
     body: JSON.stringify({
       applyNames: state.analysisApplyNames,
+      includeShortForm: state.analysisIncludeShortForm,
     }),
   });
 
@@ -2021,6 +2063,9 @@ async function refreshAnalysisPanel(dashboardData = state.latestDashboard) {
       dashboardData.report.summary && dashboardData.report.summary.quickWinAutomationCandidates
         ? dashboardData.report.summary.quickWinAutomationCandidates
         : [];
+    const analysisReadyWorkflows = (quickWins.length > 0 ? quickWins : dashboardData.report.workflows).filter(
+      (workflow) => state.analysisIncludeShortForm || workflow.detectionMode !== "short_form",
+    );
 
     if (!statusData.running && latestRun && latestRun.status === "completed" && state.analysisActionMessage === "Analysis run started.") {
       state.analysisActionMessage = "Analysis run completed.";
@@ -2033,7 +2078,7 @@ async function refreshAnalysisPanel(dashboardData = state.latestDashboard) {
           : "Analysis run failed.";
     }
 
-    renderAnalysisReadyList(quickWins.length > 0 ? quickWins : dashboardData.report.workflows);
+    renderAnalysisReadyList(analysisReadyWorkflows);
     renderAnalysisSurface(dashboardData, statusData, resultsData);
     renderAnalysisResults(resultsData.analyses, latestRun);
 

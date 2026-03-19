@@ -130,29 +130,37 @@ export function buildReportEntries(
 ): ReportEntry[] {
   const windowDays = estimateWindowDays(rawEvents, timeWindow);
 
-  return filterVisibleClusters(clusters, options).map((cluster) => ({
-    workflowClusterId: cluster.id,
-    workflowSignature: cluster.workflowSignature,
-    workflowName: cluster.name,
-    businessPurpose: cluster.businessPurpose,
-    frequency: cluster.frequency,
-    frequencyPerWeek: Math.round((cluster.frequency / windowDays) * 7 * 100) / 100,
-    averageDurationSeconds: cluster.averageDurationSeconds,
-    totalDurationSeconds: cluster.totalDurationSeconds,
-    estimatedTotalTimeSpentSeconds: cluster.totalDurationSeconds,
-    representativeSequence: cluster.representativeSequence,
-    representativeSteps: cluster.representativeSteps,
-    involvedApps: cluster.involvedApps,
-    automationSuitabilityScore: automationSuitabilityScore(cluster),
-    confidenceScore: cluster.confidenceScore,
-    userLabeled: cluster.userLabeled,
-    graph: buildWorkflowGraph(cluster),
-    automationSuitability: cluster.automationSuitability,
-    recommendedApproach: cluster.recommendedApproach,
-    automationHints: cluster.automationHints,
-    automationCandidate: cluster.automationCandidate,
-    approvedAutomationCandidate: cluster.approvedAutomationCandidate,
-  }));
+  return filterVisibleClusters(clusters, options)
+    .map((cluster) => ({
+      workflowClusterId: cluster.id,
+      workflowSignature: cluster.workflowSignature,
+      detectionMode: cluster.detectionMode,
+      workflowName: cluster.name,
+      businessPurpose: cluster.businessPurpose,
+      frequency: cluster.frequency,
+      frequencyPerWeek: Math.round((cluster.frequency / windowDays) * 7 * 100) / 100,
+      averageDurationSeconds: cluster.averageDurationSeconds,
+      totalDurationSeconds: cluster.totalDurationSeconds,
+      estimatedTotalTimeSpentSeconds: cluster.totalDurationSeconds,
+      representativeSequence: cluster.representativeSequence,
+      representativeSteps: cluster.representativeSteps,
+      involvedApps: cluster.involvedApps,
+      automationSuitabilityScore: automationSuitabilityScore(cluster),
+      confidenceScore: cluster.confidenceScore,
+      userLabeled: cluster.userLabeled,
+      graph: buildWorkflowGraph(cluster),
+      automationSuitability: cluster.automationSuitability,
+      recommendedApproach: cluster.recommendedApproach,
+      automationHints: cluster.automationHints,
+      automationCandidate: cluster.automationCandidate,
+      approvedAutomationCandidate: cluster.approvedAutomationCandidate,
+    }))
+    .sort(
+      (left, right) =>
+        Number(left.detectionMode === "short_form") - Number(right.detectionMode === "short_form") ||
+        right.frequency - left.frequency ||
+        right.totalDurationSeconds - left.totalDurationSeconds,
+    );
 }
 
 function buildReportSummary(workflows: ReportEntry[]): WorkflowReport["summary"] {
@@ -161,6 +169,7 @@ function buildReportSummary(workflows: ReportEntry[]): WorkflowReport["summary"]
   const repetitive = repetitiveCandidates.length > 0 ? repetitiveCandidates : explicitlyRepetitive;
   const automationCandidates = workflows.filter(
     (workflow) =>
+      workflow.detectionMode === "standard" &&
       workflow.automationSuitabilityScore >= 0.6 &&
       workflow.confidenceScore >= 0.6,
   );

@@ -48,6 +48,7 @@ test("createGeminiWorkflowAnalyzer sends summarized payloads with API key auth",
   const result = await analyzer.analyze({
     workflowClusterId: "workflow-1",
     workflowName: "Order lookup",
+    detectionMode: "standard",
     payload: {
       workflowSteps: ["Open admin page", "Search order"],
       frequency: 6,

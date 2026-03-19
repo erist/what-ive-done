@@ -151,6 +151,7 @@ npm run dev -- report --data-dir ./tmp/demo-data
 ```
 
 `workflow:list --json` now includes `detectionMode`, which is `standard` for the existing confirmed-workflow lane and `short_form` for repeated quick sessions that fall below the standard duration threshold.
+`llm:payloads` and `llm:analyze` exclude `short_form` workflows by default; add `--include-short-form` when you want those quick repeated sessions in the payload set.
 
 ## Available commands
 
@@ -189,6 +190,13 @@ Configure Gemini with an API key:
 npm run dev -- llm:config:set --data-dir ./tmp/demo-data --provider gemini --auth api-key --model gemini-2.5-flash
 export GEMINI_API_KEY="your-api-key"
 npm run dev -- llm:analyze --data-dir ./tmp/demo-data --json
+```
+
+Include short-form workflows in payload export or LLM analysis only when needed:
+
+```bash
+npm run dev -- llm:payloads --data-dir ./tmp/demo-data --include-short-form
+npm run dev -- llm:analyze --data-dir ./tmp/demo-data --include-short-form --json
 ```
 
 Configure Claude with a stored key:
