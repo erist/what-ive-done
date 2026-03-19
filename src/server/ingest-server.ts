@@ -1,12 +1,21 @@
+import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { URL } from "node:url";
 
 import { resolveAppPaths } from "../app-paths.js";
 import { ConfigManager } from "../config/manager.js";
+import type { WorkflowLLMAnalysis, WorkflowSummaryPayloadRecord } from "../domain/types.js";
 import { saveWorkflowReview } from "../feedback/service.js";
+import type { LLMConfiguration } from "../llm/config.js";
+import {
+  analyzeWorkflowPayloadRecords,
+  buildProviderCredentialStatus,
+  persistWorkflowLLMAnalysisResults,
+} from "../llm/service.js";
 import { parseReportWindow } from "../reporting/windows.js";
 import { AppDatabase } from "../storage/database.js";
 import {
+  buildViewerAnalysisPreparation,
   buildViewerDashboard,
   getViewerSessionDetail,
   getViewerWorkflowDetail,
@@ -32,6 +41,15 @@ export interface IngestServerOptions {
   rateLimitWindowMs?: number | undefined;
   rateLimitMaxRequests?: number | undefined;
   verbose?: boolean | undefined;
+  analysisRunner?:
+    | ((input: {
+        dataDir?: string | undefined;
+        payloadRecords: WorkflowSummaryPayloadRecord[];
+      }) => Promise<{
+        configuration: LLMConfiguration;
+        analyses: WorkflowLLMAnalysis[];
+      }>)
+    | undefined;
 }
 
 export interface RunningIngestServer {
@@ -43,12 +61,27 @@ export interface RunningIngestServer {
   close: () => Promise<void>;
 }
 
-const JSON_HEADERS = {
+const VIEWER_ACTION_TOKEN_HEADER = "x-what-ive-done-viewer-action-token";
+
+const VIEWER_JSON_HEADERS = {
+  "Content-Type": "application/json; charset=utf-8",
+};
+
+const INGEST_JSON_HEADERS = {
   "Content-Type": "application/json; charset=utf-8",
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "content-type,authorization,x-what-ive-done-token",
   "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
 };
+
+const VIEWER_OPTIONS_HEADERS = {
+  "Access-Control-Allow-Headers": `content-type,${VIEWER_ACTION_TOKEN_HEADER}`,
+  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+};
+
+function buildViewerActionToken(): string {
+  return randomBytes(24).toString("hex");
+}
 
 const HTML_HEADERS = {
   "Content-Type": "text/html; charset=utf-8",
@@ -109,11 +142,14 @@ function sendJson(
   response: ServerResponse,
   statusCode: number,
   payload: unknown,
-  headers: Record<string, string> = {},
+  options: {
+    headers?: Record<string, string> | undefined;
+    cors?: "ingest" | "viewer" | undefined;
+  } = {},
 ): void {
   response.writeHead(statusCode, {
-    ...JSON_HEADERS,
-    ...headers,
+    ...(options.cors === "ingest" ? INGEST_JSON_HEADERS : VIEWER_JSON_HEADERS),
+    ...options.headers,
   });
   response.end(JSON.stringify(payload, null, 2));
 }
@@ -144,6 +180,10 @@ async function readJsonBody(request: IncomingMessage): Promise<unknown> {
   return JSON.parse(body);
 }
 
+function hasValidViewerActionToken(request: IncomingMessage, viewerActionToken: string): boolean {
+  return request.headers[VIEWER_ACTION_TOKEN_HEADER] === viewerActionToken;
+}
+
 export async function startIngestServer(options: IngestServerOptions = {}): Promise<RunningIngestServer> {
   const host = resolveLocalOnlyHost(options.host);
   const port = options.port ?? 4318;
@@ -160,6 +200,29 @@ export async function startIngestServer(options: IngestServerOptions = {}): Prom
     security.rateLimitMaxRequests ?? DEFAULT_INGEST_RATE_LIMIT_MAX_REQUESTS,
     security.rateLimitWindowMs ?? DEFAULT_INGEST_RATE_LIMIT_WINDOW_MS,
   );
+  const viewerActionToken = buildViewerActionToken();
+  const staleRun = database.getLatestAnalysisRun();
+
+  if (staleRun?.status === "running") {
+    database.updateAnalysisRun({
+      id: staleRun.id,
+      status: "failed",
+      completedAt: new Date().toISOString(),
+      summary: {
+        ...staleRun.summary,
+        error: staleRun.summary.error ?? "Viewer analysis was interrupted before completion.",
+      },
+    });
+  }
+
+  const runViewerAnalysis =
+    options.analysisRunner ??
+    (async (input: {
+      dataDir?: string | undefined;
+      payloadRecords: WorkflowSummaryPayloadRecord[];
+    }) => analyzeWorkflowPayloadRecords(input));
+  let activeAnalysisRunId: string | undefined;
+  let activeAnalysisRunPromise: Promise<void> | undefined;
   const log = (message: string, payload?: Record<string, unknown>): void => {
     if (!options.verbose) {
       return;
@@ -173,10 +236,14 @@ export async function startIngestServer(options: IngestServerOptions = {}): Prom
     const requestUrl = new URL(request.url ?? "/", `http://${host}:${port}`);
     const sessionPathMatch = requestUrl.pathname.match(/^\/api\/viewer\/sessions\/([^/]+)$/u);
     const workflowPathMatch = requestUrl.pathname.match(/^\/api\/viewer\/workflows\/([^/]+)$/u);
+    const analysisRunPathMatch = requestUrl.pathname.match(/^\/api\/viewer\/analysis\/runs\/([^/]+)$/u);
     const remoteAddress = request.socket.remoteAddress ?? "unknown";
 
     if (request.method === "OPTIONS") {
-      response.writeHead(204, JSON_HEADERS);
+      response.writeHead(
+        204,
+        requestUrl.pathname === "/events" ? INGEST_JSON_HEADERS : VIEWER_OPTIONS_HEADERS,
+      );
       response.end();
       return;
     }
@@ -196,7 +263,7 @@ export async function startIngestServer(options: IngestServerOptions = {}): Prom
     }
 
     if (request.method === "GET" && requestUrl.pathname === "/") {
-      sendText(response, 200, renderViewerHtml(), HTML_HEADERS);
+      sendText(response, 200, renderViewerHtml({ viewerActionToken }), HTML_HEADERS);
       return;
     }
 
@@ -224,6 +291,60 @@ export async function startIngestServer(options: IngestServerOptions = {}): Prom
         });
       }
 
+      return;
+    }
+
+    if (request.method === "GET" && requestUrl.pathname === "/api/viewer/analysis/status") {
+      try {
+        const preparation = buildViewerAnalysisPreparation(
+          database,
+          parseViewerOptions(requestUrl, resolvedDataDir),
+        );
+
+        sendJson(response, 200, {
+          generatedAt: preparation.generatedAt,
+          timeWindow: preparation.timeWindow,
+          rawEventCount: preparation.rawEventCount,
+          workflowCount: preparation.workflowCount,
+          payloadCount: preparation.payloadRecords.length,
+          latestRun: database.getLatestAnalysisRun() ?? null,
+          latestResultCount: database.listWorkflowLLMAnalyses().length,
+          running: Boolean(activeAnalysisRunPromise),
+          credentialStatus: buildProviderCredentialStatus(resolvedDataDir),
+        });
+      } catch (error) {
+        sendJson(response, 400, {
+          status: "error",
+          message: error instanceof Error ? error.message : "Unknown viewer analysis status error",
+        });
+      }
+
+      return;
+    }
+
+    if (request.method === "GET" && requestUrl.pathname === "/api/viewer/analysis/results") {
+      sendJson(response, 200, {
+        latestRun: database.getLatestAnalysisRun() ?? null,
+        analyses: database.listWorkflowLLMAnalyses(),
+      });
+      return;
+    }
+
+    if (request.method === "GET" && analysisRunPathMatch) {
+      const runId = decodeURIComponent(analysisRunPathMatch[1] ?? "");
+      const run = database.getAnalysisRun(runId);
+
+      if (!run) {
+        sendJson(response, 404, {
+          status: "not_found",
+          runId,
+        });
+        return;
+      }
+
+      sendJson(response, 200, {
+        run,
+      });
       return;
     }
 
@@ -285,6 +406,14 @@ export async function startIngestServer(options: IngestServerOptions = {}): Prom
 
     if (request.method === "POST" && workflowPathMatch) {
       try {
+        if (!hasValidViewerActionToken(request, viewerActionToken)) {
+          sendJson(response, 401, {
+            status: "unauthorized",
+            message: "A local viewer action token is required.",
+          });
+          return;
+        }
+
         const workflowId = decodeURIComponent(workflowPathMatch[1] ?? "");
         const body = (await readJsonBody(request)) as Record<string, unknown>;
 
@@ -321,6 +450,101 @@ export async function startIngestServer(options: IngestServerOptions = {}): Prom
       return;
     }
 
+    if (request.method === "POST" && requestUrl.pathname === "/api/viewer/analysis/runs") {
+      try {
+        if (!hasValidViewerActionToken(request, viewerActionToken)) {
+          sendJson(response, 401, {
+            status: "unauthorized",
+            message: "A local viewer action token is required.",
+          });
+          return;
+        }
+
+        if (activeAnalysisRunPromise && activeAnalysisRunId) {
+          sendJson(response, 409, {
+            status: "analysis_already_running",
+            runId: activeAnalysisRunId,
+          });
+          return;
+        }
+
+        const body = (await readJsonBody(request)) as Record<string, unknown>;
+        const applyNames = normalizeOptionalBoolean(body.applyNames) ?? false;
+        const preparation = buildViewerAnalysisPreparation(
+          database,
+          parseViewerOptions(requestUrl, resolvedDataDir),
+        );
+
+        if (preparation.payloadRecords.length === 0) {
+          sendJson(response, 400, {
+            status: "error",
+            message: "No confirmed workflows are available for analysis in the selected window.",
+          });
+          return;
+        }
+
+        const run = database.createAnalysisRun({
+          applyNames,
+          workflowCount: preparation.workflowCount,
+          payloadCount: preparation.payloadRecords.length,
+          window: preparation.timeWindow.window,
+          reportDate: preparation.timeWindow.reportDate,
+        });
+
+        activeAnalysisRunId = run.id;
+        activeAnalysisRunPromise = (async () => {
+          try {
+            const { configuration, analyses } = await runViewerAnalysis({
+              dataDir: resolvedDataDir,
+              payloadRecords: preparation.payloadRecords,
+            });
+
+            persistWorkflowLLMAnalysisResults(resolvedDataDir, analyses, {
+              applyNames,
+            });
+
+            database.updateAnalysisRun({
+              id: run.id,
+              status: "completed",
+              completedAt: new Date().toISOString(),
+              summary: {
+                ...run.summary,
+                provider: configuration.provider,
+                model: analyses[0]?.model ?? configuration.model,
+                resultCount: analyses.length,
+              },
+            });
+          } catch (error) {
+            database.updateAnalysisRun({
+              id: run.id,
+              status: "failed",
+              completedAt: new Date().toISOString(),
+              summary: {
+                ...run.summary,
+                error:
+                  error instanceof Error ? error.message : "Unknown viewer analysis execution error",
+              },
+            });
+          } finally {
+            activeAnalysisRunId = undefined;
+            activeAnalysisRunPromise = undefined;
+          }
+        })();
+
+        sendJson(response, 202, {
+          status: "analysis_run_started",
+          run,
+        });
+      } catch (error) {
+        sendJson(response, 400, {
+          status: "error",
+          message: error instanceof Error ? error.message : "Unknown viewer analysis error",
+        });
+      }
+
+      return;
+    }
+
     if (request.method === "POST" && requestUrl.pathname === "/events") {
       try {
         const providedToken = extractIngestAuthToken(request);
@@ -333,7 +557,7 @@ export async function startIngestServer(options: IngestServerOptions = {}): Prom
           sendJson(response, 401, {
             status: "unauthorized",
             message: "An ingest auth token is required.",
-          });
+          }, { cors: "ingest" });
           return;
         }
 
@@ -361,7 +585,10 @@ export async function startIngestServer(options: IngestServerOptions = {}): Prom
               status: "rate_limited",
               message: "Too many ingest requests. Please retry shortly.",
             },
-            rateLimitHeaders,
+            {
+              cors: "ingest",
+              headers: rateLimitHeaders,
+            },
           );
           return;
         }
@@ -384,7 +611,10 @@ export async function startIngestServer(options: IngestServerOptions = {}): Prom
             status: "accepted",
             ingested: events.length,
           },
-          rateLimitHeaders,
+          {
+            cors: "ingest",
+            headers: rateLimitHeaders,
+          },
         );
       } catch (error) {
         log("ingest_error", {
@@ -394,7 +624,7 @@ export async function startIngestServer(options: IngestServerOptions = {}): Prom
         sendJson(response, 400, {
           status: "error",
           message: error instanceof Error ? error.message : "Unknown ingest error",
-        });
+        }, { cors: "ingest" });
       }
 
       return;

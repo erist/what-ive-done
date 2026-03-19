@@ -4,7 +4,9 @@ import test from "node:test";
 import { renderViewerHtml, renderViewerJs } from "./viewer-assets.js";
 
 test("renderViewerHtml exposes the feedback review surface", () => {
-  const html = renderViewerHtml();
+  const html = renderViewerHtml({
+    viewerActionToken: "local-token",
+  });
 
   assert.match(html, /Feedback Queue/u);
   assert.match(html, /Comparison View/u);
@@ -14,6 +16,7 @@ test("renderViewerHtml exposes the feedback review surface", () => {
   assert.match(html, /feedback-workflow-list/u);
   assert.match(html, /workflow-detail/u);
   assert.match(html, /analysis-ready-list/u);
+  assert.match(html, /name="wid-viewer-action-token"/u);
 });
 
 test("renderViewerJs returns parseable browser script", () => {

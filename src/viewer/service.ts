@@ -8,12 +8,14 @@ import type {
   ReportTimeWindow,
   ReportWindow,
   Session,
+  WorkflowSummaryPayloadRecord,
   WorkflowCluster,
   WorkflowFeedbackSummary,
   WorkflowReport,
   WorkflowReportComparison,
 } from "../domain/types.js";
 import { applyWorkflowFeedbackToClusters } from "../feedback/service.js";
+import { buildWorkflowSummaryPayload } from "../llm/payloads.js";
 import type { AnalysisResult } from "../pipeline/analyze.js";
 import { analyzeRawEvents } from "../pipeline/analyze.js";
 import { buildWorkflowReportFromAnalysis } from "../reporting/report.js";
@@ -77,6 +79,14 @@ export interface ViewerDashboard {
   sessionSummaries: ViewerSessionSummary[];
   agentHealth: AgentHealthReport;
   latestSnapshots: ReportSnapshotSummary[];
+}
+
+export interface ViewerAnalysisPreparation {
+  generatedAt: string;
+  timeWindow: ReportTimeWindow;
+  rawEventCount: number;
+  workflowCount: number;
+  payloadRecords: WorkflowSummaryPayloadRecord[];
 }
 
 interface LiveAnalysisState {
@@ -205,6 +215,52 @@ function buildViewerWorkflowSummaries(
     .sort(compareWorkflowSummaries);
 }
 
+function buildWorkflowSummaryPayloadRecordsForViewerClusters(
+  clusters: WorkflowCluster[],
+  sessions: Session[],
+): WorkflowSummaryPayloadRecord[] {
+  const sessionsById = new Map(sessions.map((session) => [session.id, session]));
+
+  return clusters.map((cluster) => {
+    const applications: string[] = [];
+    const domains: string[] = [];
+
+    for (const sessionId of cluster.sessionIds) {
+      const session = sessionsById.get(sessionId);
+
+      if (!session) {
+        continue;
+      }
+
+      applications.push(session.primaryApplication);
+
+      if (session.primaryDomain) {
+        domains.push(session.primaryDomain);
+      }
+
+      for (const step of session.steps) {
+        applications.push(step.application);
+
+        if (step.domain) {
+          domains.push(step.domain);
+        }
+      }
+    }
+
+    return {
+      workflowClusterId: cluster.id,
+      workflowName: cluster.name,
+      payload: buildWorkflowSummaryPayload({
+        representativeSteps: cluster.representativeSteps,
+        frequency: cluster.frequency,
+        averageDurationSeconds: cluster.averageDurationSeconds,
+        applications,
+        domains,
+      }),
+    };
+  });
+}
+
 export function buildViewerDashboard(
   database: AppDatabase,
   options: ViewerDashboardOptions = {},
@@ -268,4 +324,36 @@ export function getViewerWorkflowDetail(
   return buildViewerWorkflowSummaries(analysisResult, report, feedbackByClusterId).find(
     (workflow) => workflow.id === workflowId,
   );
+}
+
+export function buildViewerAnalysisPreparation(
+  database: AppDatabase,
+  options: ViewerDashboardOptions = {},
+): ViewerAnalysisPreparation {
+  const { rawEvents, timeWindow, analysisResult } = buildLiveAnalysisState(database, options);
+  const feedbackByClusterId = database.listWorkflowFeedbackSummary();
+  const report = buildWorkflowReportFromAnalysis({
+    rawEvents,
+    timeWindow,
+    analysisResult,
+    options: {
+      feedbackByClusterId,
+    },
+  });
+  const visibleWorkflowIds = new Set(report.workflows.map((workflow) => workflow.workflowClusterId));
+  const reportWorkflows = applyWorkflowFeedbackToClusters(
+    analysisResult.workflowClusters,
+    feedbackByClusterId,
+  ).filter((workflow) => visibleWorkflowIds.has(workflow.id));
+
+  return {
+    generatedAt: new Date().toISOString(),
+    timeWindow,
+    rawEventCount: rawEvents.length,
+    workflowCount: reportWorkflows.length,
+    payloadRecords: buildWorkflowSummaryPayloadRecordsForViewerClusters(
+      reportWorkflows,
+      analysisResult.sessions,
+    ),
+  };
 }

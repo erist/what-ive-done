@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 
-export const CURRENT_SCHEMA_VERSION = 13;
+export const CURRENT_SCHEMA_VERSION = 14;
 
 export const INITIAL_SCHEMA_SQL = `
   PRAGMA journal_mode = WAL;
@@ -150,7 +150,7 @@ export const INITIAL_SCHEMA_SQL = `
   );
 
   CREATE TABLE IF NOT EXISTS workflow_llm_analyses (
-    workflow_cluster_id TEXT PRIMARY KEY REFERENCES workflow_clusters(id) ON DELETE CASCADE,
+    workflow_cluster_id TEXT PRIMARY KEY,
     provider TEXT NOT NULL,
     model TEXT NOT NULL,
     workflow_name TEXT NOT NULL,
@@ -410,5 +410,51 @@ export function applySchemaMigrations(
     ensureColumn(connection, "normalized_events", "route_family", "route_family TEXT");
     ensureColumn(connection, "normalized_events", "domain_pack_id", "domain_pack_id TEXT");
     ensureColumn(connection, "normalized_events", "domain_pack_version", "domain_pack_version INTEGER");
+  }
+
+  if ((existingVersion ?? 0) < 14) {
+    connection.exec(`
+      PRAGMA foreign_keys = OFF;
+
+      CREATE TABLE workflow_llm_analyses_next (
+        workflow_cluster_id TEXT PRIMARY KEY,
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        workflow_name TEXT NOT NULL,
+        workflow_summary TEXT NOT NULL,
+        automation_suitability TEXT NOT NULL,
+        recommended_approach TEXT NOT NULL,
+        rationale TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      INSERT INTO workflow_llm_analyses_next (
+        workflow_cluster_id,
+        provider,
+        model,
+        workflow_name,
+        workflow_summary,
+        automation_suitability,
+        recommended_approach,
+        rationale,
+        created_at
+      )
+      SELECT
+        workflow_cluster_id,
+        provider,
+        model,
+        workflow_name,
+        workflow_summary,
+        automation_suitability,
+        recommended_approach,
+        rationale,
+        created_at
+      FROM workflow_llm_analyses;
+
+      DROP TABLE workflow_llm_analyses;
+      ALTER TABLE workflow_llm_analyses_next RENAME TO workflow_llm_analyses;
+
+      PRAGMA foreign_keys = ON;
+    `);
   }
 }
