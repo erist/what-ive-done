@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { generateMockRawEvents } from "../collectors/mock.js";
-import type { RawEvent } from "../domain/types.js";
+import type { RawEvent, RawEventInput } from "../domain/types.js";
 import { analyzeRawEvents } from "../pipeline/analyze.js";
 import { resolveReportTimeWindow } from "../reporting/windows.js";
 import { AppDatabase } from "./database.js";
@@ -107,6 +107,112 @@ function seedSchemaVersion10Database(databasePath: string): void {
   connection.close();
 }
 
+function seedSchemaVersion14WorkflowDatabase(databasePath: string): void {
+  const connection = new DatabaseSync(databasePath);
+
+  connection.exec(`
+    CREATE TABLE schema_migrations (
+      version INTEGER PRIMARY KEY,
+      applied_at TEXT NOT NULL
+    );
+
+    CREATE TABLE workflow_clusters (
+      id TEXT PRIMARY KEY,
+      workflow_signature TEXT NOT NULL,
+      name TEXT NOT NULL,
+      occurrence_count INTEGER NOT NULL DEFAULT 0,
+      frequency INTEGER NOT NULL,
+      average_duration_seconds REAL NOT NULL,
+      total_duration_seconds REAL NOT NULL,
+      representative_sequence_json TEXT NOT NULL DEFAULT '[]',
+      representative_steps_json TEXT NOT NULL,
+      involved_apps_json TEXT NOT NULL DEFAULT '[]',
+      confidence_score REAL NOT NULL DEFAULT 0,
+      confidence_details_json TEXT NOT NULL DEFAULT '{}',
+      top_variants_json TEXT NOT NULL DEFAULT '[]',
+      automation_suitability TEXT NOT NULL,
+      recommended_approach TEXT NOT NULL,
+      automation_hints_json TEXT NOT NULL DEFAULT '[]',
+      excluded INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE workflow_cluster_sessions (
+      workflow_cluster_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      PRIMARY KEY (workflow_cluster_id, session_id)
+    );
+
+    CREATE TABLE workflow_feedback (
+      id TEXT PRIMARY KEY,
+      workflow_cluster_id TEXT NOT NULL,
+      workflow_signature TEXT NOT NULL,
+      rename_to TEXT,
+      business_purpose TEXT,
+      excluded INTEGER,
+      hidden INTEGER,
+      repetitive INTEGER,
+      automation_candidate INTEGER,
+      automation_difficulty TEXT,
+      approved_automation_candidate INTEGER,
+      merge_into_workflow_id TEXT,
+      merge_into_workflow_signature TEXT,
+      split_after_action_name TEXT,
+      created_at TEXT NOT NULL
+    );
+  `);
+
+  connection
+    .prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)")
+    .run(14, "2026-03-18T00:00:00.000Z");
+
+  connection
+    .prepare(`
+      INSERT INTO workflow_clusters (
+        id,
+        workflow_signature,
+        name,
+        occurrence_count,
+        frequency,
+        average_duration_seconds,
+        total_duration_seconds,
+        representative_sequence_json,
+        representative_steps_json,
+        involved_apps_json,
+        confidence_score,
+        confidence_details_json,
+        top_variants_json,
+        automation_suitability,
+        recommended_approach,
+        automation_hints_json,
+        excluded,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    .run(
+      "workflow-legacy",
+      "signature-legacy",
+      "Legacy Workflow",
+      3,
+      3,
+      8,
+      24,
+      JSON.stringify(["switch_to_system_settings"]),
+      JSON.stringify(["Switch To in System Settings"]),
+      JSON.stringify(["system settings"]),
+      0.81,
+      JSON.stringify({}),
+      JSON.stringify([]),
+      "low",
+      "Manual review before automation",
+      JSON.stringify([]),
+      0,
+      "2026-03-18T00:00:00.000Z",
+    );
+
+  connection.close();
+}
+
 test("AppDatabase initializes schema and stores sanitized raw events", () => {
   const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-"));
 
@@ -181,6 +287,31 @@ test("AppDatabase upgrades schema v10 browser rows with privacy-safe canonical f
       sessionCookie: "[REDACTED]",
       safe: "value",
     });
+
+    database.close();
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("AppDatabase upgrades schema v14 workflow clusters with a default detection mode", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-schema-v14-"));
+  const databasePath = join(tempDir, "test.sqlite");
+
+  try {
+    seedSchemaVersion14WorkflowDatabase(databasePath);
+
+    const database = new AppDatabase({
+      dataDir: tempDir,
+      databasePath,
+      agentLockPath: join(tempDir, "agent.lock"),
+    });
+    database.initialize();
+
+    const [workflow] = database.listWorkflowClusters();
+
+    assert.ok(workflow);
+    assert.equal(workflow.detectionMode, "standard");
 
     database.close();
   } finally {
@@ -527,6 +658,156 @@ test("LLM payload records exclude raw event details and honor workflow feedback 
     assert.equal(JSON.stringify(includedPayloads).includes("windowTitle"), false);
     assert.equal(JSON.stringify(includedPayloads).includes("url"), false);
     assert.ok(includedPayloads[0]?.payload.workflowSteps.length);
+
+    database.close();
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("workflow cluster detection modes persist when analysis artifacts are replaced", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-short-form-store-"));
+
+  try {
+    const database = createTestDatabase(tempDir);
+    database.initialize();
+
+    const rawEvents: RawEventInput[] = [
+      {
+        source: "mock",
+        sourceEventType: "chrome.navigation",
+        timestamp: "2026-03-14T09:00:00.000Z",
+        application: "chrome",
+        domain: "admin.internal",
+        url: "https://admin.internal/orders",
+        action: "navigation",
+        metadata: {},
+      },
+      {
+        source: "mock",
+        sourceEventType: "browser.click",
+        timestamp: "2026-03-14T09:00:30.000Z",
+        application: "chrome",
+        domain: "admin.internal",
+        action: "click",
+        target: "search_order",
+        metadata: {},
+      },
+      {
+        source: "mock",
+        sourceEventType: "browser.click",
+        timestamp: "2026-03-14T09:01:00.000Z",
+        application: "chrome",
+        domain: "admin.internal",
+        action: "click",
+        target: "update_status",
+        metadata: {},
+      },
+      {
+        source: "mock",
+        sourceEventType: "browser.click",
+        timestamp: "2026-03-14T10:00:00.000Z",
+        application: "chrome",
+        domain: "admin.internal",
+        action: "click",
+        target: "switch_to_system_settings",
+        metadata: {},
+      },
+      {
+        source: "mock",
+        sourceEventType: "chrome.navigation",
+        timestamp: "2026-03-14T11:00:00.000Z",
+        application: "chrome",
+        domain: "admin.internal",
+        url: "https://admin.internal/orders",
+        action: "navigation",
+        metadata: {},
+      },
+      {
+        source: "mock",
+        sourceEventType: "browser.click",
+        timestamp: "2026-03-14T11:00:30.000Z",
+        application: "chrome",
+        domain: "admin.internal",
+        action: "click",
+        target: "search_order",
+        metadata: {},
+      },
+      {
+        source: "mock",
+        sourceEventType: "browser.click",
+        timestamp: "2026-03-14T11:01:00.000Z",
+        application: "chrome",
+        domain: "admin.internal",
+        action: "click",
+        target: "update_status",
+        metadata: {},
+      },
+      {
+        source: "mock",
+        sourceEventType: "browser.click",
+        timestamp: "2026-03-14T12:00:00.000Z",
+        application: "chrome",
+        domain: "admin.internal",
+        action: "click",
+        target: "switch_to_system_settings",
+        metadata: {},
+      },
+      {
+        source: "mock",
+        sourceEventType: "chrome.navigation",
+        timestamp: "2026-03-14T13:00:00.000Z",
+        application: "chrome",
+        domain: "admin.internal",
+        url: "https://admin.internal/orders",
+        action: "navigation",
+        metadata: {},
+      },
+      {
+        source: "mock",
+        sourceEventType: "browser.click",
+        timestamp: "2026-03-14T13:00:30.000Z",
+        application: "chrome",
+        domain: "admin.internal",
+        action: "click",
+        target: "search_order",
+        metadata: {},
+      },
+      {
+        source: "mock",
+        sourceEventType: "browser.click",
+        timestamp: "2026-03-14T13:01:00.000Z",
+        application: "chrome",
+        domain: "admin.internal",
+        action: "click",
+        target: "update_status",
+        metadata: {},
+      },
+      {
+        source: "mock",
+        sourceEventType: "browser.click",
+        timestamp: "2026-03-14T14:00:00.000Z",
+        application: "chrome",
+        domain: "admin.internal",
+        action: "click",
+        target: "switch_to_system_settings",
+        metadata: {},
+      },
+    ];
+
+    for (const rawEvent of rawEvents) {
+      database.insertRawEvent(rawEvent);
+    }
+
+    const analysisResult = analyzeRawEvents(database.getRawEventsChronological());
+    database.replaceAnalysisArtifacts(analysisResult);
+
+    const detectionModes = database
+      .listWorkflowClusters()
+      .map((cluster) => cluster.detectionMode)
+      .sort();
+
+    assert.deepEqual(detectionModes, ["short_form", "standard"]);
 
     database.close();
   } finally {

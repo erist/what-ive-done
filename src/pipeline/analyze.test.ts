@@ -212,3 +212,135 @@ test("analyzeRawEvents includes workspace and git collector context in repeated 
     "update_document",
   ]);
 });
+
+test("analyzeRawEvents adds a short-form workflow lane for repeated quick sessions", () => {
+  const rawEvents = toRawEvents([
+    {
+      source: "mock",
+      sourceEventType: "chrome.navigation",
+      timestamp: "2026-03-14T09:00:00.000Z",
+      application: "chrome",
+      domain: "admin.internal",
+      url: "https://admin.internal/orders",
+      action: "navigation",
+    },
+    {
+      source: "mock",
+      sourceEventType: "browser.click",
+      timestamp: "2026-03-14T09:00:30.000Z",
+      application: "chrome",
+      domain: "admin.internal",
+      action: "click",
+      target: "search_order",
+    },
+    {
+      source: "mock",
+      sourceEventType: "browser.click",
+      timestamp: "2026-03-14T09:01:00.000Z",
+      application: "chrome",
+      domain: "admin.internal",
+      action: "click",
+      target: "update_status",
+    },
+    {
+      source: "mock",
+      sourceEventType: "browser.click",
+      timestamp: "2026-03-14T10:00:00.000Z",
+      application: "chrome",
+      domain: "admin.internal",
+      action: "click",
+      target: "switch_to_system_settings",
+    },
+    {
+      source: "mock",
+      sourceEventType: "chrome.navigation",
+      timestamp: "2026-03-14T11:00:00.000Z",
+      application: "chrome",
+      domain: "admin.internal",
+      url: "https://admin.internal/orders",
+      action: "navigation",
+    },
+    {
+      source: "mock",
+      sourceEventType: "browser.click",
+      timestamp: "2026-03-14T11:00:30.000Z",
+      application: "chrome",
+      domain: "admin.internal",
+      action: "click",
+      target: "search_order",
+    },
+    {
+      source: "mock",
+      sourceEventType: "browser.click",
+      timestamp: "2026-03-14T11:01:00.000Z",
+      application: "chrome",
+      domain: "admin.internal",
+      action: "click",
+      target: "update_status",
+    },
+    {
+      source: "mock",
+      sourceEventType: "browser.click",
+      timestamp: "2026-03-14T12:00:00.000Z",
+      application: "chrome",
+      domain: "admin.internal",
+      action: "click",
+      target: "switch_to_system_settings",
+    },
+    {
+      source: "mock",
+      sourceEventType: "chrome.navigation",
+      timestamp: "2026-03-14T13:00:00.000Z",
+      application: "chrome",
+      domain: "admin.internal",
+      url: "https://admin.internal/orders",
+      action: "navigation",
+    },
+    {
+      source: "mock",
+      sourceEventType: "browser.click",
+      timestamp: "2026-03-14T13:00:30.000Z",
+      application: "chrome",
+      domain: "admin.internal",
+      action: "click",
+      target: "search_order",
+    },
+    {
+      source: "mock",
+      sourceEventType: "browser.click",
+      timestamp: "2026-03-14T13:01:00.000Z",
+      application: "chrome",
+      domain: "admin.internal",
+      action: "click",
+      target: "update_status",
+    },
+    {
+      source: "mock",
+      sourceEventType: "browser.click",
+      timestamp: "2026-03-14T14:00:00.000Z",
+      application: "chrome",
+      domain: "admin.internal",
+      action: "click",
+      target: "switch_to_system_settings",
+    },
+  ]);
+
+  const result = analyzeRawEvents(rawEvents);
+  const standardCluster = result.workflowClusters.find(
+    (cluster) => cluster.detectionMode === "standard",
+  );
+  const shortFormCluster = result.workflowClusters.find(
+    (cluster) => cluster.detectionMode === "short_form",
+  );
+
+  assert.equal(result.workflowClusters.length, 2);
+  assert.equal(standardCluster?.frequency, 3);
+  assert.deepEqual(standardCluster?.representativeSequence, [
+    "open_admin",
+    "search_order",
+    "update_status",
+  ]);
+  assert.equal(shortFormCluster?.frequency, 3);
+  assert.deepEqual(shortFormCluster?.representativeSequence, ["switch_to_system_settings"]);
+  assert.ok((shortFormCluster?.averageDurationSeconds ?? 1) < 45);
+});

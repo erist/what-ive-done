@@ -146,8 +146,11 @@ npm run dev -- collect:mock --data-dir ./tmp/demo-data
 npm run dev -- config set analysis.confirmationWindowDays 14
 npm run dev -- config set analysis.minSessionDurationSeconds 15
 npm run dev -- analyze --data-dir ./tmp/demo-data
+npm run dev -- workflow:list --json --data-dir ./tmp/demo-data
 npm run dev -- report --data-dir ./tmp/demo-data
 ```
+
+`workflow:list --json` now includes `detectionMode`, which is `standard` for the existing confirmed-workflow lane and `short_form` for repeated quick sessions that fall below the standard duration threshold.
 
 ## Available commands
 
@@ -167,6 +170,7 @@ npm run dev -- report --data-dir ./tmp/demo-data
 - `init`: initialize `.wid/config.json`, SQLite, and the ingest token
 - `collect:mock`: insert mock raw events
 - `analyze`: run normalization, sessionization, and workflow clustering
+- `workflow:list --json`: inspect workflow clusters, including `detectionMode` for `standard` and `short_form`
 - `llm:providers`: list supported ChatGPT, Gemini, and Claude providers
 - `llm:config:show`: show the saved default LLM configuration
 - `llm:config:set`: update the saved default LLM configuration

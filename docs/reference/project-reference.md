@@ -121,6 +121,8 @@ Current heuristic defaults in code:
 - minimum workflow session duration: 45 seconds, configurable via `analysis.minSessionDurationSeconds`
 - minimum workflow frequency: 3 similar sessions within 7 days
 - workflow confirmation window: 7 days, configurable via `analysis.confirmationWindowDays`
+- short-form workflow lane: repeated sessions below the standard duration threshold, capped at 20 seconds and 3 representative actions
+- persisted workflow clusters now carry `detectionMode: "standard" | "short_form"`
 
 ## Debugging and Quality Gates
 
@@ -609,7 +611,7 @@ and `tools list`, and powers `llm:analyze` for the `openai-codex` provider.
 | `report:generate` | Generate and store a report snapshot. |
 | `report:snapshot:list` | List stored report snapshots. |
 | `report:snapshot:show` | Show one stored report snapshot. |
-| `workflow:list` | List workflow clusters with feedback state. |
+| `workflow:list` | List workflow clusters with feedback state, including `detectionMode` in JSON output. |
 | `workflow:show` | Show one workflow cluster in detail. |
 | `workflow:label` | Save workflow name, purpose, repetitive flag, and automation review fields. |
 | `workflow:merge` | Merge one workflow into another on future analyses. |

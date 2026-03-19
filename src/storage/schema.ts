@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 
-export const CURRENT_SCHEMA_VERSION = 14;
+export const CURRENT_SCHEMA_VERSION = 15;
 
 export const INITIAL_SCHEMA_SQL = `
   PRAGMA journal_mode = WAL;
@@ -99,6 +99,7 @@ export const INITIAL_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS workflow_clusters (
     id TEXT PRIMARY KEY,
     workflow_signature TEXT NOT NULL,
+    detection_mode TEXT NOT NULL DEFAULT 'standard',
     name TEXT NOT NULL,
     occurrence_count INTEGER NOT NULL DEFAULT 0,
     frequency INTEGER NOT NULL,
@@ -455,6 +456,21 @@ export function applySchemaMigrations(
       ALTER TABLE workflow_llm_analyses_next RENAME TO workflow_llm_analyses;
 
       PRAGMA foreign_keys = ON;
+    `);
+  }
+
+  if ((existingVersion ?? 0) < 15) {
+    ensureColumn(
+      connection,
+      "workflow_clusters",
+      "detection_mode",
+      "detection_mode TEXT NOT NULL DEFAULT 'standard'",
+    );
+
+    connection.exec(`
+      UPDATE workflow_clusters
+      SET detection_mode = 'standard'
+      WHERE detection_mode IS NULL OR TRIM(detection_mode) = ''
     `);
   }
 }

@@ -8,6 +8,7 @@ export type EventSource =
 
 export type AutomationSuitability = "high" | "medium" | "low";
 export type AutomationDifficulty = "high" | "medium" | "low";
+export type WorkflowDetectionMode = "standard" | "short_form";
 
 export type ReportWindow = "all" | "day" | "week";
 
@@ -158,6 +159,7 @@ export interface WorkflowConfidenceDetails {
 export interface WorkflowCluster {
   id: string;
   workflowSignature: string;
+  detectionMode: WorkflowDetectionMode;
   name: string;
   businessPurpose?: string | undefined;
   sessionIds: string[];
