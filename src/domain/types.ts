@@ -237,6 +237,7 @@ export interface AutomationHint {
 export interface ReportEntry {
   workflowClusterId: string;
   workflowSignature: string;
+  detectionMode: WorkflowDetectionMode;
   workflowName: string;
   businessPurpose?: string | undefined;
   frequency: number;
@@ -348,6 +349,7 @@ export interface LLMWorkflowSummaryPayload {
 export interface WorkflowSummaryPayloadRecord {
   workflowClusterId: string;
   workflowName: string;
+  detectionMode: WorkflowDetectionMode;
   payload: LLMWorkflowSummaryPayload;
 }
 
@@ -359,6 +361,7 @@ export interface AnalysisRunSummary {
   applyNames?: boolean | undefined;
   includeExcluded?: boolean | undefined;
   includeHidden?: boolean | undefined;
+  includeShortForm?: boolean | undefined;
   workflowCount?: number | undefined;
   payloadCount?: number | undefined;
   resultCount?: number | undefined;

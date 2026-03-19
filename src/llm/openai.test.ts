@@ -38,6 +38,7 @@ test("createOpenAIWorkflowAnalyzer sends summarized payloads to Responses API", 
   const result = await analyzer.analyze({
     workflowClusterId: "workflow-1",
     workflowName: "Order Search workflow",
+    detectionMode: "standard",
     payload: {
       workflowSteps: ["Open admin page", "Search order", "Send Slack update"],
       frequency: 3,
@@ -111,6 +112,7 @@ test("createOpenAIWorkflowAnalyzer retries once on unauthorized and preserves th
   const result = await analyzer.analyze({
     workflowClusterId: "workflow-2",
     workflowName: "Codex workflow",
+    detectionMode: "standard",
     payload: {
       workflowSteps: ["Open app", "Run task"],
       frequency: 2,

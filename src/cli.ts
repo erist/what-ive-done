@@ -904,6 +904,7 @@ function renderWorkflowList(json = false, dataDir?: string): void {
     workflows.map((workflow) => ({
       id: workflow.id,
       workflow: workflow.name,
+      mode: workflow.detectionMode,
       frequency: workflow.frequency,
       averageDuration: formatDuration(workflow.averageDurationSeconds),
       totalDuration: formatDuration(workflow.totalDurationSeconds),
@@ -1193,7 +1194,11 @@ function renderActionSuggestion(
 
 function renderWorkflowSummaryPayloads(
   dataDir: string | undefined,
-  options: { includeExcluded?: boolean | undefined; includeHidden?: boolean | undefined },
+  options: {
+    includeExcluded?: boolean | undefined;
+    includeHidden?: boolean | undefined;
+    includeShortForm?: boolean | undefined;
+  },
 ): void {
   const payloadRecords = withDatabase(dataDir, (database) =>
     database.listWorkflowSummaryPayloadRecords(options),
@@ -1219,6 +1224,7 @@ function renderWorkflowDetail(workflowId: string, dataDir?: string, json = false
       {
         id: workflow.id,
         name: workflow.name,
+        detectionMode: workflow.detectionMode,
         frequency: workflow.frequency,
         averageDurationSeconds: workflow.averageDurationSeconds,
         totalDurationSeconds: workflow.totalDurationSeconds,
@@ -2784,11 +2790,18 @@ program
   .option("--data-dir <path>", "Override application data directory")
   .option("--include-excluded", "Include excluded workflows")
   .option("--include-hidden", "Include hidden workflows")
+  .option("--include-short-form", "Include short-form workflow clusters")
   .action(
-    (options: { dataDir?: string; includeExcluded?: boolean; includeHidden?: boolean }) => {
+    (options: {
+      dataDir?: string;
+      includeExcluded?: boolean;
+      includeHidden?: boolean;
+      includeShortForm?: boolean;
+    }) => {
       renderWorkflowSummaryPayloads(options.dataDir, {
         includeExcluded: options.includeExcluded,
         includeHidden: options.includeHidden,
+        includeShortForm: options.includeShortForm,
       });
     },
   );
@@ -2804,6 +2817,7 @@ program
   .option("--project-id <id>", "Override Google Cloud project id for Gemini OAuth")
   .option("--include-excluded", "Include excluded workflows")
   .option("--include-hidden", "Include hidden workflows")
+  .option("--include-short-form", "Include short-form workflow clusters")
   .option("--apply-names", "Persist LLM workflow_name results as rename feedback")
   .option("--json", "Print machine-readable JSON")
   .action(
@@ -2816,6 +2830,7 @@ program
       projectId?: string;
       includeExcluded?: boolean;
       includeHidden?: boolean;
+      includeShortForm?: boolean;
       applyNames?: boolean;
       json?: boolean;
     }) => {
@@ -2823,6 +2838,7 @@ program
         database.listWorkflowSummaryPayloadRecords({
           includeExcluded: options.includeExcluded,
           includeHidden: options.includeHidden,
+          includeShortForm: options.includeShortForm,
         }),
       );
       const { analyses } = await analyzeWorkflowPayloadRecords({

@@ -43,6 +43,7 @@ test("createClaudeWorkflowAnalyzer uses Anthropic Messages API tool calls", asyn
   const result = await analyzer.analyze({
     workflowClusterId: "workflow-1",
     workflowName: "Triage queue",
+    detectionMode: "standard",
     payload: {
       workflowSteps: ["Open queue", "Review item", "Update CRM"],
       frequency: 8,

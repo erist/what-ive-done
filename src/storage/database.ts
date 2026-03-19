@@ -18,7 +18,10 @@ import type {
   WorkflowCluster,
   WorkflowSummaryPayloadRecord,
 } from "../domain/types.js";
-import { buildWorkflowSummaryPayload } from "../llm/payloads.js";
+import {
+  buildWorkflowSummaryPayload,
+  filterWorkflowClustersForPayloads,
+} from "../llm/payloads.js";
 import { sanitizeRawEvent } from "../privacy/sanitize.js";
 import {
   applySchemaMigrations,
@@ -1484,6 +1487,7 @@ export class AppDatabase {
       return {
         workflowClusterId: cluster.id,
         workflowName: cluster.name,
+        detectionMode: cluster.detectionMode,
         payload,
       };
     });
@@ -1492,12 +1496,9 @@ export class AppDatabase {
   listWorkflowSummaryPayloadRecords(options?: {
     includeExcluded?: boolean | undefined;
     includeHidden?: boolean | undefined;
+    includeShortForm?: boolean | undefined;
   }): WorkflowSummaryPayloadRecord[] {
-    const includeExcluded = options?.includeExcluded ?? false;
-    const includeHidden = options?.includeHidden ?? false;
-    const clusters = this.listWorkflowClusters().filter(
-      (cluster) => (includeExcluded || !cluster.excluded) && (includeHidden || !cluster.hidden),
-    );
+    const clusters = filterWorkflowClustersForPayloads(this.listWorkflowClusters(), options);
 
     return this.buildWorkflowSummaryPayloadRecordsForClusters(clusters);
   }
