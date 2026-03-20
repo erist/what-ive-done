@@ -243,13 +243,22 @@ test("analyzeRawEvents adds a short-form workflow lane for repeated quick sessio
       target: "update_status",
     },
     {
-      source: "mock",
-      sourceEventType: "browser.click",
+      source: "workspace",
+      sourceEventType: "workspace.sheets.modified",
       timestamp: "2026-03-14T10:00:00.000Z",
-      application: "chrome",
-      domain: "admin.internal",
-      action: "click",
-      target: "switch_to_system_settings",
+      application: "gws-sheets",
+      domain: "docs.google.com",
+      action: "workspace_activity",
+      target: "update_sheet",
+      metadata: {
+        workspaceContext: {
+          provider: "gws",
+          app: "sheets",
+          itemType: "spreadsheet",
+          itemHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          activityType: "modified",
+        },
+      },
     },
     {
       source: "mock",
@@ -279,13 +288,22 @@ test("analyzeRawEvents adds a short-form workflow lane for repeated quick sessio
       target: "update_status",
     },
     {
-      source: "mock",
-      sourceEventType: "browser.click",
+      source: "workspace",
+      sourceEventType: "workspace.sheets.modified",
       timestamp: "2026-03-14T12:00:00.000Z",
-      application: "chrome",
-      domain: "admin.internal",
-      action: "click",
-      target: "switch_to_system_settings",
+      application: "gws-sheets",
+      domain: "docs.google.com",
+      action: "workspace_activity",
+      target: "update_sheet",
+      metadata: {
+        workspaceContext: {
+          provider: "gws",
+          app: "sheets",
+          itemType: "spreadsheet",
+          itemHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          activityType: "modified",
+        },
+      },
     },
     {
       source: "mock",
@@ -315,13 +333,22 @@ test("analyzeRawEvents adds a short-form workflow lane for repeated quick sessio
       target: "update_status",
     },
     {
-      source: "mock",
-      sourceEventType: "browser.click",
+      source: "workspace",
+      sourceEventType: "workspace.sheets.modified",
       timestamp: "2026-03-14T14:00:00.000Z",
-      application: "chrome",
-      domain: "admin.internal",
-      action: "click",
-      target: "switch_to_system_settings",
+      application: "gws-sheets",
+      domain: "docs.google.com",
+      action: "workspace_activity",
+      target: "update_sheet",
+      metadata: {
+        workspaceContext: {
+          provider: "gws",
+          app: "sheets",
+          itemType: "spreadsheet",
+          itemHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          activityType: "modified",
+        },
+      },
     },
   ]);
 
@@ -341,6 +368,37 @@ test("analyzeRawEvents adds a short-form workflow lane for repeated quick sessio
     "update_status",
   ]);
   assert.equal(shortFormCluster?.frequency, 3);
-  assert.deepEqual(shortFormCluster?.representativeSequence, ["switch_to_system_settings"]);
+  assert.deepEqual(shortFormCluster?.representativeSequence, ["update_sheet"]);
   assert.ok((shortFormCluster?.averageDurationSeconds ?? 1) < 45);
+});
+
+test("analyzeRawEvents excludes generic switch-only sessions from short-form workflows", () => {
+  const rawEvents = toRawEvents([
+    {
+      source: "desktop",
+      sourceEventType: "app.switch",
+      timestamp: "2026-03-14T09:00:00.000Z",
+      application: "시스템 설정",
+      action: "switch",
+    },
+    {
+      source: "desktop",
+      sourceEventType: "app.switch",
+      timestamp: "2026-03-14T10:00:00.000Z",
+      application: "시스템 설정",
+      action: "switch",
+    },
+    {
+      source: "desktop",
+      sourceEventType: "app.switch",
+      timestamp: "2026-03-14T11:00:00.000Z",
+      application: "시스템 설정",
+      action: "switch",
+    },
+  ]);
+
+  const result = analyzeRawEvents(rawEvents);
+
+  assert.equal(result.sessions.length, 3);
+  assert.equal(result.workflowClusters.length, 0);
 });

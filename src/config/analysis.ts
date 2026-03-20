@@ -41,6 +41,7 @@ export interface WorkflowShortFormConfig {
   maxSessionDurationSeconds: number;
   maxActionSequenceLength: number;
   similarityThreshold: number;
+  minimumMeaningfulActions: number;
 }
 
 export const DEFAULT_NORMALIZATION_CONFIG: NormalizationConfig = {
@@ -136,4 +137,5 @@ export const DEFAULT_WORKFLOW_SHORT_FORM_CONFIG: WorkflowShortFormConfig = {
   maxSessionDurationSeconds: 20,
   maxActionSequenceLength: 3,
   similarityThreshold: 0.86,
+  minimumMeaningfulActions: 1,
 };
