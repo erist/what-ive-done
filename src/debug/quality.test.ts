@@ -44,7 +44,7 @@ function createRawEvent(input: Partial<RawEventInput> & Pick<RawEventInput, "tim
   };
 }
 
-test("buildDatasetQualityReport flags the current live-data failure modes", () => {
+test("buildDatasetQualityReport flags the remaining live-data quality gaps", () => {
   const { tempDir, database } = createDatabase("what-ive-done-quality-issues-");
 
   try {
@@ -107,16 +107,18 @@ test("buildDatasetQualityReport flags the current live-data failure modes", () =
     assert.equal(report.rawEvents.unanalyzedCount, 1);
     assert.equal(report.browserContext.chromeExtensionEvents, 0);
     assert.equal(report.browserContext.browserNavigationEvents, 0);
-    assert.ok(report.browserContext.rawSchemaWithoutRouteContext >= 2);
-    assert.ok(report.actionQuality.emptySwitchActions >= 3);
-    assert.ok(report.sessionQuality.negativeDurationSessions >= 1);
-    assert.ok(report.workflowQuality.genericShortFormClusters >= 1);
+    assert.equal(report.browserContext.rawSchemaWithoutRouteContext, 0);
+    assert.equal(report.actionQuality.emptySwitchActions, 0);
+    assert.equal(report.sessionQuality.negativeDurationSessions, 0);
+    assert.equal(report.workflowQuality.genericShortFormClusters, 0);
+    assert.ok(report.actionQuality.switchActionPct >= 80);
     assert.ok(issueCodes.has("browser_context_missing"));
-    assert.ok(issueCodes.has("browser_schema_without_route_context"));
     assert.ok(issueCodes.has("analysis_artifacts_stale"));
-    assert.ok(issueCodes.has("broken_application_identifier_actions"));
-    assert.ok(issueCodes.has("negative_session_durations"));
-    assert.ok(issueCodes.has("generic_short_form_clusters"));
+    assert.ok(issueCodes.has("action_abstraction_switch_heavy"));
+    assert.ok(!issueCodes.has("browser_schema_without_route_context"));
+    assert.ok(!issueCodes.has("broken_application_identifier_actions"));
+    assert.ok(!issueCodes.has("negative_session_durations"));
+    assert.ok(!issueCodes.has("generic_short_form_clusters"));
   } finally {
     database.close();
     rmSync(tempDir, { recursive: true, force: true });

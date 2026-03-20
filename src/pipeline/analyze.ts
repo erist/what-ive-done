@@ -43,6 +43,48 @@ function compactActionSequenceForLegacy(steps: Session["steps"]): string[] {
   return actions.filter((action, index) => action !== actions[index - 1]);
 }
 
+function sessionDurationSeconds(session: Session): number {
+  const startTime = Date.parse(session.startTime);
+  const endTime = Date.parse(session.endTime);
+
+  if (Number.isNaN(startTime) || Number.isNaN(endTime)) {
+    return Number.NaN;
+  }
+
+  return (endTime - startTime) / 1000;
+}
+
+function isGenericShortFormAction(actionName: string): boolean {
+  return actionName === "unknown_action" || actionName.startsWith("switch_to_");
+}
+
+function isShortFormCandidate(session: Session): boolean {
+  const durationSeconds = sessionDurationSeconds(session);
+
+  if (
+    Number.isNaN(durationSeconds) ||
+    durationSeconds < 0 ||
+    durationSeconds > DEFAULT_WORKFLOW_SHORT_FORM_CONFIG.maxSessionDurationSeconds
+  ) {
+    return false;
+  }
+
+  const actionSequence = compactActionSequenceForLegacy(session.steps);
+
+  if (
+    actionSequence.length === 0 ||
+    actionSequence.length > DEFAULT_WORKFLOW_SHORT_FORM_CONFIG.maxActionSequenceLength
+  ) {
+    return false;
+  }
+
+  const meaningfulActionCount = actionSequence.filter(
+    (actionName) => !isGenericShortFormAction(actionName),
+  ).length;
+
+  return meaningfulActionCount >= DEFAULT_WORKFLOW_SHORT_FORM_CONFIG.minimumMeaningfulActions;
+}
+
 function buildLegacyWorkflowSignature(steps: Session["steps"]): string {
   return stableId("workflow_signature", compactActionSequenceForLegacy(steps).join(">"));
 }
@@ -371,7 +413,9 @@ export function analyzeRawEvents(rawEvents: RawEvent[], options: AnalyzeOptions 
   const shortFormClusters =
     shortFormMaxSessionDurationSeconds > 0
       ? clusterSessions(
-          splitSessions.filter((session) => !standardSessionIds.has(session.id)),
+          splitSessions.filter(
+            (session) => !standardSessionIds.has(session.id) && isShortFormCandidate(session),
+          ),
           {
             ...clusterOptions,
             detectionMode: "short_form",
