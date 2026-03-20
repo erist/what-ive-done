@@ -12,6 +12,7 @@ import type {
   WorkflowSummaryPayloadRecord,
   WorkflowCluster,
   WorkflowFeedbackSummary,
+  WorkflowNameSource,
   WorkflowReport,
   WorkflowReportComparison,
 } from "../domain/types.js";
@@ -53,6 +54,9 @@ export interface ViewerWorkflowSummary {
   workflowSignature: string;
   detectionMode: WorkflowCluster["detectionMode"];
   workflowName: string;
+  baselineWorkflowName: string;
+  workflowNameSource: WorkflowNameSource;
+  llmSuggestedWorkflowName?: string | undefined;
   businessPurpose?: string | undefined;
   frequency: number;
   averageDurationSeconds: number;
@@ -185,12 +189,18 @@ function toViewerWorkflowSummary(
   workflow: WorkflowCluster,
   sessionSummariesById: Map<string, ViewerSessionSummary>,
   visibleWorkflowIds: Set<string>,
+  reportWorkflowsById: Map<string, WorkflowReport["workflows"][number]>,
 ): ViewerWorkflowSummary {
+  const reportWorkflow = reportWorkflowsById.get(workflow.id);
+
   return {
     id: workflow.id,
     workflowSignature: workflow.workflowSignature,
     detectionMode: workflow.detectionMode,
     workflowName: workflow.name,
+    baselineWorkflowName: reportWorkflow?.baselineWorkflowName ?? workflow.name,
+    workflowNameSource: reportWorkflow?.workflowNameSource ?? "baseline",
+    llmSuggestedWorkflowName: reportWorkflow?.llmSuggestedWorkflowName,
     businessPurpose: workflow.businessPurpose,
     frequency: workflow.frequency,
     averageDurationSeconds: workflow.averageDurationSeconds,
@@ -223,9 +233,19 @@ function buildViewerWorkflowSummaries(
   const sessionSummaries = toSessionSummaries(analysisResult.sessions);
   const sessionSummariesById = new Map(sessionSummaries.map((session) => [session.id, session]));
   const visibleWorkflowIds = new Set(report.workflows.map((workflow) => workflow.workflowClusterId));
+  const reportWorkflowsById = new Map(
+    report.workflows.map((workflow) => [workflow.workflowClusterId, workflow]),
+  );
 
   return applyWorkflowFeedbackToClusters(analysisResult.workflowClusters, feedbackByClusterId)
-    .map((workflow) => toViewerWorkflowSummary(workflow, sessionSummariesById, visibleWorkflowIds))
+    .map((workflow) =>
+      toViewerWorkflowSummary(
+        workflow,
+        sessionSummariesById,
+        visibleWorkflowIds,
+        reportWorkflowsById,
+      ),
+    )
     .sort(compareWorkflowSummaries);
 }
 

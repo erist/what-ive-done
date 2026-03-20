@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { generateMockRawEvents } from "../collectors/mock.js";
-import type { RawEvent, WorkflowCluster } from "../domain/types.js";
+import type { RawEvent, WorkflowCluster, WorkflowLLMAnalysis } from "../domain/types.js";
 import {
   buildWorkflowReport,
   buildWorkflowReportComparison,
@@ -111,6 +111,8 @@ test("buildWorkflowReport produces emerging workflows for a single local day", (
 
   assert.equal(report.totalSessions, 5);
   assert.equal(report.totalTrackedDurationSeconds, 750);
+  assert.equal(report.freshness.analysisSource, "live_reanalysis");
+  assert.equal(report.freshness.snapshotStatus, "missing");
   assert.equal(report.workflows.length, 0);
   assert.equal(report.emergingWorkflows.length, 5);
   assert.equal(report.summary.topRepetitiveWorkflows.length, 0);
@@ -142,6 +144,7 @@ test("buildWorkflowReport produces confirmed workflows for a weekly window", () 
 
   assert.equal(report.totalSessions, 15);
   assert.equal(report.totalTrackedDurationSeconds, 2250);
+  assert.equal(report.freshness.snapshotStatus, "missing");
   assert.equal(report.workflows.length, 5);
   assert.equal(report.emergingWorkflows.length, 0);
   assert.ok(report.summary.topRepetitiveWorkflows.length > 0);
@@ -149,6 +152,8 @@ test("buildWorkflowReport produces confirmed workflows for a weekly window", () 
 
   assert.ok(firstWorkflow);
   assert.ok(firstWorkflow.graph.text.includes("->"));
+  assert.equal(firstWorkflow.workflowNameSource, "baseline");
+  assert.equal(firstWorkflow.baselineWorkflowName, firstWorkflow.workflowName);
   assert.ok(firstWorkflow.frequencyPerWeek >= 3);
   assert.ok(firstWorkflow.confidenceScore > 0);
   assert.ok(firstWorkflow.automationHints.length > 0);
@@ -207,6 +212,76 @@ test("buildWorkflowReportFromAnalysis keeps short-form workflows visible but out
     report.summary.quickWinAutomationCandidates.map((workflow) => workflow.workflowName),
     ["Review Orders"],
   );
+});
+
+test("buildWorkflowReportFromAnalysis distinguishes baseline, feedback, and llm overlay names", () => {
+  const reportWindow = resolveReportTimeWindow({
+    window: "week",
+    reportDate: "2026-03-14",
+    timezone: "UTC",
+    timezoneOffsetMinutes: 0,
+  });
+  const llmAnalysis: WorkflowLLMAnalysis = {
+    workflowClusterId: "workflow-llm",
+    provider: "openai",
+    model: "gpt-5.4",
+    workflowName: "AI Review Orders",
+    workflowSummary: "Renamed by LLM",
+    automationSuitability: "medium",
+    recommendedApproach: "Browser automation",
+    rationale: "Matches the observed workflow better.",
+    createdAt: "2026-03-14T10:00:00.000Z",
+  };
+  const report = buildWorkflowReportFromAnalysis({
+    rawEvents: [],
+    timeWindow: reportWindow,
+    analysisResult: {
+      normalizedEvents: [],
+      sessions: [],
+      workflowClusters: [
+        createWorkflowCluster({
+          id: "workflow-llm",
+          workflowSignature: "signature-llm",
+          detectionMode: "standard",
+          name: "Review Orders",
+          frequency: 3,
+          averageDurationSeconds: 120,
+          totalDurationSeconds: 360,
+          automationSuitability: "medium",
+          confidenceScore: 0.9,
+        }),
+        createWorkflowCluster({
+          id: "workflow-feedback",
+          workflowSignature: "signature-feedback",
+          detectionMode: "standard",
+          name: "Update CRM",
+          frequency: 3,
+          averageDurationSeconds: 180,
+          totalDurationSeconds: 540,
+          automationSuitability: "medium",
+          confidenceScore: 0.86,
+        }),
+      ],
+    },
+    options: {
+      feedbackByClusterId: new Map([
+        ["workflow-llm", { renameTo: "AI Review Orders" }],
+        ["workflow-feedback", { renameTo: "Manual CRM Follow-up" }],
+      ]),
+      llmAnalysesByWorkflowId: new Map([["workflow-llm", llmAnalysis]]),
+    },
+  });
+
+  const llmWorkflow = report.workflows.find((workflow) => workflow.workflowClusterId === "workflow-llm");
+  const feedbackWorkflow = report.workflows.find(
+    (workflow) => workflow.workflowClusterId === "workflow-feedback",
+  );
+
+  assert.equal(llmWorkflow?.workflowNameSource, "llm_overlay");
+  assert.equal(llmWorkflow?.baselineWorkflowName, "Review Orders");
+  assert.equal(llmWorkflow?.llmSuggestedWorkflowName, "AI Review Orders");
+  assert.equal(feedbackWorkflow?.workflowNameSource, "feedback");
+  assert.equal(feedbackWorkflow?.baselineWorkflowName, "Update CRM");
 });
 
 test("resolveReportTimeWindow computes the expected weekly UTC boundaries", () => {
@@ -360,6 +435,11 @@ test("buildWorkflowReportComparison highlights new, disappeared, and approved-ca
       timezone: "UTC",
       timezoneOffsetMinutes: 0,
     },
+    freshness: {
+      analysisSource: "live_reanalysis" as const,
+      reportGeneratedAt: "2026-03-13T23:59:00.000Z",
+      snapshotStatus: "missing" as const,
+    },
     totalSessions: 4,
     totalTrackedDurationSeconds: 900,
     workflows: [
@@ -368,6 +448,8 @@ test("buildWorkflowReportComparison highlights new, disappeared, and approved-ca
         workflowSignature: "signature-existing",
         detectionMode: "standard" as const,
         workflowName: "Review Orders",
+        baselineWorkflowName: "Review Orders",
+        workflowNameSource: "baseline" as const,
         frequency: 3,
         frequencyPerWeek: 21,
         averageDurationSeconds: 120,
@@ -394,6 +476,8 @@ test("buildWorkflowReportComparison highlights new, disappeared, and approved-ca
         workflowSignature: "signature-disappeared",
         detectionMode: "standard" as const,
         workflowName: "Old Workflow",
+        baselineWorkflowName: "Old Workflow",
+        workflowNameSource: "baseline" as const,
         frequency: 2,
         frequencyPerWeek: 14,
         averageDurationSeconds: 90,
@@ -430,6 +514,11 @@ test("buildWorkflowReportComparison highlights new, disappeared, and approved-ca
       timezone: "UTC",
       timezoneOffsetMinutes: 0,
     },
+    freshness: {
+      analysisSource: "live_reanalysis" as const,
+      reportGeneratedAt: "2026-03-14T23:59:00.000Z",
+      snapshotStatus: "missing" as const,
+    },
     totalSessions: 5,
     totalTrackedDurationSeconds: 1_200,
     workflows: [
@@ -438,6 +527,8 @@ test("buildWorkflowReportComparison highlights new, disappeared, and approved-ca
         workflowSignature: "signature-existing",
         detectionMode: "standard" as const,
         workflowName: "Review Orders",
+        baselineWorkflowName: "Review Orders",
+        workflowNameSource: "baseline" as const,
         frequency: 4,
         frequencyPerWeek: 28,
         averageDurationSeconds: 150,
@@ -464,6 +555,8 @@ test("buildWorkflowReportComparison highlights new, disappeared, and approved-ca
         workflowSignature: "signature-new",
         detectionMode: "standard" as const,
         workflowName: "New Workflow",
+        baselineWorkflowName: "New Workflow",
+        workflowNameSource: "baseline" as const,
         frequency: 3,
         frequencyPerWeek: 21,
         averageDurationSeconds: 120,

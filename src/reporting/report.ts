@@ -9,6 +9,8 @@ import type {
   WorkflowReportComparisonEntry,
   WorkflowFeedbackSummary,
   WorkflowGraph,
+  WorkflowLLMAnalysis,
+  WorkflowNameSource,
   WorkflowReport,
 } from "../domain/types.js";
 import { applyWorkflowFeedbackToCluster } from "../feedback/service.js";
@@ -22,6 +24,14 @@ export interface BuildReportOptions {
 
 export interface BuildWorkflowReportOptions extends BuildReportOptions {
   feedbackByClusterId?: Map<string, WorkflowFeedbackSummary> | undefined;
+  llmAnalysesByWorkflowId?: Map<string, WorkflowLLMAnalysis> | undefined;
+  freshness?: WorkflowReport["freshness"] | undefined;
+}
+
+interface WorkflowNameMetadata {
+  baselineWorkflowName: string;
+  workflowNameSource: WorkflowNameSource;
+  llmSuggestedWorkflowName?: string | undefined;
 }
 
 function secondsBetween(startTime: string, endTime: string): number {
@@ -122,39 +132,75 @@ function buildWorkflowGraph(cluster: WorkflowCluster): WorkflowGraph {
   };
 }
 
+function latestTimestamp(rawEvents: RawEvent[]): string | undefined {
+  return rawEvents[rawEvents.length - 1]?.timestamp;
+}
+
+function resolveWorkflowNameMetadata(args: {
+  baselineCluster: WorkflowCluster;
+  resolvedCluster: WorkflowCluster;
+  llmAnalysis?: WorkflowLLMAnalysis | undefined;
+}): WorkflowNameMetadata {
+  if (args.resolvedCluster.name === args.baselineCluster.name) {
+    return {
+      baselineWorkflowName: args.baselineCluster.name,
+      workflowNameSource: "baseline",
+      llmSuggestedWorkflowName: args.llmAnalysis?.workflowName,
+    };
+  }
+
+  return {
+    baselineWorkflowName: args.baselineCluster.name,
+    workflowNameSource:
+      args.llmAnalysis?.workflowName === args.resolvedCluster.name ? "llm_overlay" : "feedback",
+    llmSuggestedWorkflowName: args.llmAnalysis?.workflowName,
+  };
+}
+
 export function buildReportEntries(
   clusters: WorkflowCluster[],
   timeWindow: ReportTimeWindow,
   rawEvents: RawEvent[],
   options: BuildReportOptions = {},
+  nameMetadataByClusterId: Map<string, WorkflowNameMetadata> = new Map(),
 ): ReportEntry[] {
   const windowDays = estimateWindowDays(rawEvents, timeWindow);
 
   return filterVisibleClusters(clusters, options)
-    .map((cluster) => ({
-      workflowClusterId: cluster.id,
-      workflowSignature: cluster.workflowSignature,
-      detectionMode: cluster.detectionMode,
-      workflowName: cluster.name,
-      businessPurpose: cluster.businessPurpose,
-      frequency: cluster.frequency,
-      frequencyPerWeek: Math.round((cluster.frequency / windowDays) * 7 * 100) / 100,
-      averageDurationSeconds: cluster.averageDurationSeconds,
-      totalDurationSeconds: cluster.totalDurationSeconds,
-      estimatedTotalTimeSpentSeconds: cluster.totalDurationSeconds,
-      representativeSequence: cluster.representativeSequence,
-      representativeSteps: cluster.representativeSteps,
-      involvedApps: cluster.involvedApps,
-      automationSuitabilityScore: automationSuitabilityScore(cluster),
-      confidenceScore: cluster.confidenceScore,
-      userLabeled: cluster.userLabeled,
-      graph: buildWorkflowGraph(cluster),
-      automationSuitability: cluster.automationSuitability,
-      recommendedApproach: cluster.recommendedApproach,
-      automationHints: cluster.automationHints,
-      automationCandidate: cluster.automationCandidate,
-      approvedAutomationCandidate: cluster.approvedAutomationCandidate,
-    }))
+    .map((cluster) => {
+      const nameMetadata = nameMetadataByClusterId.get(cluster.id) ?? {
+        baselineWorkflowName: cluster.name,
+        workflowNameSource: "baseline" as const,
+      };
+
+      return {
+        workflowClusterId: cluster.id,
+        workflowSignature: cluster.workflowSignature,
+        detectionMode: cluster.detectionMode,
+        workflowName: cluster.name,
+        baselineWorkflowName: nameMetadata.baselineWorkflowName,
+        workflowNameSource: nameMetadata.workflowNameSource,
+        llmSuggestedWorkflowName: nameMetadata.llmSuggestedWorkflowName,
+        businessPurpose: cluster.businessPurpose,
+        frequency: cluster.frequency,
+        frequencyPerWeek: Math.round((cluster.frequency / windowDays) * 7 * 100) / 100,
+        averageDurationSeconds: cluster.averageDurationSeconds,
+        totalDurationSeconds: cluster.totalDurationSeconds,
+        estimatedTotalTimeSpentSeconds: cluster.totalDurationSeconds,
+        representativeSequence: cluster.representativeSequence,
+        representativeSteps: cluster.representativeSteps,
+        involvedApps: cluster.involvedApps,
+        automationSuitabilityScore: automationSuitabilityScore(cluster),
+        confidenceScore: cluster.confidenceScore,
+        userLabeled: cluster.userLabeled,
+        graph: buildWorkflowGraph(cluster),
+        automationSuitability: cluster.automationSuitability,
+        recommendedApproach: cluster.recommendedApproach,
+        automationHints: cluster.automationHints,
+        automationCandidate: cluster.automationCandidate,
+        approvedAutomationCandidate: cluster.approvedAutomationCandidate,
+      };
+    })
     .sort(
       (left, right) =>
         Number(left.detectionMode === "short_form") - Number(right.detectionMode === "short_form") ||
@@ -225,13 +271,41 @@ export function buildWorkflowReportFromAnalysis(args: {
 }): WorkflowReport {
   const options = args.options ?? {};
   const feedbackByClusterId = options.feedbackByClusterId ?? new Map<string, WorkflowFeedbackSummary>();
-  const clusters = args.analysisResult.workflowClusters.map((cluster) =>
+  const baselineClusters = args.analysisResult.workflowClusters;
+  const llmAnalysesByWorkflowId = options.llmAnalysesByWorkflowId ?? new Map<string, WorkflowLLMAnalysis>();
+  const clusters = baselineClusters.map((cluster) =>
     applyWorkflowFeedbackToCluster(cluster, feedbackByClusterId),
   );
-  const workflows = buildReportEntries(clusters, args.timeWindow, args.rawEvents, options);
+  const nameMetadataByClusterId = new Map(
+    baselineClusters.map((baselineCluster, index) => {
+      const resolvedCluster = clusters[index] ?? baselineCluster;
+
+      return [
+        resolvedCluster.id,
+        resolveWorkflowNameMetadata({
+          baselineCluster,
+          resolvedCluster,
+          llmAnalysis: llmAnalysesByWorkflowId.get(resolvedCluster.id),
+        }),
+      ];
+    }),
+  );
+  const workflows = buildReportEntries(
+    clusters,
+    args.timeWindow,
+    args.rawEvents,
+    options,
+    nameMetadataByClusterId,
+  );
 
   return {
     timeWindow: args.timeWindow,
+    freshness: options.freshness ?? {
+      analysisSource: "live_reanalysis",
+      reportGeneratedAt: new Date().toISOString(),
+      latestRawEventAt: latestTimestamp(args.rawEvents),
+      snapshotStatus: "missing",
+    },
     totalSessions: args.analysisResult.sessions.length,
     totalTrackedDurationSeconds: args.analysisResult.sessions.reduce(
       (sum, session) => sum + secondsBetween(session.startTime, session.endTime),

@@ -192,6 +192,10 @@ test("buildViewerAnalysisPreparation excludes short-form workflows from LLM payl
       dashboard.reviewableWorkflows.map((workflow) => workflow.detectionMode),
       ["standard", "short_form"],
     );
+    assert.equal(dashboard.report.freshness.analysisSource, "live_reanalysis");
+    assert.equal(dashboard.report.freshness.snapshotStatus, "missing");
+    assert.equal(dashboard.report.workflows[0]?.workflowNameSource, "baseline");
+    assert.equal(dashboard.reviewableWorkflows[0]?.baselineWorkflowName, "Search Order workflow");
     assert.equal(defaultPreparation.workflowCount, 2);
     assert.equal(defaultPreparation.shortFormExcludedCount, 1);
     assert.equal(defaultPreparation.payloadRecords.length, 1);
