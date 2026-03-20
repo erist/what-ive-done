@@ -295,6 +295,95 @@ function seedSchemaVersion15BrowserDatabase(databasePath: string): void {
   connection.close();
 }
 
+function seedSchemaVersion16TimestampDatabase(databasePath: string): void {
+  const connection = new DatabaseSync(databasePath);
+
+  connection.exec(`
+    CREATE TABLE schema_migrations (
+      version INTEGER PRIMARY KEY,
+      applied_at TEXT NOT NULL
+    );
+
+    CREATE TABLE raw_events (
+      id TEXT PRIMARY KEY,
+      source TEXT NOT NULL,
+      source_event_type TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      application TEXT NOT NULL,
+      window_title TEXT,
+      domain TEXT,
+      url TEXT,
+      browser_schema_version INTEGER,
+      canonical_url TEXT,
+      route_template TEXT,
+      route_key TEXT,
+      resource_hash TEXT,
+      action TEXT NOT NULL,
+      target TEXT,
+      metadata_json TEXT NOT NULL,
+      sensitive_filtered INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
+    );
+  `);
+
+  connection
+    .prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)")
+    .run(16, "2026-03-20T00:00:00.000Z");
+
+  connection
+    .prepare(`
+      INSERT INTO raw_events (
+        id,
+        source,
+        source_event_type,
+        timestamp,
+        application,
+        window_title,
+        domain,
+        url,
+        browser_schema_version,
+        canonical_url,
+        route_template,
+        route_key,
+        resource_hash,
+        action,
+        target,
+        metadata_json,
+        sensitive_filtered,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    .run(
+      "legacy-timestamp-1",
+      "git",
+      "git.repo.status",
+      "2026-03-20T17:24:57+09:00",
+      "git",
+      null,
+      "github.com",
+      null,
+      null,
+      null,
+      null,
+      null,
+      "abc123def4567890abc123def4567890",
+      "git_activity",
+      "review_git_changes",
+      JSON.stringify({
+        gitContext: {
+          repoHash: "abc123def4567890abc123def4567890",
+          remoteHost: "github.com",
+          dirtyFileCount: 2,
+          lastCommitAt: "2026-03-20T17:24:57+09:00",
+        },
+      }),
+      1,
+      "2026-03-20T17:24:57+09:00",
+    );
+
+  connection.close();
+}
+
 test("AppDatabase initializes schema and stores sanitized raw events", () => {
   const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-"));
 
@@ -423,6 +512,39 @@ test("AppDatabase refreshes schema v15 browser app-switch rows with the tightene
     assert.equal(event.canonicalUrl, undefined);
     assert.equal(event.routeTemplate, undefined);
     assert.equal(event.routeKey, undefined);
+
+    database.close();
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("AppDatabase refreshes schema v16 timestamps into canonical UTC ISO strings", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-schema-v16-"));
+  const databasePath = join(tempDir, "test.sqlite");
+
+  try {
+    seedSchemaVersion16TimestampDatabase(databasePath);
+
+    const database = new AppDatabase({
+      dataDir: tempDir,
+      databasePath,
+      agentLockPath: join(tempDir, "agent.lock"),
+    });
+    database.initialize();
+
+    const [event] = database.listRawEvents();
+
+    assert.ok(event);
+    assert.equal(event.timestamp, "2026-03-20T08:24:57.000Z");
+    assert.deepEqual(event.metadata, {
+      gitContext: {
+        repoHash: "abc123def4567890abc123def4567890",
+        remoteHost: "github.com",
+        dirtyFileCount: 2,
+        lastCommitAt: "2026-03-20T08:24:57.000Z",
+      },
+    });
 
     database.close();
   } finally {

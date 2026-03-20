@@ -39,7 +39,7 @@ test("readGitRepoSnapshot parses git repo state", () => {
       if (args[0] === "log") {
         return {
           status: 0,
-          stdout: "2026-03-17T09:45:00.000Z\n",
+          stdout: "2026-03-17T18:45:00+09:00\n",
           stderr: "",
         };
       }
@@ -70,7 +70,7 @@ test("createGitContextRawEvent builds privacy-safe repo context events", () => {
       repoHash: "abc123def4567890abc123def4567890abc123def4567890abc123def4567890",
       remoteHost: "github.com",
       dirtyFileCount: 2,
-      lastCommitAt: "2026-03-17T09:45:00.000Z",
+      lastCommitAt: "2026-03-17T18:45:00+09:00",
     },
     changeType: "status",
   });
@@ -78,6 +78,7 @@ test("createGitContextRawEvent builds privacy-safe repo context events", () => {
   assert.equal(event.source, "git");
   assert.equal(event.application, "git");
   assert.equal(event.target, "review_git_changes");
+  assert.equal(event.timestamp, "2026-03-17T09:45:00.000Z");
   assert.ok(event.metadata);
   assert.deepEqual(event.metadata.gitContext, {
     repoHash: "abc123def4567890abc123def4567890abc123def4567890abc123def4567890",

@@ -42,6 +42,42 @@ interface RollingSummaryEntry {
   count: number;
 }
 
+function toTimestampMs(value: string): number | undefined {
+  const timestamp = Date.parse(value);
+
+  return Number.isNaN(timestamp) ? undefined : timestamp;
+}
+
+function compareTimestamps(left: string, right: string): number {
+  const leftTimestamp = toTimestampMs(left);
+  const rightTimestamp = toTimestampMs(right);
+
+  if (leftTimestamp !== undefined && rightTimestamp !== undefined && leftTimestamp !== rightTimestamp) {
+    return leftTimestamp - rightTimestamp;
+  }
+
+  if (leftTimestamp !== undefined && rightTimestamp === undefined) {
+    return -1;
+  }
+
+  if (leftTimestamp === undefined && rightTimestamp !== undefined) {
+    return 1;
+  }
+
+  return left.localeCompare(right);
+}
+
+function gapBetweenTimestamps(start: string, end: string): number {
+  const startTimestamp = toTimestampMs(start);
+  const endTimestamp = toTimestampMs(end);
+
+  if (startTimestamp === undefined || endTimestamp === undefined) {
+    return Number.NaN;
+  }
+
+  return endTimestamp - startTimestamp;
+}
+
 function countMostCommon(values: string[]): string {
   const counts = new Map<string, number>();
 
@@ -142,7 +178,7 @@ function shouldStartNewSession(
   current: NormalizedEvent,
   options: SessionSegmentationConfig,
 ): BoundaryDecision {
-  const gapMs = new Date(current.timestamp).getTime() - new Date(previous.timestamp).getTime();
+  const gapMs = gapBetweenTimestamps(previous.timestamp, current.timestamp);
   const shift = contextShift(previous, current);
   const hasSignificantContextShift = shift.score >= options.significantContextScore;
 
@@ -208,10 +244,15 @@ function buildRollingSummary(
   dominantDomain: RollingSummaryEntry;
   dominantRouteFamily: RollingSummaryEntry;
 } {
-  const currentTime = new Date(current.timestamp).getTime();
-  const recentEvents = currentSessionEvents.filter(
-    (event) => currentTime - new Date(event.timestamp).getTime() <= options.rollingWindowMs,
-  );
+  const currentTime = toTimestampMs(current.timestamp);
+  const recentEvents =
+    currentTime === undefined
+      ? currentSessionEvents
+      : currentSessionEvents.filter((event) => {
+          const eventTime = toTimestampMs(event.timestamp);
+
+          return eventTime !== undefined && currentTime - eventTime <= options.rollingWindowMs;
+        });
 
   return {
     windowEventCount: recentEvents.length,
@@ -239,7 +280,7 @@ function shouldSuppressBoundaryWithRollingContext(args: {
     return false;
   }
 
-  const gapMs = new Date(args.current.timestamp).getTime() - new Date(args.previous.timestamp).getTime();
+  const gapMs = gapBetweenTimestamps(args.previous.timestamp, args.current.timestamp);
 
   if (gapMs < args.options.rollingMinimumGapMs) {
     return false;
@@ -294,11 +335,15 @@ function buildCalendarSignalBoundary(args: {
 }
 
 function toSession(session: MutableSession): Session {
-  const { events } = session;
-  const startTime = events[0]?.timestamp ?? new Date().toISOString();
-  const endTime = events[events.length - 1]?.timestamp ?? startTime;
-  const seed = events.map((event) => event.id).join("|");
-  const steps: SessionStep[] = events.map((event, index) => ({
+  const orderedEvents = [...session.events].sort((left, right) =>
+    compareTimestamps(left.timestamp, right.timestamp),
+  );
+  const startTime = orderedEvents[0]?.timestamp ?? new Date().toISOString();
+  const endTimeCandidate = orderedEvents[orderedEvents.length - 1]?.timestamp ?? startTime;
+  const endTime =
+    gapBetweenTimestamps(startTime, endTimeCandidate) < 0 ? startTime : endTimeCandidate;
+  const seed = orderedEvents.map((event) => event.id).join("|");
+  const steps: SessionStep[] = orderedEvents.map((event, index) => ({
     order: index + 1,
     normalizedEventId: event.id,
     timestamp: event.timestamp,
@@ -316,9 +361,9 @@ function toSession(session: MutableSession): Session {
     id: stableId("session", seed),
     startTime,
     endTime,
-    primaryApplication: countMostCommon(events.map((event) => event.application)),
+    primaryApplication: countMostCommon(orderedEvents.map((event) => event.application)),
     primaryDomain: countMostCommonOptional(
-      events.map((event) => event.domain).filter((value): value is string => Boolean(value)),
+      orderedEvents.map((event) => event.domain).filter((value): value is string => Boolean(value)),
     ),
     sessionBoundaryReason: session.sessionBoundaryReason,
     sessionBoundaryDetails: session.sessionBoundaryDetails,
@@ -352,7 +397,7 @@ export function sessionizeNormalizedEvents(
   };
 
   const sortedEvents = [...normalizedEvents].sort((left, right) =>
-    left.timestamp.localeCompare(right.timestamp),
+    compareTimestamps(left.timestamp, right.timestamp),
   );
   const sessions: MutableSession[] = [];
   const pendingCalendarSignals: PendingCalendarSignal[] = [];

@@ -10,6 +10,7 @@ import {
   hashOpaqueIdentifier,
   isMissingBinaryError,
   isRecord,
+  normalizeIsoTimestamp,
   normalizeOptionalString,
   type GWSCommandRunner,
 } from "./gws-shared.js";
@@ -159,9 +160,25 @@ export function createSheetsContextRawEvent(args: {
   summary?: SpreadsheetSummary | undefined;
   activity?: GWSDriveActivity | undefined;
 }): RawEventInput {
+  const modifiedTime = normalizeIsoTimestamp(args.file.modifiedTime);
+  const viewedByMeTime = normalizeIsoTimestamp(args.file.viewedByMeTime);
+  const activity = args.activity
+    ? {
+        ...args.activity,
+        observedAt: normalizeIsoTimestamp(args.activity.observedAt) ?? args.activity.observedAt,
+      }
+    : resolveDriveActivity({
+        ...args.file,
+        modifiedTime,
+        viewedByMeTime,
+      });
   const baseEvent = createDriveContextRawEvent({
-    file: args.file,
-    activity: args.activity ?? resolveDriveActivity(args.file),
+    file: {
+      ...args.file,
+      modifiedTime,
+      viewedByMeTime,
+    },
+    activity,
   });
   const itemHash = baseEvent.resourceHash!;
 
@@ -177,9 +194,9 @@ export function createSheetsContextRawEvent(args: {
         app: "sheets",
         itemType: "spreadsheet",
         itemHash,
-        activityType: args.activity?.activityType ?? resolveDriveActivity(args.file)?.activityType ?? "modified",
-        modifiedAt: args.file.modifiedTime,
-        viewedAt: args.file.viewedByMeTime,
+        activityType: activity?.activityType ?? "modified",
+        modifiedAt: modifiedTime,
+        viewedAt: viewedByMeTime,
         sheetCount: args.summary?.sheetCount,
         gridSheetCount: args.summary?.gridSheetCount,
       },

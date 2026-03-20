@@ -42,8 +42,8 @@ test("listRecentDriveFiles parses Drive file payloads", () => {
           {
             id: "drive-file-1",
             mimeType: "application/vnd.google-apps.document",
-            modifiedTime: "2026-03-17T09:30:42.225Z",
-            viewedByMeTime: "2026-03-17T09:31:00.000Z",
+            modifiedTime: "2026-03-17T18:30:42.225+09:00",
+            viewedByMeTime: "2026-03-17T18:31:00+09:00",
           },
         ],
       }),
@@ -53,6 +53,8 @@ test("listRecentDriveFiles parses Drive file payloads", () => {
 
   assert.equal(files.length, 1);
   assert.equal(files[0]?.id, "drive-file-1");
+  assert.equal(files[0]?.modifiedTime, "2026-03-17T09:30:42.225Z");
+  assert.equal(files[0]?.viewedByMeTime, "2026-03-17T09:31:00.000Z");
   assert.equal(resolveDriveActivity(files[0]!)?.activityType, "viewed");
 });
 
@@ -61,13 +63,14 @@ test("createDriveContextRawEvent builds privacy-safe Drive context events", () =
     file: {
       id: "drive-file-1",
       mimeType: "application/vnd.google-apps.document",
-      modifiedTime: "2026-03-17T09:30:42.225Z",
+      modifiedTime: "2026-03-17T18:30:42.225+09:00",
     },
   });
 
   assert.equal(event.source, "workspace");
   assert.equal(event.application, "gws-drive");
   assert.equal(event.target, "update_document");
+  assert.equal(event.timestamp, "2026-03-17T09:30:42.225Z");
   assert.ok(event.resourceHash);
   assert.equal(event.resourceHash?.includes("drive-file-1"), false);
   assert.ok(event.metadata);

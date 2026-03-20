@@ -189,3 +189,37 @@ test("sessionizeNormalizedEvents uses calendar signal events as explicit boundar
     [["open_admin", "search_order"], ["edit_product"]],
   );
 });
+
+test("sessionizeNormalizedEvents orders mixed-offset timestamps chronologically without negative durations", () => {
+  const normalizedEvents = normalizeRawEvents([
+    createRawEvent({
+      id: "raw-1",
+      timestamp: "2026-03-20T08:33:53.645Z",
+      url: "https://admin.example.com/orders",
+      target: "orders_report",
+    }),
+    createRawEvent({
+      id: "raw-2",
+      timestamp: "2026-03-20T17:33:20+09:00",
+      sourceEventType: "browser.click",
+      action: "click",
+      domain: "admin.example.com",
+      target: "search_order",
+    }),
+    createRawEvent({
+      id: "raw-3",
+      timestamp: "2026-03-20T08:34:10.000Z",
+      url: "https://admin.example.com/orders/123",
+      target: "open_order",
+    }),
+  ]);
+
+  const sessions = sessionizeNormalizedEvents(normalizedEvents);
+
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0]?.steps[0]?.timestamp, "2026-03-20T17:33:20+09:00");
+  assert.equal(sessions[0]?.steps[0]?.actionName, "search_order");
+  assert.ok(
+    Date.parse(sessions[0]?.endTime ?? "") >= Date.parse(sessions[0]?.startTime ?? ""),
+  );
+});

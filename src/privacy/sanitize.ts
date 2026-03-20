@@ -58,7 +58,7 @@ function normalizeIsoTimestamp(value: unknown): string | undefined {
     return undefined;
   }
 
-  return normalized;
+  return new Date(normalized).toISOString();
 }
 
 function normalizeOpaqueHash(value: unknown): string | undefined {
@@ -258,6 +258,7 @@ export function sanitizeMetadata(metadata: Record<string, unknown> | undefined):
 }
 
 export function sanitizeRawEvent(input: RawEventInput): RawEventInput {
+  const timestamp = normalizeIsoTimestamp(input.timestamp) ?? input.timestamp;
   const windowTitle = input.windowTitle && SENSITIVE_KEY_PATTERN.test(input.windowTitle)
     ? "[REDACTED]"
     : input.windowTitle;
@@ -273,6 +274,7 @@ export function sanitizeRawEvent(input: RawEventInput): RawEventInput {
 
   return {
     ...input,
+    timestamp,
     windowTitle,
     domain: browserFields.domain ?? input.domain,
     target,

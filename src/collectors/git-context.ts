@@ -234,10 +234,16 @@ export function createGitContextRawEvent(args: {
   changeType: "commit" | "status";
   timestamp?: string | undefined;
 }): RawEventInput {
+  const lastCommitAt = normalizeIsoTimestamp(args.snapshot.lastCommitAt);
+  const timestamp =
+    normalizeIsoTimestamp(args.timestamp) ??
+    lastCommitAt ??
+    new Date().toISOString();
+
   return {
     source: "git",
     sourceEventType: `git.repo.${args.changeType}`,
-    timestamp: args.timestamp ?? args.snapshot.lastCommitAt ?? new Date().toISOString(),
+    timestamp,
     application: "git",
     domain: args.snapshot.remoteHost,
     resourceHash: args.snapshot.repoHash,
@@ -253,7 +259,7 @@ export function createGitContextRawEvent(args: {
         repoHash: args.snapshot.repoHash,
         remoteHost: args.snapshot.remoteHost,
         dirtyFileCount: args.snapshot.dirtyFileCount,
-        lastCommitAt: args.snapshot.lastCommitAt,
+        lastCommitAt,
       },
     },
   };
