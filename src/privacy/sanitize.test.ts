@@ -39,6 +39,22 @@ test("sanitizeRawEvent drops non-allowlisted query params and derives browser v2
   });
 });
 
+test("sanitizeRawEvent does not stamp browser v2 fields for browser app-switches without route context", () => {
+  const sanitized = sanitizeRawEvent({
+    source: "desktop",
+    sourceEventType: "app.switch",
+    timestamp: "2026-03-20T00:00:00.000Z",
+    application: "Google Chrome",
+    action: "application_switch",
+    windowTitle: "Orders Dashboard",
+  });
+
+  assert.equal(sanitized.browserSchemaVersion, undefined);
+  assert.equal(sanitized.canonicalUrl, undefined);
+  assert.equal(sanitized.routeTemplate, undefined);
+  assert.equal(sanitized.routeKey, undefined);
+});
+
 test("sanitizeRawEvent derives a stable opaque resource hash for approved browser ids", () => {
   const first = sanitizeRawEvent({
     source: "chrome_extension",
@@ -62,6 +78,40 @@ test("sanitizeRawEvent derives a stable opaque resource hash for approved browse
   assert.ok(first.resourceHash);
   assert.equal(first.resourceHash, second.resourceHash);
   assert.equal(first.resourceHash?.includes("550e8400"), false);
+});
+
+test("sanitizeRawEvent preserves browser v2 schema for context-only extension payloads", () => {
+  const sanitized = sanitizeRawEvent({
+    source: "chrome_extension",
+    sourceEventType: "chrome.dwell",
+    timestamp: "2026-03-20T00:00:15.000Z",
+    application: "chrome",
+    action: "dwell",
+    metadata: {
+      browserContext: {
+        routeTaxonomy: {
+          source: "hash",
+          signature: "hash:/orders/{id}/edit",
+          routeTemplate: "/orders/{id}/edit",
+        },
+        signalOnly: true,
+      },
+    },
+  });
+
+  assert.equal(sanitized.browserSchemaVersion, 2);
+  assert.equal(sanitized.canonicalUrl, undefined);
+  assert.equal(sanitized.routeTemplate, undefined);
+  assert.deepEqual(sanitized.metadata, {
+    browserContext: {
+      routeTaxonomy: {
+        source: "hash",
+        signature: "hash:/orders/{id}/edit",
+        routeTemplate: "/orders/{id}/edit",
+      },
+      signalOnly: true,
+    },
+  });
 });
 
 test("sanitizeRawEvent keeps only approved browser context metadata fields", () => {
@@ -212,6 +262,7 @@ test("sanitizeRawEvent keeps only privacy-safe workspace context metadata fields
       gridSheetCount: 2,
     },
   });
+  assert.equal(sanitized.browserSchemaVersion, undefined);
 });
 
 test("sanitizeRawEvent keeps only privacy-safe git context metadata fields", () => {
@@ -243,4 +294,5 @@ test("sanitizeRawEvent keeps only privacy-safe git context metadata fields", () 
     },
     authToken: "[REDACTED]",
   });
+  assert.equal(sanitized.browserSchemaVersion, undefined);
 });

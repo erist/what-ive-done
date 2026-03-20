@@ -265,7 +265,11 @@ export function sanitizeRawEvent(input: RawEventInput): RawEventInput {
   const target = input.target && SENSITIVE_KEY_PATTERN.test(input.target)
     ? "[REDACTED]"
     : input.target;
-  const browserFields = deriveBrowserCanonicalFields(input);
+  const metadata = sanitizeMetadata(input.metadata);
+  const browserFields = deriveBrowserCanonicalFields({
+    ...input,
+    hasBrowserContext: isRecord(metadata.browserContext),
+  });
 
   return {
     ...input,
@@ -278,6 +282,6 @@ export function sanitizeRawEvent(input: RawEventInput): RawEventInput {
     routeTemplate: browserFields.routeTemplate,
     routeKey: browserFields.routeKey,
     resourceHash: browserFields.resourceHash,
-    metadata: sanitizeMetadata(input.metadata),
+    metadata,
   };
 }

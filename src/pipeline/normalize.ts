@@ -173,7 +173,16 @@ export function normalizeRawEvents(
     })
     .sort((left, right) => left.timestamp.localeCompare(right.timestamp))
     .map((rawEvent) => {
-      const browserFields = deriveBrowserCanonicalFields(rawEvent, config);
+      const browserContext = isRecord(rawEvent.metadata.browserContext)
+        ? rawEvent.metadata.browserContext
+        : undefined;
+      const browserFields = deriveBrowserCanonicalFields(
+        {
+          ...rawEvent,
+          hasBrowserContext: Boolean(browserContext),
+        },
+        config,
+      );
       const appNameNormalized = normalizeAppName(rawEvent.application, config);
       const url = stripUrlQuery(browserFields.url ?? rawEvent.url) ?? rawEvent.canonicalUrl;
       const titlePattern = normalizeTitlePattern(rawEvent.windowTitle);
@@ -222,7 +231,7 @@ export function normalizeRawEvents(
         appNameNormalized,
         domain,
         url,
-        browserSchemaVersion: browserFields.browserSchemaVersion ?? rawEvent.browserSchemaVersion,
+        browserSchemaVersion: browserFields.browserSchemaVersion,
         canonicalUrl: browserFields.canonicalUrl ?? rawEvent.canonicalUrl,
         routeTemplate,
         routeKey: browserFields.routeKey ?? rawEvent.routeKey,

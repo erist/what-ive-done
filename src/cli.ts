@@ -180,6 +180,15 @@ function isToolAdded(config: WidConfig, toolName: string): boolean {
   return config.tools[toolName]?.added === true;
 }
 
+const BROWSER_DIAGNOSTIC_APPLICATIONS = new Set([
+  "chrome",
+  "google chrome",
+  "chrome browser",
+  "firefox",
+  "safari",
+]);
+const BROWSER_DIAGNOSTIC_EVENT_TYPE = /^(?:browser|chrome|dom|form|tab)\./u;
+
 function createPromptSessionIfInteractive(): PromptSession | undefined {
   return isInteractiveTerminal() ? new PromptSession() : undefined;
 }
@@ -265,6 +274,103 @@ function describeIngestSecurity(dataDir?: string): {
       authRequired: security.authRequired,
       rateLimitWindowMs: security.rateLimitWindowMs,
       rateLimitMaxRequests: security.rateLimitMaxRequests,
+    };
+  });
+}
+
+function describeBrowserIngest(
+  dataDir: string | undefined,
+  ingestSecurity: ReturnType<typeof describeIngestSecurity>,
+): {
+  status: "ready" | "observed" | "attention";
+  authTokenConfigured: boolean;
+  runtimeStatus: "running" | "stopped" | "stale";
+  ingestServerStatus?: string | undefined;
+  ingestEventsUrl?: string | undefined;
+  browserAppSwitchEvents: number;
+  chromeExtensionEvents: number;
+  browserNavigationEvents: number;
+  latestChromeExtensionEventTimestamp?: string | undefined;
+  rawSchemaWithoutRouteContext: number;
+  issues: string[];
+} {
+  const runtime = getAgentStatusSnapshot(dataDir);
+
+  return withDatabase(dataDir, (database) => {
+    const rawEvents = database.getRawEventsChronological();
+    let browserAppSwitchEvents = 0;
+    let chromeExtensionEvents = 0;
+    let browserNavigationEvents = 0;
+    let latestChromeExtensionEventTimestamp: string | undefined;
+    let rawSchemaWithoutRouteContext = 0;
+
+    for (const event of rawEvents) {
+      const normalizedApplication = event.application.trim().toLowerCase();
+
+      if (
+        (event.sourceEventType === "app.switch" || event.sourceEventType === "application.switch") &&
+        BROWSER_DIAGNOSTIC_APPLICATIONS.has(normalizedApplication)
+      ) {
+        browserAppSwitchEvents += 1;
+      }
+
+      if (BROWSER_DIAGNOSTIC_EVENT_TYPE.test(event.sourceEventType)) {
+        browserNavigationEvents += 1;
+      }
+
+      if (event.source === "chrome_extension") {
+        chromeExtensionEvents += 1;
+        latestChromeExtensionEventTimestamp = event.timestamp;
+      }
+
+      if (event.browserSchemaVersion !== undefined && !event.canonicalUrl && !event.routeTemplate) {
+        rawSchemaWithoutRouteContext += 1;
+      }
+    }
+
+    const issues: string[] = [];
+
+    if (!ingestSecurity.authTokenConfigured) {
+      issues.push("ingest_auth_token_missing");
+    }
+
+    if (
+      browserAppSwitchEvents > 0 &&
+      chromeExtensionEvents === 0 &&
+      browserNavigationEvents === 0
+    ) {
+      issues.push("browser_context_missing");
+    }
+
+    if (rawSchemaWithoutRouteContext > 0) {
+      issues.push("browser_schema_without_route_context");
+    }
+
+    if (
+      runtime.status === "running" &&
+      runtime.state?.ingestServer &&
+      runtime.state.ingestServer.status !== "running"
+    ) {
+      issues.push("ingest_server_not_running");
+    }
+
+    return {
+      status:
+        issues.length > 0
+          ? "attention"
+          : chromeExtensionEvents > 0
+            ? "observed"
+            : "ready",
+      authTokenConfigured: ingestSecurity.authTokenConfigured,
+      runtimeStatus: runtime.status,
+      ingestServerStatus: runtime.state?.ingestServer?.status,
+      ingestEventsUrl: runtime.state?.ingestServer?.eventsUrl,
+      browserAppSwitchEvents,
+      chromeExtensionEvents,
+      browserNavigationEvents,
+      latestChromeExtensionEventTimestamp,
+      rawSchemaWithoutRouteContext,
+      issues,
     };
   });
 }
@@ -1538,6 +1644,7 @@ program
         ? normalizeOptionalConfigString(config.tools.git?.["repo-path"])
         : undefined);
     const tools = await listTools(dataDir);
+    const ingestSecurity = describeIngestSecurity(dataDir);
 
     const result = {
       node: process.version,
@@ -1547,7 +1654,8 @@ program
       databasePath: paths.databasePath,
       agentLockPath: paths.agentLockPath,
       configPath: ConfigManager.resolveConfigPath(dataDir),
-      ingestSecurity: describeIngestSecurity(dataDir),
+      ingestSecurity,
+      browserIngest: describeBrowserIngest(dataDir, ingestSecurity),
       gwsCalendar: getGWSCalendarCollectorStatus({
         calendarId: gwsCalendarId,
       }),

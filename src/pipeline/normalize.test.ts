@@ -139,3 +139,27 @@ test("normalizeRawEvents skips signal-only browser context events", () => {
   assert.equal(events.length, 1);
   assert.equal(events[0]?.rawEventId, "raw-3");
 });
+
+test("normalizeRawEvents preserves browser schema for non-signal browser-context events without a URL", () => {
+  const [event] = normalizeRawEvents([
+    createRawEvent({
+      id: "raw-ctx-1",
+      timestamp: "2026-03-20T00:00:00.000Z",
+      sourceEventType: "chrome.route_change",
+      browserSchemaVersion: 2,
+      metadata: {
+        browserContext: {
+          routeTaxonomy: {
+            source: "hash",
+            signature: "hash:/orders/{id}/edit",
+            routeTemplate: "/orders/{id}/edit",
+          },
+        },
+      },
+    }),
+  ]);
+
+  assert.ok(event);
+  assert.equal(event.browserSchemaVersion, 2);
+  assert.equal(event.routeTemplate, undefined);
+});
