@@ -213,6 +213,88 @@ function seedSchemaVersion14WorkflowDatabase(databasePath: string): void {
   connection.close();
 }
 
+function seedSchemaVersion15BrowserDatabase(databasePath: string): void {
+  const connection = new DatabaseSync(databasePath);
+
+  connection.exec(`
+    CREATE TABLE schema_migrations (
+      version INTEGER PRIMARY KEY,
+      applied_at TEXT NOT NULL
+    );
+
+    CREATE TABLE raw_events (
+      id TEXT PRIMARY KEY,
+      source TEXT NOT NULL,
+      source_event_type TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      application TEXT NOT NULL,
+      window_title TEXT,
+      domain TEXT,
+      url TEXT,
+      browser_schema_version INTEGER,
+      canonical_url TEXT,
+      route_template TEXT,
+      route_key TEXT,
+      resource_hash TEXT,
+      action TEXT NOT NULL,
+      target TEXT,
+      metadata_json TEXT NOT NULL,
+      sensitive_filtered INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
+    );
+  `);
+
+  connection
+    .prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)")
+    .run(15, "2026-03-20T00:00:00.000Z");
+
+  connection
+    .prepare(`
+      INSERT INTO raw_events (
+        id,
+        source,
+        source_event_type,
+        timestamp,
+        application,
+        window_title,
+        domain,
+        url,
+        browser_schema_version,
+        canonical_url,
+        route_template,
+        route_key,
+        resource_hash,
+        action,
+        target,
+        metadata_json,
+        sensitive_filtered,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    .run(
+      "legacy-browser-switch-1",
+      "desktop",
+      "app.switch",
+      "2026-03-20T09:00:00.000Z",
+      "Google Chrome",
+      "Orders Dashboard",
+      null,
+      null,
+      2,
+      null,
+      null,
+      null,
+      null,
+      "application_switch",
+      null,
+      JSON.stringify({}),
+      1,
+      "2026-03-20T09:00:00.000Z",
+    );
+
+  connection.close();
+}
+
 test("AppDatabase initializes schema and stores sanitized raw events", () => {
   const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-"));
 
@@ -312,6 +394,35 @@ test("AppDatabase upgrades schema v14 workflow clusters with a default detection
 
     assert.ok(workflow);
     assert.equal(workflow.detectionMode, "standard");
+
+    database.close();
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("AppDatabase refreshes schema v15 browser app-switch rows with the tightened v2 stamp rules", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-schema-v15-"));
+  const databasePath = join(tempDir, "test.sqlite");
+
+  try {
+    seedSchemaVersion15BrowserDatabase(databasePath);
+
+    const database = new AppDatabase({
+      dataDir: tempDir,
+      databasePath,
+      agentLockPath: join(tempDir, "agent.lock"),
+    });
+    database.initialize();
+
+    const [event] = database.listRawEvents();
+
+    assert.ok(event);
+    assert.equal(event.application, "Google Chrome");
+    assert.equal(event.browserSchemaVersion, undefined);
+    assert.equal(event.canonicalUrl, undefined);
+    assert.equal(event.routeTemplate, undefined);
+    assert.equal(event.routeKey, undefined);
 
     database.close();
   } finally {

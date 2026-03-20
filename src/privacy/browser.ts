@@ -11,8 +11,6 @@ const UUID_LIKE_SEGMENT = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a
 const LONG_HEX_SEGMENT = /^[0-9a-f]{12,}$/i;
 const NUMERIC_SEGMENT = /^\d+$/;
 const ALLOWLISTED_QUERY_VALUE = /^[a-z0-9._:-]{1,64}$/i;
-const BROWSER_EVENT_TYPE = /^(?:browser|chrome|dom|form|tab)\./;
-const BROWSER_APPLICATIONS = new Set(["chrome", "google chrome", "chrome browser", "firefox", "safari"]);
 
 export interface BrowserCanonicalFields {
   browserSchemaVersion?: number | undefined;
@@ -30,6 +28,7 @@ interface BrowserCanonicalizationInput {
   application?: string | undefined;
   domain?: string | undefined;
   url?: string | undefined;
+  hasBrowserContext?: boolean | undefined;
   browserSchemaVersion?: number | undefined;
   canonicalUrl?: string | undefined;
   routeTemplate?: string | undefined;
@@ -57,20 +56,6 @@ function tryParseUrl(rawUrl: string | undefined): URL | undefined {
   } catch {
     return undefined;
   }
-}
-
-function isBrowserLikeEvent(input: BrowserCanonicalizationInput): boolean {
-  if (input.source === "chrome_extension") {
-    return true;
-  }
-
-  if (input.sourceEventType && BROWSER_EVENT_TYPE.test(input.sourceEventType)) {
-    return true;
-  }
-
-  const application = input.application?.trim().toLowerCase();
-
-  return application ? BROWSER_APPLICATIONS.has(application) : false;
 }
 
 function normalizePathSegment(segment: string): string {
@@ -228,14 +213,14 @@ export function deriveBrowserCanonicalFields(
   const parsedUrl = tryParseUrl(input.url);
   const shouldStampSchemaVersion =
     Boolean(parsedUrl) ||
-    Boolean(input.browserSchemaVersion) ||
+    input.hasBrowserContext === true ||
     Boolean(input.canonicalUrl) ||
     Boolean(input.routeTemplate) ||
-    isBrowserLikeEvent(input);
+    Boolean(input.routeKey);
 
   if (!parsedUrl) {
     return {
-      browserSchemaVersion: shouldStampSchemaVersion ? config.browser.schemaVersion : input.browserSchemaVersion,
+      browserSchemaVersion: shouldStampSchemaVersion ? config.browser.schemaVersion : undefined,
       domain: normalizeDomain(input.domain),
       url: undefined,
       canonicalUrl: normalizeCanonicalUrlFallback(input.canonicalUrl),
@@ -251,7 +236,7 @@ export function deriveBrowserCanonicalFields(
   const canonicalUrl = buildCanonicalUrl(parsedUrl, normalizedSegments, config);
 
   return {
-    browserSchemaVersion: shouldStampSchemaVersion ? config.browser.schemaVersion : input.browserSchemaVersion,
+    browserSchemaVersion: shouldStampSchemaVersion ? config.browser.schemaVersion : undefined,
     domain: parsedUrl.hostname.toLowerCase(),
     url: buildSanitizedUrl(parsedUrl, config),
     canonicalUrl,

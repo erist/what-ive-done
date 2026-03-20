@@ -412,6 +412,12 @@ test("short aliases route through WID_DATA_DIR and doctor reports tool state", a
     runCli(["init", "--data-dir", dataDir], repoRoot);
 
     const doctorPayload = JSON.parse(runCli(["doctor"], repoRoot, env)) as {
+      browserIngest?: {
+        status: string;
+        authTokenConfigured: boolean;
+        chromeExtensionEvents: number;
+        issues: string[];
+      };
       tools?: {
         collectors?: Array<{ name: string }>;
         analyzers?: Array<{ name: string }>;
@@ -428,6 +434,10 @@ test("short aliases route through WID_DATA_DIR and doctor reports tool state", a
     assert.equal(statusPayload.status, "stopped");
     assert.equal(tokenPayload.configured, true);
     assert.match(tokenPayload.authToken, /^[A-Za-z0-9_-]{20,}$/u);
+    assert.equal(doctorPayload.browserIngest?.status, "ready");
+    assert.equal(doctorPayload.browserIngest?.authTokenConfigured, true);
+    assert.equal(doctorPayload.browserIngest?.chromeExtensionEvents, 0);
+    assert.deepEqual(doctorPayload.browserIngest?.issues, []);
     assert.ok(doctorPayload.tools?.collectors?.some((tool) => tool.name === "active-window"));
     assert.ok(doctorPayload.tools?.analyzers?.some((tool) => tool.name === "gemini"));
 
@@ -505,6 +515,53 @@ test("short aliases route through WID_DATA_DIR and doctor reports tool state", a
     });
 
     assert.equal(exitCode, 0);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("doctor surfaces missing browser extension context without fake browser schema signals", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "what-ive-done-cli-browser-doctor-"));
+  const fixturePath = join(dataDir, "browser-app-switch.ndjson");
+
+  try {
+    runCli(["init", "--data-dir", dataDir], repoRoot);
+    writeFileSync(
+      fixturePath,
+      `${JSON.stringify({
+        source: "desktop",
+        sourceEventType: "app.switch",
+        timestamp: "2026-03-20T00:00:00.000Z",
+        application: "Google Chrome",
+        action: "application_switch",
+        windowTitle: "Orders Dashboard",
+      })}\n`,
+      "utf8",
+    );
+
+    runCli(["import:events", fixturePath, "--data-dir", dataDir], repoRoot);
+
+    const doctorPayload = JSON.parse(
+      runCli(["doctor", "--data-dir", dataDir], repoRoot),
+    ) as {
+      browserIngest?: {
+        status: string;
+        browserAppSwitchEvents: number;
+        chromeExtensionEvents: number;
+        rawSchemaWithoutRouteContext: number;
+        issues: string[];
+      };
+    };
+
+    assert.equal(doctorPayload.browserIngest?.status, "attention");
+    assert.equal(doctorPayload.browserIngest?.browserAppSwitchEvents, 1);
+    assert.equal(doctorPayload.browserIngest?.chromeExtensionEvents, 0);
+    assert.equal(doctorPayload.browserIngest?.rawSchemaWithoutRouteContext, 0);
+    assert.ok(doctorPayload.browserIngest?.issues.includes("browser_context_missing"));
+    assert.equal(
+      doctorPayload.browserIngest?.issues.includes("browser_schema_without_route_context"),
+      false,
+    );
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }

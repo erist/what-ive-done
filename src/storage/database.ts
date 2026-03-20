@@ -277,7 +277,7 @@ export class AppDatabase {
 
     applySchemaMigrations(this.connection, existingVersion.version);
 
-    if ((existingVersion.version ?? 0) < 11) {
+    if ((existingVersion.version ?? 0) < 16) {
       this.refreshStoredRawEvents();
     }
 
