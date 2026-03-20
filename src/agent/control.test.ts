@@ -48,6 +48,11 @@ test("getAgentHealthReport surfaces runtime issues and latest snapshots", () => 
         timezone: "UTC",
         timezoneOffsetMinutes: 0,
       },
+      freshness: {
+        analysisSource: "live_reanalysis",
+        reportGeneratedAt: "2026-03-14T00:00:00.000Z",
+        snapshotStatus: "missing",
+      },
       totalSessions: 0,
       totalTrackedDurationSeconds: 0,
       workflows: [],

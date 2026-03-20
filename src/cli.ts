@@ -379,6 +379,9 @@ function renderReportTable(reportEntries: ReportEntry[]): void {
   console.table(
     reportEntries.map((entry) => ({
       workflow: entry.workflowName,
+      nameSource: entry.workflowNameSource,
+      baselineWorkflow:
+        entry.workflowNameSource === "baseline" ? "" : entry.baselineWorkflowName,
       frequency: entry.frequency,
       frequencyPerWeek: entry.frequencyPerWeek,
       averageDuration: formatDuration(entry.averageDurationSeconds),
@@ -451,6 +454,11 @@ function renderSnapshotSummary(snapshot: ReportSnapshot): void {
         timezone: snapshot.timeWindow.timezone,
         windowStart: snapshot.timeWindow.startTime ?? null,
         windowEnd: snapshot.timeWindow.endTime ?? null,
+        analysisSource: snapshot.freshness.analysisSource,
+        snapshotStatus: snapshot.freshness.snapshotStatus,
+        latestRawEventAt: snapshot.freshness.latestRawEventAt ?? null,
+        latestSnapshotGeneratedAt: snapshot.freshness.latestStoredSnapshotGeneratedAt ?? null,
+        reportGeneratedAt: snapshot.freshness.reportGeneratedAt,
         totalSessions: snapshot.totalSessions,
         totalTrackedDuration: formatDuration(snapshot.totalTrackedDurationSeconds),
         generatedAt: snapshot.generatedAt,
@@ -576,6 +584,11 @@ function renderWindowedWorkflowReport(report: WorkflowReport, json = false): voi
         timezone: report.timeWindow.timezone,
         windowStart: report.timeWindow.startTime ?? null,
         windowEnd: report.timeWindow.endTime ?? null,
+        analysisSource: report.freshness.analysisSource,
+        snapshotStatus: report.freshness.snapshotStatus,
+        latestRawEventAt: report.freshness.latestRawEventAt ?? null,
+        latestSnapshotGeneratedAt: report.freshness.latestStoredSnapshotGeneratedAt ?? null,
+        reportGeneratedAt: report.freshness.reportGeneratedAt,
         totalSessions: report.totalSessions,
         totalTrackedDuration: formatDuration(report.totalTrackedDurationSeconds),
       },

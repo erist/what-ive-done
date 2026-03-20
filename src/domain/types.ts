@@ -234,11 +234,24 @@ export interface AutomationHint {
   expectedTimeSavings: string;
 }
 
+export type WorkflowNameSource = "baseline" | "feedback" | "llm_overlay";
+
+export interface WorkflowReportFreshness {
+  analysisSource: "live_reanalysis";
+  reportGeneratedAt: string;
+  latestRawEventAt?: string | undefined;
+  latestStoredSnapshotGeneratedAt?: string | undefined;
+  snapshotStatus: "fresh" | "stale" | "missing";
+}
+
 export interface ReportEntry {
   workflowClusterId: string;
   workflowSignature: string;
   detectionMode: WorkflowDetectionMode;
   workflowName: string;
+  baselineWorkflowName: string;
+  workflowNameSource: WorkflowNameSource;
+  llmSuggestedWorkflowName?: string | undefined;
   businessPurpose?: string | undefined;
   frequency: number;
   frequencyPerWeek: number;
@@ -280,6 +293,7 @@ export interface EmergingWorkflowEntry {
 
 export interface WorkflowReport {
   timeWindow: ReportTimeWindow;
+  freshness: WorkflowReportFreshness;
   totalSessions: number;
   totalTrackedDurationSeconds: number;
   workflows: ReportEntry[];

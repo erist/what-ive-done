@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { generateMockRawEvents } from "../collectors/mock.js";
 import { AppDatabase } from "../storage/database.js";
 import {
+  buildWorkflowReportFromDatabase,
   buildWorkflowReportComparisonFromDatabase,
   generateReportSnapshot,
   runReportSchedulerCycle,
@@ -55,9 +56,54 @@ test("generateReportSnapshot upserts one snapshot per window and report date", (
     });
 
     assert.equal(firstSnapshot.id, secondSnapshot.id);
+    assert.equal(firstSnapshot.freshness.snapshotStatus, "fresh");
+    assert.equal(firstSnapshot.freshness.latestStoredSnapshotGeneratedAt, firstSnapshot.generatedAt);
     assert.equal(snapshots.length, 1);
     assert.equal(snapshots[0]?.workflowCount, 0);
     assert.equal(snapshots[0]?.emergingWorkflowCount, 5);
+
+    database.close();
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("buildWorkflowReportFromDatabase surfaces live freshness and snapshot freshness state", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-report-freshness-"));
+  const referenceDate = new Date(2026, 2, 14, 12, 0, 0, 0);
+  const timezoneOffsetMinutes = -referenceDate.getTimezoneOffset();
+
+  try {
+    const database = createTestDatabase(tempDir);
+    database.initialize();
+    seedMockEvents(database, referenceDate);
+
+    const missingSnapshotReport = buildWorkflowReportFromDatabase(database, {
+      window: "day",
+      date: "2026-03-14",
+      timezone: "Test/Local",
+      timezoneOffsetMinutes,
+    });
+
+    assert.equal(missingSnapshotReport.freshness.analysisSource, "live_reanalysis");
+    assert.equal(missingSnapshotReport.freshness.snapshotStatus, "missing");
+
+    generateReportSnapshot(database, {
+      window: "day",
+      date: "2026-03-14",
+      timezone: "Test/Local",
+      timezoneOffsetMinutes,
+    });
+
+    const freshSnapshotReport = buildWorkflowReportFromDatabase(database, {
+      window: "day",
+      date: "2026-03-14",
+      timezone: "Test/Local",
+      timezoneOffsetMinutes,
+    });
+
+    assert.equal(freshSnapshotReport.freshness.snapshotStatus, "fresh");
+    assert.ok(freshSnapshotReport.freshness.latestStoredSnapshotGeneratedAt);
 
     database.close();
   } finally {

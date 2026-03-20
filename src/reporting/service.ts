@@ -50,6 +50,21 @@ export function buildWorkflowReportFromDatabase(
       : database.getRawEventsChronological();
 
   const feedbackByClusterId = database.listWorkflowFeedbackSummary();
+  const llmAnalysesByWorkflowId = new Map(
+    database
+      .listWorkflowLLMAnalyses()
+      .map((analysis) => [analysis.workflowClusterId, analysis] as const)
+      .filter(
+        ([workflowClusterId], index, collection) =>
+          collection.findIndex(([id]) => id === workflowClusterId) === index,
+      ),
+  );
+  const latestSnapshot =
+    timeWindow.window === "all"
+      ? undefined
+      : database.getLatestReportSnapshot(timeWindow.window, timeWindow.timezone);
+  const latestRawEventAt = rawEvents[rawEvents.length - 1]?.timestamp;
+  const reportGeneratedAt = new Date().toISOString();
   const analysisResult = analyzeRawEvents(rawEvents, {
     ...resolveConfiguredAnalyzeOptions(database.paths.dataDir),
     feedbackByWorkflowSignature: feedbackByClusterId,
@@ -63,6 +78,18 @@ export function buildWorkflowReportFromDatabase(
       includeExcluded: options.includeExcluded,
       includeHidden: options.includeHidden,
       feedbackByClusterId,
+      llmAnalysesByWorkflowId,
+      freshness: {
+        analysisSource: "live_reanalysis",
+        reportGeneratedAt,
+        latestRawEventAt,
+        latestStoredSnapshotGeneratedAt: latestSnapshot?.generatedAt,
+        snapshotStatus: !latestSnapshot
+          ? "missing"
+          : Date.parse(reportGeneratedAt) - Date.parse(latestSnapshot.generatedAt) > 5 * 60 * 1000
+            ? "stale"
+            : "fresh",
+      },
     },
   });
 }

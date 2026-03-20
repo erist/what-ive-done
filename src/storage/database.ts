@@ -1669,6 +1669,7 @@ export class AppDatabase {
   }
 
   upsertReportSnapshot(report: Omit<ReportSnapshot, "id" | "generatedAt">): ReportSnapshot {
+    const generatedAt = new Date().toISOString();
     const existing = this.connection
       .prepare(`
         SELECT id
@@ -1682,8 +1683,14 @@ export class AppDatabase {
       ) as { id: string } | undefined;
     const snapshot: ReportSnapshot = {
       ...report,
+      freshness: {
+        ...report.freshness,
+        reportGeneratedAt: generatedAt,
+        latestStoredSnapshotGeneratedAt: generatedAt,
+        snapshotStatus: "fresh",
+      },
       id: existing?.id ?? randomUUID(),
-      generatedAt: new Date().toISOString(),
+      generatedAt,
     };
 
     this.connection
@@ -1861,6 +1868,12 @@ export class AppDatabase {
         row.emerging_workflows_json,
       ) as ReportSnapshot["emergingWorkflows"],
       summary: JSON.parse(row.summary_json ?? "{}") as ReportSnapshot["summary"],
+      freshness: {
+        analysisSource: "live_reanalysis",
+        reportGeneratedAt: row.generated_at,
+        latestStoredSnapshotGeneratedAt: row.generated_at,
+        snapshotStatus: "fresh",
+      },
       generatedAt: row.generated_at,
     };
   }
