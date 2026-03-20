@@ -54,6 +54,27 @@ interface SimilarityBreakdown {
   total: number;
 }
 
+export interface ClusterPeerComparison {
+  sessionId: string;
+  startTime: string;
+  actionSequence: string[];
+  contextTokens: string[];
+  sequenceSimilarity: number;
+  actionSetSimilarity: number;
+  contextSimilarity: number;
+  timeOfDaySimilarity: number;
+  compositeSimilarity: number;
+}
+
+export interface ClusterMembershipExplanation {
+  scoringStrategy: ClusterScoringStrategy;
+  comparisonWindowSize: number;
+  membershipScore: number;
+  candidateActionSequence: string[];
+  candidateContextTokens: string[];
+  peerComparisons: ClusterPeerComparison[];
+}
+
 export const DEFAULT_CLUSTER_SIMILARITY_THRESHOLD = 0.74;
 const DEFAULT_MINIMUM_WORKFLOW_FREQUENCY = 3;
 
@@ -329,6 +350,60 @@ function clusterMembershipScore(args: {
   const windowSize = Math.min(2, scores.length);
 
   return average(scores.slice(0, windowSize));
+}
+
+export function explainClusterMembership(args: {
+  session: Session;
+  peerSessions: Session[];
+  scoringStrategy?: ClusterScoringStrategy | undefined;
+  similarityWeights?: Partial<WorkflowSimilarityWeights> | undefined;
+}): ClusterMembershipExplanation {
+  const scoringStrategy = args.scoringStrategy ?? "hybrid_v2";
+  const similarityWeights = normalizeSimilarityWeights(args.similarityWeights);
+  const candidate = buildDescriptor(args.session);
+  const peerComparisons = args.peerSessions
+    .map((peerSession) => {
+      const peerDescriptor = buildDescriptor(peerSession);
+      const breakdown = buildSimilarityBreakdown({
+        left: peerDescriptor,
+        right: candidate,
+        scoringStrategy,
+        similarityWeights,
+      });
+
+      return {
+        sessionId: peerSession.id,
+        startTime: peerSession.startTime,
+        actionSequence: peerDescriptor.actionSequence,
+        contextTokens: peerDescriptor.contextTokens,
+        sequenceSimilarity: roundScore(breakdown.sequence),
+        actionSetSimilarity: roundScore(breakdown.actionSet),
+        contextSimilarity: roundScore(breakdown.context),
+        timeOfDaySimilarity: roundScore(breakdown.timeOfDay),
+        compositeSimilarity: roundScore(breakdown.total),
+      };
+    })
+    .sort(
+      (left, right) =>
+        right.compositeSimilarity - left.compositeSimilarity ||
+        left.startTime.localeCompare(right.startTime),
+    );
+  const comparisonWindowSize = Math.min(2, peerComparisons.length);
+
+  return {
+    scoringStrategy,
+    comparisonWindowSize,
+    membershipScore: roundScore(
+      average(
+        peerComparisons
+          .slice(0, comparisonWindowSize)
+          .map((comparison) => comparison.compositeSimilarity),
+      ),
+    ),
+    candidateActionSequence: candidate.actionSequence,
+    candidateContextTokens: candidate.contextTokens,
+    peerComparisons: peerComparisons.slice(0, 3),
+  };
 }
 
 function hasMinimumFrequencyWithinWindow(
