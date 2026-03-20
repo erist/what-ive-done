@@ -71,10 +71,10 @@ test("listGWSCalendarMeetings keeps only timed default meetings", () => {
             eventType: "default",
             status: "confirmed",
             start: {
-              dateTime: "2026-03-17T09:00:00.000Z",
+              dateTime: "2026-03-17T18:00:00+09:00",
             },
             end: {
-              dateTime: "2026-03-17T09:30:00.000Z",
+              dateTime: "2026-03-17T18:30:00+09:00",
             },
             attendees: [{}, {}, {}],
           },

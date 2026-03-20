@@ -41,8 +41,8 @@ test("listRecentSpreadsheetFiles filters spreadsheet drive payloads", () => {
           {
             id: "spreadsheet-1",
             mimeType: "application/vnd.google-apps.spreadsheet",
-            modifiedTime: "2026-03-17T09:30:42.225Z",
-            viewedByMeTime: "2026-03-17T09:31:00.000Z",
+            modifiedTime: "2026-03-17T18:30:42.225+09:00",
+            viewedByMeTime: "2026-03-17T18:31:00+09:00",
           },
         ],
       }),
@@ -52,6 +52,7 @@ test("listRecentSpreadsheetFiles filters spreadsheet drive payloads", () => {
 
   assert.equal(files.length, 1);
   assert.equal(files[0]?.mimeType, "application/vnd.google-apps.spreadsheet");
+  assert.equal(files[0]?.viewedByMeTime, "2026-03-17T09:31:00.000Z");
 });
 
 test("getSpreadsheetSummary extracts sheet counts", () => {
@@ -82,7 +83,7 @@ test("createSheetsContextRawEvent builds privacy-safe spreadsheet events", () =>
     file: {
       id: "spreadsheet-1",
       mimeType: "application/vnd.google-apps.spreadsheet",
-      viewedByMeTime: "2026-03-17T09:31:00.000Z",
+      viewedByMeTime: "2026-03-17T18:31:00+09:00",
     },
     summary: {
       spreadsheetId: "spreadsheet-1",
@@ -94,6 +95,7 @@ test("createSheetsContextRawEvent builds privacy-safe spreadsheet events", () =>
   assert.equal(event.application, "gws-sheets");
   assert.equal(event.domain, "docs.google.com");
   assert.equal(event.target, "open_sheet");
+  assert.equal(event.timestamp, "2026-03-17T09:31:00.000Z");
   assert.ok(event.metadata);
   assert.deepEqual(event.metadata.workspaceContext, {
     provider: "gws",

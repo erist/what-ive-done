@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import { buildCalendarSignalMetadata, type CalendarSignalType } from "../calendar/signals.js";
 import type { RawEventInput } from "../domain/types.js";
+import { normalizeIsoTimestamp } from "./gws-shared.js";
 import type { CollectorInfo } from "./types.js";
 
 export const DEFAULT_GWS_CALENDAR_ID = "primary";
@@ -117,13 +118,7 @@ function parseEventTimestamp(value: unknown): string | undefined {
     return undefined;
   }
 
-  const dateTime = normalizeOptionalString(value.dateTime);
-
-  if (!dateTime || Number.isNaN(Date.parse(dateTime))) {
-    return undefined;
-  }
-
-  return dateTime;
+  return normalizeIsoTimestamp(value.dateTime);
 }
 
 function toMeeting(value: unknown): GWSCalendarMeeting | undefined {
@@ -340,10 +335,13 @@ export function createCalendarSignalRawEvent(args: {
   signalType: CalendarSignalType;
   meeting: GWSCalendarMeeting;
 }): RawEventInput {
+  const startAt = normalizeIsoTimestamp(args.meeting.startAt) ?? args.meeting.startAt;
+  const endAt = normalizeIsoTimestamp(args.meeting.endAt) ?? args.meeting.endAt;
+
   return {
     source: "calendar",
     sourceEventType: `calendar.meeting.${args.signalType === "meeting_start" ? "start" : "end"}`,
-    timestamp: args.signalType === "meeting_start" ? args.meeting.startAt : args.meeting.endAt,
+    timestamp: args.signalType === "meeting_start" ? startAt : endAt,
     application: "gws-calendar",
     action: "calendar_signal",
     target: args.signalType,
@@ -352,8 +350,8 @@ export function createCalendarSignalRawEvent(args: {
         signalType: args.signalType,
         eventId: args.meeting.id,
         summary: args.meeting.summary,
-        startAt: args.meeting.startAt,
-        endAt: args.meeting.endAt,
+        startAt,
+        endAt,
         attendeesCount: args.meeting.attendeesCount,
       }),
     },

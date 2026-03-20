@@ -179,7 +179,7 @@ export function normalizeIsoTimestamp(value: unknown): string | undefined {
     return undefined;
   }
 
-  return normalized;
+  return new Date(normalized).toISOString();
 }
 
 export function hashOpaqueIdentifier(value: string): string {

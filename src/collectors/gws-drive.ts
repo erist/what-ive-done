@@ -211,10 +211,22 @@ export function createDriveContextRawEvent(args: {
   file: GWSDriveFile;
   activity?: GWSDriveActivity | undefined;
 }): RawEventInput {
-  const activity = args.activity ?? resolveDriveActivity(args.file);
+  const modifiedTime = normalizeIsoTimestamp(args.file.modifiedTime);
+  const viewedByMeTime = normalizeIsoTimestamp(args.file.viewedByMeTime);
+  const file = {
+    ...args.file,
+    modifiedTime,
+    viewedByMeTime,
+  };
+  const activity = args.activity
+    ? {
+        ...args.activity,
+        observedAt: normalizeIsoTimestamp(args.activity.observedAt) ?? args.activity.observedAt,
+      }
+    : resolveDriveActivity(file);
   const itemType = classifyDriveItemType(args.file.mimeType);
   const itemHash = hashOpaqueIdentifier(args.file.id);
-  const observedAt = activity?.observedAt ?? args.file.modifiedTime ?? args.file.viewedByMeTime ?? new Date().toISOString();
+  const observedAt = activity?.observedAt ?? modifiedTime ?? viewedByMeTime ?? new Date().toISOString();
   const activityType = activity?.activityType ?? "modified";
 
   return {
@@ -233,8 +245,8 @@ export function createDriveContextRawEvent(args: {
         itemType,
         itemHash,
         activityType,
-        modifiedAt: args.file.modifiedTime,
-        viewedAt: args.file.viewedByMeTime,
+        modifiedAt: modifiedTime,
+        viewedAt: viewedByMeTime,
       },
     },
   };

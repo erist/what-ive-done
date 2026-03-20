@@ -277,7 +277,7 @@ export class AppDatabase {
 
     applySchemaMigrations(this.connection, existingVersion.version);
 
-    if ((existingVersion.version ?? 0) < 16) {
+    if ((existingVersion.version ?? 0) < 17) {
       this.refreshStoredRawEvents();
     }
 
@@ -327,6 +327,7 @@ export class AppDatabase {
     const updateRawEvent = this.connection.prepare(`
       UPDATE raw_events
       SET
+        timestamp = ?,
         window_title = ?,
         domain = ?,
         url = ?,
@@ -363,6 +364,7 @@ export class AppDatabase {
         });
 
         updateRawEvent.run(
+          sanitized.timestamp,
           sanitized.windowTitle ?? null,
           sanitized.domain ?? null,
           sanitized.url ?? null,
