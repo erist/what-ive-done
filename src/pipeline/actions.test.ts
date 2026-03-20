@@ -79,3 +79,88 @@ test("normalizeRawEvents captures low-signal browser interactions as unknown_act
   assert.equal(event.actionSource, "inferred");
   assert.equal((event.metadata.actionMatch as Record<string, unknown>)?.layer, "unknown");
 });
+
+test("normalizeRawEvents keeps non-ASCII application switch identifiers intact", () => {
+  const [event] = normalizeRawEvents([
+    createRawEvent({
+      id: "raw-4",
+      timestamp: "2026-03-14T10:15:23.000Z",
+      source: "desktop",
+      sourceEventType: "app.switch",
+      application: "시스템 설정",
+      action: "switch",
+    }),
+  ]);
+
+  assert.ok(event);
+  assert.equal(event.actionName, "switch_to_시스템_설정");
+  assert.equal(event.actionSource, "inferred");
+});
+
+test("normalizeRawEvents derives workspace metadata actions even without a target", () => {
+  const [event] = normalizeRawEvents([
+    createRawEvent({
+      id: "raw-5",
+      timestamp: "2026-03-14T10:16:23.000Z",
+      source: "workspace",
+      sourceEventType: "workspace.sheets.viewed",
+      application: "gws-sheets",
+      action: "workspace_activity",
+      metadata: {
+        workspaceContext: {
+          provider: "gws",
+          app: "sheets",
+          itemType: "spreadsheet",
+          itemHash: "abcdef1234567890abcdef1234567890",
+          activityType: "viewed",
+        },
+      },
+    }),
+  ]);
+
+  assert.ok(event);
+  assert.equal(event.actionName, "open_sheet");
+  assert.equal(event.actionSource, "rule");
+  assert.equal((event.metadata.actionMatch as Record<string, unknown>)?.strategy, "workspace_context");
+});
+
+test("normalizeRawEvents derives git metadata actions even without a target", () => {
+  const events = normalizeRawEvents([
+    createRawEvent({
+      id: "raw-6",
+      timestamp: "2026-03-14T10:17:23.000Z",
+      source: "git",
+      sourceEventType: "git.repo.status",
+      application: "git",
+      action: "git_activity",
+      metadata: {
+        gitContext: {
+          repoHash: "abcdef1234567890abcdef1234567890",
+          remoteHost: "github.com",
+          dirtyFileCount: 3,
+        },
+      },
+    }),
+    createRawEvent({
+      id: "raw-7",
+      timestamp: "2026-03-14T10:18:23.000Z",
+      source: "git",
+      sourceEventType: "git.repo.commit",
+      application: "git",
+      action: "git_activity",
+      target: "record_git_commit",
+      metadata: {
+        gitContext: {
+          repoHash: "abcdef1234567890abcdef1234567890",
+          remoteHost: "github.com",
+          dirtyFileCount: 0,
+        },
+      },
+    }),
+  ]);
+
+  assert.equal(events[0]?.actionName, "review_git_changes");
+  assert.equal(events[0]?.actionSource, "rule");
+  assert.equal(events[1]?.actionName, "record_git_commit");
+  assert.equal((events[0]?.metadata.actionMatch as Record<string, unknown>)?.strategy, "git_context");
+});

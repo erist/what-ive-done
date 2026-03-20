@@ -27,8 +27,84 @@ function normalizeIdentifier(value: string): string {
   return value
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
+    .normalize("NFKC")
+    .replace(/[^\p{Letter}\p{Number}]+/gu, "_")
     .replace(/^_+|_+$/g, "");
+}
+
+function inferStructuredContextAction(event: ActionlessNormalizedEvent): {
+  actionName: string;
+  actionConfidence: number;
+  actionSource: ActionSource;
+  actionMatchMetadata: ActionMatchMetadata;
+} | undefined {
+  const workspaceContext = isRecord(event.metadata.workspaceContext)
+    ? event.metadata.workspaceContext
+    : undefined;
+
+  if (workspaceContext) {
+    const app = normalizeIdentifier(typeof workspaceContext.app === "string" ? workspaceContext.app : "");
+    const itemType = normalizeIdentifier(
+      typeof workspaceContext.itemType === "string" ? workspaceContext.itemType : "",
+    );
+    const activityType = normalizeIdentifier(
+      typeof workspaceContext.activityType === "string" ? workspaceContext.activityType : "",
+    );
+    const normalizedItemType = itemType === "spreadsheet" ? "sheet" : itemType;
+
+    if (app === "sheets") {
+      return {
+        actionName: activityType === "modified" ? "update_sheet" : "open_sheet",
+        actionConfidence: 0.93,
+        actionSource: "rule",
+        actionMatchMetadata: {
+          registryVersion: ACTION_PACK_REGISTRY_VERSION,
+          layer: "generic",
+          strategy: "workspace_context",
+        },
+      };
+    }
+
+    if (normalizedItemType && activityType) {
+      return {
+        actionName:
+          activityType === "modified"
+            ? `update_${normalizedItemType}`
+            : normalizedItemType === "folder"
+              ? `open_${normalizedItemType}`
+              : `review_${normalizedItemType}`,
+        actionConfidence: 0.9,
+        actionSource: "rule",
+        actionMatchMetadata: {
+          registryVersion: ACTION_PACK_REGISTRY_VERSION,
+          layer: "generic",
+          strategy: "workspace_context",
+        },
+      };
+    }
+  }
+
+  const gitContext = isRecord(event.metadata.gitContext) ? event.metadata.gitContext : undefined;
+
+  if (gitContext) {
+    const dirtyFileCount =
+      typeof gitContext.dirtyFileCount === "number" && Number.isFinite(gitContext.dirtyFileCount)
+        ? gitContext.dirtyFileCount
+        : undefined;
+
+    return {
+      actionName: (dirtyFileCount ?? 0) > 0 ? "review_git_changes" : "sync_git_repo",
+      actionConfidence: 0.92,
+      actionSource: "rule",
+      actionMatchMetadata: {
+        registryVersion: ACTION_PACK_REGISTRY_VERSION,
+        layer: "generic",
+        strategy: "git_context",
+      },
+    };
+  }
+
+  return undefined;
 }
 
 function buildNearbyContext(
@@ -187,6 +263,12 @@ function inferAction(event: ActionlessNormalizedEvent, context: NearbyContext): 
         strategy: "target_inference",
       },
     };
+  }
+
+  const structuredContextAction = inferStructuredContextAction(event);
+
+  if (structuredContextAction) {
+    return structuredContextAction;
   }
 
   if (pageType) {
