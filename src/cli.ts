@@ -61,6 +61,7 @@ import {
 import { normalizeCliArgv } from "./cli/aliases.js";
 import { isInteractiveTerminal, PromptSession } from "./cli/prompts.js";
 import { runInit, runInteractiveInit } from "./init/flow.js";
+import { buildDatasetQualityReport } from "./debug/quality.js";
 import {
   buildRawEventTrace,
   buildSessionTrace,
@@ -1900,6 +1901,16 @@ program
       limit: Number.parseInt(options.limit, 10),
       json: options.json,
     });
+  });
+
+program
+  .command("debug:quality:report")
+  .description("Summarize dataset quality signals and interpretation risks")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    const report = withDatabase(options.dataDir, (database) => buildDatasetQualityReport(database));
+
+    console.log(JSON.stringify(report, null, 2));
   });
 
 program
