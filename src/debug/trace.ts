@@ -1,13 +1,30 @@
-import type { NormalizedEvent, RawEvent, Session, WorkflowCluster } from "../domain/types.js";
+import type {
+  ClusterMembershipExplanation,
+} from "../pipeline/cluster.js";
+import { explainClusterMembership } from "../pipeline/cluster.js";
+import type {
+  NormalizedEvent,
+  RawEvent,
+  Session,
+  WorkflowCluster,
+  WorkflowConfidenceDetails,
+  WorkflowDetectionMode,
+  WorkflowVariant,
+} from "../domain/types.js";
 import type { AppDatabase } from "../storage/database.js";
 
 interface WorkflowClusterSummary {
   id: string;
   workflowSignature: string;
+  detectionMode: WorkflowDetectionMode;
   name: string;
   frequency: number;
+  involvedApps: string[];
+  representativeSteps: string[];
   confidenceScore: number;
+  confidenceDetails: WorkflowConfidenceDetails;
   representativeSequence: string[];
+  topVariants: WorkflowVariant[];
   sessionIds: string[];
 }
 
@@ -21,6 +38,7 @@ interface SessionSummary {
   sessionBoundaryDetails: Record<string, unknown>;
   matchingStepOrder?: number | undefined;
   steps: Session["steps"];
+  workflowMembership?: ClusterMembershipExplanation | undefined;
 }
 
 export interface RawEventTrace {
@@ -50,18 +68,41 @@ function summarizeWorkflowCluster(cluster: WorkflowCluster): WorkflowClusterSumm
   return {
     id: cluster.id,
     workflowSignature: cluster.workflowSignature,
+    detectionMode: cluster.detectionMode,
     name: cluster.name,
     frequency: cluster.frequency,
+    involvedApps: cluster.involvedApps,
+    representativeSteps: cluster.representativeSteps,
     confidenceScore: cluster.confidenceScore,
+    confidenceDetails: cluster.confidenceDetails,
     representativeSequence: cluster.representativeSequence,
+    topVariants: cluster.topVariants,
     sessionIds: cluster.sessionIds,
   };
+}
+
+function buildSessionMembershipExplanation(
+  database: AppDatabase,
+  session: Session,
+  workflowCluster: WorkflowCluster,
+): ClusterMembershipExplanation {
+  const peerSessions = workflowCluster.sessionIds
+    .filter((sessionId) => sessionId !== session.id)
+    .map((sessionId) => database.getSessionById(sessionId))
+    .filter((value): value is Session => Boolean(value));
+
+  return explainClusterMembership({
+    session,
+    peerSessions,
+    similarityWeights: workflowCluster.confidenceDetails.similarityWeights,
+  });
 }
 
 function summarizeSession(
   session: Session,
   options: {
     normalizedEventId?: string | undefined;
+    workflowMembership?: ClusterMembershipExplanation | undefined;
   } = {},
 ): SessionSummary {
   return {
@@ -76,6 +117,7 @@ function summarizeSession(
       (step) => step.normalizedEventId === options.normalizedEventId,
     )?.order,
     steps: session.steps,
+    workflowMembership: options.workflowMembership,
   };
 }
 
@@ -121,6 +163,9 @@ export function buildRawEventTrace(
     session: session
       ? summarizeSession(session, {
           normalizedEventId: normalizedEvent?.id,
+          workflowMembership: workflowCluster
+            ? buildSessionMembershipExplanation(database, session, workflowCluster)
+            : undefined,
         })
       : undefined,
     workflowCluster: workflowCluster ? summarizeWorkflowCluster(workflowCluster) : undefined,
@@ -147,7 +192,11 @@ export function buildSessionTrace(
   const workflowCluster = database.getWorkflowClusterBySessionId(sessionId);
 
   return {
-    session: summarizeSession(session),
+    session: summarizeSession(session, {
+      workflowMembership: workflowCluster
+        ? buildSessionMembershipExplanation(database, session, workflowCluster)
+        : undefined,
+    }),
     rawEvents,
     workflowCluster: workflowCluster ? summarizeWorkflowCluster(workflowCluster) : undefined,
   };
@@ -166,7 +215,11 @@ export function buildWorkflowClusterTrace(
   const sessions = workflowCluster.sessionIds
     .map((sessionId) => database.getSessionById(sessionId))
     .filter((value): value is Session => Boolean(value))
-    .map((session) => summarizeSession(session));
+    .map((session) =>
+      summarizeSession(session, {
+        workflowMembership: buildSessionMembershipExplanation(database, session, workflowCluster),
+      }),
+    );
 
   return {
     workflowCluster: summarizeWorkflowCluster(workflowCluster),

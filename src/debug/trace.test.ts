@@ -62,6 +62,8 @@ test("buildRawEventTrace follows raw to normalized to session to workflow cluste
     assert.equal(trace?.normalizedEvent?.actionName, "search_order");
     assert.equal(trace?.session?.matchingStepOrder, 2);
     assert.equal(trace?.workflowCluster?.name, "Search Order workflow");
+    assert.ok((trace?.session?.workflowMembership?.membershipScore ?? 0) > 0.7);
+    assert.ok((trace?.session?.workflowMembership?.peerComparisons.length ?? 0) >= 1);
   } finally {
     database.close();
     rmSync(tempDir, { recursive: true, force: true });
@@ -94,6 +96,7 @@ test("buildSessionTrace includes linked raw events and workflow cluster context"
     assert.equal(trace?.session.sessionBoundaryReason, "stream_start");
     assert.equal(trace?.rawEvents.length, 3);
     assert.equal(trace?.workflowCluster?.name, "Export Excel workflow");
+    assert.ok((trace?.session.workflowMembership?.candidateActionSequence ?? []).includes("export_excel"));
   } finally {
     database.close();
     rmSync(tempDir, { recursive: true, force: true });
@@ -128,6 +131,10 @@ test("buildWorkflowClusterTrace returns member sessions with boundary reasons", 
     assert.deepEqual(
       trace?.sessions.map((session) => session.sessionBoundaryReason),
       ["stream_start", "idle_gap", "idle_gap"],
+    );
+    assert.ok(trace?.workflowCluster.confidenceDetails.averageCompositeSimilarity);
+    assert.ok(
+      trace?.sessions.every((session) => (session.workflowMembership?.peerComparisons.length ?? 0) >= 1),
     );
   } finally {
     database.close();

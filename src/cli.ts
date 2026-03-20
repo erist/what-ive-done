@@ -2037,7 +2037,7 @@ program
 
 program
   .command("debug:trace:raw")
-  .description("Trace one raw event through normalized, session, and workflow stages")
+  .description("Trace one raw event through normalized, session, and workflow stages with membership context")
   .argument("<raw-event-id>", "Raw event id")
   .option("--data-dir <path>", "Override application data directory")
   .action((rawEventId: string, options: { dataDir?: string }) => {
@@ -2052,7 +2052,7 @@ program
 
 program
   .command("debug:trace:session")
-  .description("Trace one analyzed session back to raw events and its workflow cluster")
+  .description("Trace one analyzed session back to raw events, boundaries, and workflow membership context")
   .argument("<session-id>", "Session id")
   .option("--data-dir <path>", "Override application data directory")
   .action((sessionId: string, options: { dataDir?: string }) => {
@@ -2067,7 +2067,7 @@ program
 
 program
   .command("debug:trace:workflow")
-  .description("Trace one workflow cluster to its member sessions and boundaries")
+  .description("Trace one workflow cluster to its member sessions, boundaries, and similarity context")
   .alias("trace")
   .argument("<workflow-id>", "Workflow cluster id")
   .option("--data-dir <path>", "Override application data directory")
