@@ -26,6 +26,7 @@ export interface ActionPackRule {
   eventTypes?: string[] | undefined;
   pageTypes?: string[] | undefined;
   targetIncludes?: string[] | undefined;
+  requireExplicitTarget?: boolean | undefined;
   resourceHints?: string[] | undefined;
   actionName: string;
   confidence: number;

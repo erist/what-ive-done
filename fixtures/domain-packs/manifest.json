@@ -32,6 +32,37 @@
     ]
   },
   {
+    "id": "google-mail",
+    "file": "google-mail.ndjson",
+    "expectedPackId": "google-mail",
+    "expectedMatchRate": 1,
+    "expectedRouteFamilies": [
+      "google-mail.mailbox.list",
+      "google-mail.thread.detail",
+      "google-mail.search.results"
+    ]
+  },
+  {
+    "id": "google-calendar",
+    "file": "google-calendar.ndjson",
+    "expectedPackId": "google-calendar",
+    "expectedMatchRate": 1,
+    "expectedRouteFamilies": [
+      "google-calendar.schedule.view",
+      "google-calendar.event.edit"
+    ]
+  },
+  {
+    "id": "notion",
+    "file": "notion.ndjson",
+    "expectedPackId": "notion",
+    "expectedMatchRate": 1,
+    "expectedRouteFamilies": [
+      "notion.workspace.home",
+      "notion.page.view"
+    ]
+  },
+  {
     "id": "bigquery-console",
     "file": "bigquery-console.ndjson",
     "expectedPackId": "bigquery-console",

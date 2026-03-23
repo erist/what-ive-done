@@ -7,16 +7,22 @@ import type {
   DomainPackDefinition,
 } from "./types.js";
 import { bigqueryConsolePack } from "./packs/bigquery-console.js";
+import { googleCalendarPack } from "./packs/google-calendar.js";
 import { googleDocsPack } from "./packs/google-docs.js";
+import { googleMailPack } from "./packs/google-mail.js";
 import { googleSheetsPack } from "./packs/google-sheets.js";
 import { makestarAdminPack } from "./packs/makestar-admin.js";
+import { notionPack } from "./packs/notion.js";
 
 export const DOMAIN_PACK_REGISTRY_VERSION = 1;
 
 export const DEFAULT_DOMAIN_PACKS: DomainPackDefinition[] = [
   makestarAdminPack,
+  googleMailPack,
+  googleCalendarPack,
   googleSheetsPack,
   googleDocsPack,
+  notionPack,
   bigqueryConsolePack,
 ];
 

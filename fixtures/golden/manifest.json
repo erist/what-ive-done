@@ -61,5 +61,33 @@
     "expectedWorkflowClusters": 1,
     "expectedWorkflowName": "Run Query workflow",
     "expectedRepresentativeSequence": ["open_query_workspace", "run_query", "save_query"]
+  },
+  {
+    "id": "google-mail-thread-triage",
+    "file": "google-mail-thread-triage.ndjson",
+    "description": "Repeated Gmail thread reply and archive workflow",
+    "expectedSessions": 3,
+    "expectedWorkflowClusters": 1,
+    "expectedWorkflowName": "Reply Mail Thread workflow",
+    "expectedRepresentativeSequence": ["open_mail_thread", "reply_mail_thread", "archive_mail_thread"]
+  },
+  {
+    "id": "google-calendar-event-scheduling",
+    "file": "google-calendar-event-scheduling.ndjson",
+    "description": "Repeated Google Calendar event scheduling workflow",
+    "expectedSessions": 3,
+    "expectedWorkflowClusters": 1,
+    "expectedWorkflowName": "Schedule Calendar Event workflow",
+    "expectedSessionBoundaryReasons": ["stream_start", "idle_and_context_shift", "idle_and_context_shift"],
+    "expectedRepresentativeSequence": ["open_calendar", "open_calendar_event", "schedule_calendar_event"]
+  },
+  {
+    "id": "notion-page-update",
+    "file": "notion-page-update.ndjson",
+    "description": "Repeated Notion page update workflow",
+    "expectedSessions": 3,
+    "expectedWorkflowClusters": 1,
+    "expectedWorkflowName": "Edit Notion Page workflow",
+    "expectedRepresentativeSequence": ["open_notion_page", "edit_notion_page"]
   }
 ]

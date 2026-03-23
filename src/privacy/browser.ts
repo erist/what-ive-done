@@ -10,6 +10,7 @@ import type { EventSource } from "../domain/types.js";
 const UUID_LIKE_SEGMENT = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LONG_HEX_SEGMENT = /^[0-9a-f]{12,}$/i;
 const NUMERIC_SEGMENT = /^\d+$/;
+const LONG_OPAQUE_SEGMENT = /^[A-Za-z0-9_-]{16,}$/;
 const ALLOWLISTED_QUERY_VALUE = /^[a-z0-9._:-]{1,64}$/i;
 
 export interface BrowserCanonicalFields {
@@ -59,19 +60,39 @@ function tryParseUrl(rawUrl: string | undefined): URL | undefined {
 }
 
 function normalizePathSegment(segment: string): string {
-  if (NUMERIC_SEGMENT.test(segment)) {
+  const decoded = segment.trim();
+
+  if (!decoded) {
+    return "segment";
+  }
+
+  const suffix = decoded.split(/[-_]/).filter(Boolean).at(-1);
+  const looksOpaqueIdentifier = (value: string | undefined): boolean => {
+    if (!value) {
+      return false;
+    }
+
+    return (
+      LONG_OPAQUE_SEGMENT.test(value) &&
+      (/\d/.test(value) || (/[a-z]/.test(value) && /[A-Z]/.test(value)) || !/[-_]/.test(value))
+    );
+  };
+  const looksOpaqueSegment = looksOpaqueIdentifier(decoded);
+  const looksOpaqueSuffix = looksOpaqueIdentifier(suffix);
+
+  if (NUMERIC_SEGMENT.test(decoded)) {
     return "{id}";
   }
 
-  if (UUID_LIKE_SEGMENT.test(segment)) {
+  if (UUID_LIKE_SEGMENT.test(decoded)) {
     return "{uuid}";
   }
 
-  if (LONG_HEX_SEGMENT.test(segment)) {
+  if (LONG_HEX_SEGMENT.test(decoded) || looksOpaqueSegment || looksOpaqueSuffix) {
     return "{id}";
   }
 
-  return segment.toLowerCase();
+  return decoded.toLowerCase();
 }
 
 function normalizeSegments(pathname: string): string[] {

@@ -163,3 +163,22 @@ test("normalizeRawEvents preserves browser schema for non-signal browser-context
   assert.equal(event.browserSchemaVersion, 2);
   assert.equal(event.routeTemplate, undefined);
 });
+
+test("normalizeRawEvents collapses opaque notion page ids into a stable domain pack route", () => {
+  const [event] = normalizeRawEvents([
+    createRawEvent({
+      id: "raw-notion-1",
+      timestamp: "2026-03-20T00:01:00.000Z",
+      domain: "www.notion.so",
+      url: "https://www.notion.so/Project-Roadmap-0123456789abcdef0123456789abcdef",
+      windowTitle: "Project Roadmap - Notion",
+    }),
+  ]);
+
+  assert.ok(event);
+  assert.equal(event.canonicalUrl, "https://www.notion.so/{id}");
+  assert.equal(event.routeTemplate, "/{id}");
+  assert.equal(event.routeFamily, "notion.page.view");
+  assert.equal(event.domainPackId, "notion");
+  assert.equal(event.pageType, "notion_page");
+});

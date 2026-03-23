@@ -15,6 +15,7 @@ interface GoldenFixtureManifestEntry {
   expectedWorkflowClusters: number;
   expectedWorkflowName: string;
   expectedRepresentativeSequence: string[];
+  expectedSessionBoundaryReasons?: string[];
 }
 
 function resolveFixturePath(relativePath: string): string {
@@ -63,7 +64,7 @@ for (const fixture of loadManifest()) {
     );
     assert.deepEqual(
       result.sessions.map((session) => session.sessionBoundaryReason),
-      ["stream_start", "idle_gap", "idle_gap"],
+      fixture.expectedSessionBoundaryReasons ?? ["stream_start", "idle_gap", "idle_gap"],
       fixture.description,
     );
     assert.equal(result.workflowClusters[0]?.name, fixture.expectedWorkflowName, fixture.description);

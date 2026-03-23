@@ -3,6 +3,7 @@
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const LONG_HEX_SEGMENT = /^[0-9a-f]{12,}$/i;
   const NUMERIC_SEGMENT = /^\d+$/;
+  const LONG_OPAQUE_SEGMENT = /^[A-Za-z0-9_-]{16,}$/;
   const DOCUMENT_TYPE_HASH_LENGTH = 24;
 
   function compactObject(value) {
@@ -66,6 +67,19 @@
       return "{id}";
     }
 
+    const suffix = decoded.split(/[-_]/).filter(Boolean).at(-1);
+    const looksOpaqueSegment =
+      LONG_OPAQUE_SEGMENT.test(decoded) &&
+      (/\d/.test(decoded) || /[a-z]/.test(decoded) && /[A-Z]/.test(decoded) || !/[-_]/.test(decoded));
+    const looksOpaqueSuffix =
+      Boolean(suffix) &&
+      LONG_OPAQUE_SEGMENT.test(suffix) &&
+      (/\d/.test(suffix) || /[a-z]/.test(suffix) && /[A-Z]/.test(suffix) || !/[-_]/.test(suffix));
+
+    if (looksOpaqueSegment || looksOpaqueSuffix) {
+      return "{id}";
+    }
+
     const normalized = decoded
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "_")
@@ -89,7 +103,11 @@
 
     normalized = normalized.split("?", 1)[0] || "";
 
-    return normalized.startsWith("/") ? normalized : undefined;
+    if (!normalized) {
+      return undefined;
+    }
+
+    return normalized.startsWith("/") ? normalized : `/${normalized}`;
   }
 
   function toNormalizedSegments(pathname) {
