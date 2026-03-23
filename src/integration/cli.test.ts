@@ -71,6 +71,36 @@ test("init creates .wid config and config commands discover it from parent direc
   }
 });
 
+test("init accepts a positional data dir and top-level tools honors --data-dir", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "what-ive-done-cli-positional-init-"));
+
+  try {
+    const initPayload = JSON.parse(runCli(["init", dataDir], repoRoot)) as {
+      dataDir: string;
+      configPath: string;
+    };
+    const toolsOutput = runCli(["tools", "--data-dir", dataDir], repoRoot);
+
+    assert.equal(realpathSync(initPayload.dataDir), realpathSync(dataDir));
+    assert.equal(
+      realpathSync(initPayload.configPath),
+      realpathSync(join(dataDir, ".wid", "config.json")),
+    );
+    assert.match(toolsOutput, /COLLECTORS/u);
+    assert.match(toolsOutput, /chrome-extension/u);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("help uses wid as the canonical command name", () => {
+  const helpOutput = runCli(["--help"], repoRoot);
+
+  assert.match(helpOutput, /Usage: wid /u);
+  assert.match(helpOutput, /\bworkflow\b/u);
+  assert.match(helpOutput, /\breport\b/u);
+});
+
 test("init --interactive applies detected collector defaults and creates an ingest token", async () => {
   const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-cli-init-interactive-"));
   const fakeBinDir = join(tempDir, "bin");
@@ -269,7 +299,7 @@ exit 1
     runCli(["init", "--data-dir", dataDir], repoRoot, env);
 
     assert.match(
-      runCli(["tools", "add", "gws", "--data-dir", dataDir], repoRoot, env),
+      runCli(["tools", "--data-dir", dataDir, "add", "gws"], repoRoot, env),
       /Added gws collector/u,
     );
     assert.match(
@@ -562,6 +592,54 @@ test("doctor surfaces missing browser extension context without fake browser sch
       doctorPayload.browserIngest?.issues.includes("browser_schema_without_route_context"),
       false,
     );
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("natural command groups reuse the workflow, report, agent, and ingest handlers", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "what-ive-done-cli-natural-groups-"));
+
+  try {
+    runCli(["init", dataDir], repoRoot);
+    runCli(["collect:mock", "--data-dir", dataDir], repoRoot);
+    runCli(["analyze", "--data-dir", dataDir], repoRoot);
+
+    const workflowList = JSON.parse(
+      runCli(["workflow", "list", "--json", "--data-dir", dataDir], repoRoot),
+    ) as Array<{ id: string }>;
+    const workflowId = workflowList[0]?.id;
+    const workflowDetail = JSON.parse(
+      runCli(["workflow", "show", workflowId ?? "", "--json", "--data-dir", dataDir], repoRoot),
+    ) as { id: string };
+    const reportComparison = JSON.parse(
+      runCli(["report", "--data-dir", dataDir, "compare", "--json"], repoRoot),
+    ) as Record<string, unknown>;
+    const tokenPayload = JSON.parse(
+      runCli(["ingest", "token", "--data-dir", dataDir], repoRoot),
+    ) as { configured: boolean };
+    const healthPayload = JSON.parse(
+      runCli(["agent", "health", "--data-dir", dataDir], repoRoot),
+    ) as { status: string };
+    const statusPayload = JSON.parse(
+      runCli(["agent", "status", "--data-dir", dataDir], repoRoot),
+    ) as { status: string };
+    const collectorsPayload = JSON.parse(
+      runCli(["agent", "collectors", "--data-dir", dataDir], repoRoot),
+    ) as unknown[];
+    const latestSnapshotsPayload = JSON.parse(
+      runCli(["agent", "snapshot", "latest", "--data-dir", dataDir], repoRoot),
+    ) as unknown;
+
+    assert.equal(workflowList.length, 5);
+    assert.ok(workflowId);
+    assert.equal(workflowDetail.id, workflowId);
+    assert.ok("currentTimeWindow" in reportComparison);
+    assert.equal(tokenPayload.configured, true);
+    assert.equal(healthPayload.status, "stopped");
+    assert.equal(statusPayload.status, "stopped");
+    assert.deepEqual(collectorsPayload, []);
+    assert.deepEqual(latestSnapshotsPayload, []);
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }

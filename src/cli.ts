@@ -139,8 +139,7 @@ import type {
   WorkflowReport,
 } from "./domain/types.js";
 
-const program = new Command();
-program.name("wid");
+const program = new Command("wid");
 
 function withDatabase<T>(dataDir: string | undefined, fn: (database: AppDatabase) => T): T {
   const resolvedDataDir = ConfigManager.resolveDataDir(dataDir);
@@ -156,6 +155,34 @@ function withDatabase<T>(dataDir: string | undefined, fn: (database: AppDatabase
 
 function resolveCommandDataDir(dataDir?: string): string {
   return ConfigManager.resolveDataDir(dataDir);
+}
+
+function resolvePreferredDataDir(positionalDataDir?: string, optionDataDir?: string): string | undefined {
+  return positionalDataDir ?? optionDataDir;
+}
+
+function mergeActionOptions<T extends Record<string, unknown>>(
+  options: T,
+  command?: Command,
+): T {
+  return {
+    ...(command?.optsWithGlobals<T>() ?? {}),
+    ...options,
+  };
+}
+
+function resolveActionDataDir(
+  options: { dataDir?: string },
+  command?: Command,
+): string | undefined {
+  return mergeActionOptions(options, command).dataDir;
+}
+
+function loadActionCommandConfig(
+  options: { dataDir?: string },
+  command?: Command,
+): { dataDir: string; config: WidConfig } {
+  return loadCommandConfig(resolveActionDataDir(options, command));
 }
 
 function loadCommandConfig(dataDir?: string): { dataDir: string; config: WidConfig } {
@@ -1392,7 +1419,7 @@ function requireEnv(name: string): string {
 }
 
 program
-  .name("what-ive-done")
+  .name("wid")
   .description("Local workflow pattern analyzer CLI")
   .version("0.1.0");
 
@@ -1453,8 +1480,9 @@ program
 const toolsCommand = program
   .command("tools")
   .description("List or manage configured collectors and analyzers")
-  .action(async () => {
-    const { dataDir } = loadCommandConfig();
+  .option("--data-dir <path>", "Override application data directory")
+  .action(async (options: { dataDir?: string }) => {
+    const { dataDir } = loadCommandConfig(options.dataDir);
     const report = await listTools(dataDir);
 
     console.log(formatToolList(report));
@@ -1464,8 +1492,8 @@ toolsCommand.addCommand(
   new Command("list")
     .description("List configured collectors and analyzers")
     .option("--data-dir <path>", "Override application data directory")
-    .action(async (options: { dataDir?: string }) => {
-      const { dataDir } = loadCommandConfig(options.dataDir);
+    .action(async (options: { dataDir?: string }, command: Command) => {
+      const { dataDir } = loadActionCommandConfig(options, command);
       const report = await listTools(dataDir);
 
       console.log(formatToolList(report));
@@ -1502,8 +1530,9 @@ toolsCommand.addCommand(
         issuerUrl?: string;
         port: string;
       },
+      command: Command,
     ) => {
-      const { dataDir } = loadCommandConfig(options.dataDir);
+      const { dataDir } = loadActionCommandConfig(options, command);
       const prompts = createPromptSessionIfInteractive();
 
       try {
@@ -1550,8 +1579,9 @@ toolsCommand.addCommand(
         dataDir?: string;
         deleteCredentials?: boolean;
       },
+      command: Command,
     ) => {
-      const { dataDir } = loadCommandConfig(options.dataDir);
+      const { dataDir } = loadActionCommandConfig(options, command);
       const prompts = createPromptSessionIfInteractive();
 
       try {
@@ -1582,8 +1612,8 @@ toolsCommand.addCommand(
     .description("Refresh a managed OAuth token when supported")
     .argument("<name>", "Tool name")
     .option("--data-dir <path>", "Override application data directory")
-    .action(async (name: string, options: { dataDir?: string }) => {
-      const { dataDir } = loadCommandConfig(options.dataDir);
+    .action(async (name: string, options: { dataDir?: string }, command: Command) => {
+      const { dataDir } = loadActionCommandConfig(options, command);
       const result = await refreshTool(dataDir, name);
 
       console.log(result.message);
@@ -1620,8 +1650,9 @@ toolsCommand.addCommand(
         issuerUrl?: string;
         port: string;
       },
+      command: Command,
     ) => {
-      const { dataDir } = loadCommandConfig(options.dataDir);
+      const { dataDir } = loadActionCommandConfig(options, command);
       const prompts = createPromptSessionIfInteractive();
 
       try {
@@ -1697,6 +1728,124 @@ program
     };
 
     console.log(JSON.stringify(result, null, 2));
+  });
+
+const agentCommand = program
+  .command("agent")
+  .description("Manage the resident local agent runtime");
+
+configureAgentRuntimeCommand(
+  agentCommand
+    .command("run")
+    .description("Run the resident local agent runtime"),
+)
+  .action(async (options: AgentRuntimeCommandOptions) => {
+    await runAgentRuntimeCommand(options, "agent:run");
+  });
+
+configureAgentRuntimeCommand(
+  agentCommand
+    .command("restart")
+    .description("Restart the resident local agent runtime"),
+)
+  .action(async (options: AgentRuntimeCommandOptions) => {
+    await runAgentRuntimeCommand(options, "agent:restart");
+  });
+
+agentCommand
+  .command("status")
+  .description("Show resident agent runtime status")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    const status = getAgentStatusSnapshot(options.dataDir);
+
+    console.log(JSON.stringify(status, null, 2));
+  });
+
+agentCommand
+  .command("health")
+  .description("Show a concise health summary for the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    const report = getAgentHealthReport(options.dataDir);
+
+    console.log(JSON.stringify(report, null, 2));
+  });
+
+agentCommand
+  .command("stop")
+  .description("Stop the resident local agent runtime if it is running")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    const result = stopAgentRuntime(options.dataDir);
+
+    console.log(JSON.stringify(result, null, 2));
+  });
+
+agentCommand
+  .command("collectors")
+  .description("Show collector states managed by the resident agent")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    const report = getAgentHealthReport(options.dataDir);
+
+    console.log(JSON.stringify(report.collectors, null, 2));
+  });
+
+agentCommand
+  .command("snapshot")
+  .description("Inspect stored snapshots for the resident local agent")
+  .addCommand(
+    new Command("latest")
+      .description("Show the latest stored snapshots for the control plane")
+      .option("--data-dir <path>", "Override application data directory")
+      .action((options: { dataDir?: string }) => {
+        const snapshots = listLatestAgentSnapshots(options.dataDir);
+
+        console.log(JSON.stringify(snapshots, null, 2));
+      }),
+  );
+
+const ingestCommand = program
+  .command("ingest")
+  .description("Manage local ingest server settings and auth");
+
+ingestCommand
+  .command("token")
+  .description("Show or rotate the shared local ingest auth token")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--rotate", "Rotate the stored auth token before printing it")
+  .option("--value <token>", "Persist this token instead of generating one when used with --rotate")
+  .action((options: { dataDir?: string; rotate?: boolean; value?: string }) => {
+    const token = withDatabase(options.dataDir, (database) =>
+      options.rotate ? rotateIngestAuthToken(database, options.value) : getIngestAuthToken(database),
+    );
+
+    if (!token) {
+      console.log(
+        JSON.stringify(
+          {
+            configured: false,
+            message: "No ingest auth token is configured yet. Start the server/agent once or run ingest token --rotate.",
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+
+    console.log(
+      JSON.stringify(
+        {
+          configured: true,
+          rotated: options.rotate ?? false,
+          authToken: token,
+        },
+        null,
+        2,
+      ),
+    );
   });
 
 configureAgentRuntimeCommand(
@@ -1879,14 +2028,19 @@ program
 program
   .command("init")
   .description("Initialize local application storage")
+  .argument("[data-dir]", "Application data directory")
   .option("--data-dir <path>", "Override application data directory")
   .option("--interactive", "Run an interactive setup wizard")
-  .action(async (options: { dataDir?: string; interactive?: boolean }) => {
+  .action(async (
+    positionalDataDir: string | undefined,
+    options: { dataDir?: string; interactive?: boolean },
+  ) => {
     const prompts = createPromptSessionIfInteractive();
+    const dataDir = resolvePreferredDataDir(positionalDataDir, options.dataDir);
 
     try {
       if (options.interactive) {
-        await runInteractiveInit(options.dataDir, {
+        await runInteractiveInit(dataDir, {
           prompts,
         });
         return;
@@ -1894,7 +2048,7 @@ program
 
       console.log(
         JSON.stringify(
-          await runInit(options.dataDir, {
+          await runInit(dataDir, {
             prompts,
           }),
           null,
@@ -2451,7 +2605,7 @@ program
     },
   );
 
-program
+const reportCommand = program
   .command("report")
   .description("Show detected workflows")
   .option("--data-dir <path>", "Override application data directory")
@@ -2477,6 +2631,186 @@ program
       });
     },
   );
+
+reportCommand.addCommand(
+  new Command("compare")
+    .description("Compare the selected day or week report against the previous matching window")
+    .option("--data-dir <path>", "Override application data directory")
+    .option("--json", "Print machine-readable JSON")
+    .option("--window <window>", "Comparison window (day, week)", parseReportWindow, "week")
+    .option("--date <date>", "Local report date in YYYY-MM-DD format")
+    .option("--include-excluded", "Include excluded workflows")
+    .option("--include-hidden", "Include hidden workflows")
+    .action(
+      (options: {
+        dataDir?: string;
+        json?: boolean;
+        window: ReportWindow;
+        date?: string;
+        includeExcluded?: boolean;
+        includeHidden?: boolean;
+      }, command: Command) => {
+        const resolvedOptions = mergeActionOptions(options, command);
+        renderReportComparison(resolvedOptions.json, resolvedOptions.dataDir, {
+          window: resolvedOptions.window,
+          date: resolvedOptions.date,
+          includeExcluded: resolvedOptions.includeExcluded,
+          includeHidden: resolvedOptions.includeHidden,
+        });
+      },
+    ),
+);
+
+reportCommand.addCommand(
+  new Command("generate")
+    .description("Generate and store a report snapshot")
+    .option("--data-dir <path>", "Override application data directory")
+    .option("--window <window>", "Report window (all, day, week)", parseReportWindow, "day")
+    .option("--date <date>", "Local report date in YYYY-MM-DD format")
+    .option("--json", "Print machine-readable JSON")
+    .option("--include-excluded", "Include excluded workflows")
+    .option("--include-hidden", "Include hidden workflows")
+    .action(
+      (options: {
+        dataDir?: string;
+        window: ReportWindow;
+        date?: string;
+        json?: boolean;
+        includeExcluded?: boolean;
+        includeHidden?: boolean;
+      }, command: Command) => {
+        const resolvedOptions = mergeActionOptions(options, command);
+        const snapshot = withDatabase(resolvedOptions.dataDir, (database) =>
+          generateReportSnapshot(database, {
+            window: resolvedOptions.window,
+            date: resolvedOptions.date,
+            includeExcluded: resolvedOptions.includeExcluded,
+            includeHidden: resolvedOptions.includeHidden,
+          }),
+        );
+
+        if (resolvedOptions.json) {
+          console.log(JSON.stringify(snapshot, null, 2));
+          return;
+        }
+
+        renderSnapshotSummary(snapshot);
+        renderReportTable(snapshot.workflows);
+
+        if (snapshot.emergingWorkflows.length > 0) {
+          console.log("Emerging workflows");
+          console.table(
+            snapshot.emergingWorkflows.map((entry) => ({
+              workflow: entry.workflowName,
+              frequency: entry.frequency,
+              averageDuration: formatDuration(entry.averageDurationSeconds),
+              totalDuration: formatDuration(entry.totalDurationSeconds),
+              confidence: entry.confidence,
+            })),
+          );
+        }
+      },
+    ),
+);
+
+const reportSnapshotCommand = new Command("snapshot")
+  .description("Inspect stored report snapshots");
+
+reportSnapshotCommand.addCommand(
+  new Command("list")
+    .description("List stored report snapshots")
+    .option("--data-dir <path>", "Override application data directory")
+    .option("--window <window>", "Filter by report window", parseReportWindow)
+    .option("--limit <count>", "Maximum rows to return", "20")
+    .option("--json", "Print machine-readable JSON")
+    .action(
+      (options: {
+        dataDir?: string;
+        window?: ReportWindow;
+        limit: string;
+        json?: boolean;
+      }, command: Command) => {
+        const resolvedOptions = mergeActionOptions(options, command);
+        const snapshots = withDatabase(resolvedOptions.dataDir, (database) =>
+          database.listReportSnapshots({
+            window: resolvedOptions.window,
+            limit: Number.parseInt(resolvedOptions.limit, 10),
+          }),
+        );
+
+        if (resolvedOptions.json) {
+          console.log(JSON.stringify(snapshots, null, 2));
+          return;
+        }
+
+        renderSnapshotListTable(snapshots);
+      },
+    ),
+);
+
+reportSnapshotCommand.addCommand(
+  new Command("show")
+    .description("Show one stored report snapshot")
+    .option("--data-dir <path>", "Override application data directory")
+    .option("--window <window>", "Report window", parseReportWindow, "day")
+    .option("--date <date>", "Local report date in YYYY-MM-DD format")
+    .option("--latest", "Show the latest snapshot for the selected window")
+    .option("--json", "Print machine-readable JSON")
+    .action(
+      (options: {
+        dataDir?: string;
+        window: ReportWindow;
+        date?: string;
+        latest?: boolean;
+        json?: boolean;
+      }, command: Command) => {
+        const resolvedOptions = mergeActionOptions(options, command);
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "local";
+        const snapshot = withDatabase(resolvedOptions.dataDir, (database) => {
+          if (resolvedOptions.latest) {
+            return database.getLatestReportSnapshot(resolvedOptions.window, timezone);
+          }
+
+          if (!resolvedOptions.date) {
+            throw new Error("--date is required unless --latest is provided");
+          }
+
+          return database.getReportSnapshotByWindowAndDate(
+            resolvedOptions.window,
+            resolvedOptions.date,
+            timezone,
+          );
+        });
+
+        if (!snapshot) {
+          throw new Error("Report snapshot not found");
+        }
+
+        if (resolvedOptions.json) {
+          console.log(JSON.stringify(snapshot, null, 2));
+          return;
+        }
+
+        renderSnapshotSummary(snapshot);
+        renderReportTable(snapshot.workflows);
+
+        if (snapshot.emergingWorkflows.length > 0) {
+          console.log("Emerging workflows");
+          console.table(
+            snapshot.emergingWorkflows.map((entry) => ({
+              workflow: entry.workflowName,
+              frequency: entry.frequency,
+              averageDuration: formatDuration(entry.averageDurationSeconds),
+              totalDuration: formatDuration(entry.totalDurationSeconds),
+              confidence: entry.confidence,
+            })),
+          );
+        }
+      },
+    ),
+);
+
+reportCommand.addCommand(reportSnapshotCommand);
 
 program
   .command("report:compare")
@@ -2652,6 +2986,330 @@ program
   .option("--once", "Run one scheduler cycle and exit")
   .option("--json", "Print machine-readable JSON")
   .action(runLegacyReportSchedulerCommand);
+
+const workflowCommand = program
+  .command("workflow")
+  .description("Inspect or update workflow clusters");
+
+workflowCommand.addCommand(
+  new Command("list")
+    .description("List workflow clusters including feedback state")
+    .option("--data-dir <path>", "Override application data directory")
+    .option("--json", "Print machine-readable JSON")
+    .action((options: { dataDir?: string; json?: boolean }) => {
+      renderWorkflowList(options.json, options.dataDir);
+    }),
+);
+
+workflowCommand.addCommand(
+  new Command("show")
+    .description("Show one workflow cluster in detail")
+    .argument("<workflow-id>", "Workflow cluster id")
+    .option("--data-dir <path>", "Override application data directory")
+    .option("--json", "Print machine-readable JSON")
+    .action((workflowId: string, options: { dataDir?: string; json?: boolean }) => {
+      renderWorkflowDetail(workflowId, options.dataDir, options.json);
+    }),
+);
+
+workflowCommand.addCommand(
+  new Command("label")
+    .description("Store rich workflow feedback for naming, business purpose, and automation review")
+    .argument("<workflow-id>", "Workflow cluster id")
+    .option("--data-dir <path>", "Override application data directory")
+    .option("--name <name>", "Workflow display name")
+    .option("--purpose <purpose>", "Business purpose for this workflow")
+    .option("--repetitive <true|false>", "Mark whether the workflow is repetitive", parseBooleanOption)
+    .option(
+      "--automation-candidate <true|false>",
+      "Mark whether the workflow is an automation candidate",
+      parseBooleanOption,
+    )
+    .option("--difficulty <difficulty>", "Automation difficulty (low, medium, high)")
+    .option(
+      "--approve-candidate <true|false>",
+      "Mark whether the automation candidate is approved",
+      parseBooleanOption,
+    )
+    .action(
+      (
+        workflowId: string,
+        options: {
+          dataDir?: string;
+          name?: string;
+          purpose?: string;
+          repetitive?: boolean;
+          automationCandidate?: boolean;
+          difficulty?: "low" | "medium" | "high";
+          approveCandidate?: boolean;
+        },
+      ) => {
+        const result = withDatabase(options.dataDir, (database) =>
+          saveWorkflowReview(database, {
+            workflowId,
+            name: options.name,
+            purpose: options.purpose,
+            repetitive: options.repetitive,
+            automationCandidate: options.automationCandidate,
+            difficulty: options.difficulty,
+            approvedAutomationCandidate: options.approveCandidate,
+          }),
+        );
+
+        console.log(
+          JSON.stringify(
+            {
+              status: "workflow_labeled",
+              workflowId,
+              name: options.name ?? null,
+              purpose: options.purpose ?? null,
+              repetitive: options.repetitive ?? null,
+              automationCandidate: options.automationCandidate ?? null,
+              difficulty: options.difficulty ?? null,
+              approvedAutomationCandidate: options.approveCandidate ?? null,
+              ...summarizeWorkflowFeedbackResult(result),
+            },
+            null,
+            2,
+          ),
+        );
+      },
+    ),
+);
+
+workflowCommand.addCommand(
+  new Command("merge")
+    .description("Merge one workflow cluster into another on future analyses")
+    .argument("<workflow-id>", "Workflow cluster id to merge")
+    .argument("<target-workflow-id>", "Workflow cluster id to merge into")
+    .option("--data-dir <path>", "Override application data directory")
+    .action((workflowId: string, targetWorkflowId: string, options: { dataDir?: string }) => {
+      const result = withDatabase(options.dataDir, (database) =>
+        saveWorkflowReview(database, {
+          workflowId,
+          mergeIntoWorkflowId: targetWorkflowId,
+        }),
+      );
+
+      console.log(
+        JSON.stringify(
+          {
+            status: "workflow_merge_saved",
+            workflowId,
+            targetWorkflowId,
+            ...summarizeWorkflowFeedbackResult(result),
+          },
+          null,
+          2,
+        ),
+      );
+    }),
+);
+
+workflowCommand.addCommand(
+  new Command("split")
+    .description("Split a workflow cluster on future analyses after a selected action")
+    .argument("<workflow-id>", "Workflow cluster id")
+    .requiredOption("--after-action <action-name>", "Action name after which the workflow should split")
+    .option("--data-dir <path>", "Override application data directory")
+    .action(
+      (
+        workflowId: string,
+        options: { dataDir?: string; afterAction: string },
+      ) => {
+        const result = withDatabase(options.dataDir, (database) =>
+          saveWorkflowReview(database, {
+            workflowId,
+            splitAfterActionName: options.afterAction,
+          }),
+        );
+
+        console.log(
+          JSON.stringify(
+            {
+              status: "workflow_split_saved",
+              workflowId,
+              splitAfterActionName: options.afterAction,
+              ...summarizeWorkflowFeedbackResult(result),
+            },
+            null,
+            2,
+          ),
+        );
+      },
+    ),
+);
+
+workflowCommand.addCommand(
+  new Command("exclude")
+    .description("Exclude a workflow cluster from report output")
+    .argument("<workflow-id>", "Workflow cluster id")
+    .option("--data-dir <path>", "Override application data directory")
+    .action((workflowId: string, options: { dataDir?: string }) => {
+      const result = withDatabase(options.dataDir, (database) =>
+        saveWorkflowReview(database, {
+          workflowId,
+          excluded: true,
+        }),
+      );
+
+      console.log(
+        JSON.stringify(
+          {
+            status: "workflow_excluded",
+            workflowId,
+            ...summarizeWorkflowFeedbackResult(result),
+          },
+          null,
+          2,
+        ),
+      );
+    }),
+);
+
+workflowCommand.addCommand(
+  new Command("include")
+    .description("Include a previously excluded workflow cluster")
+    .argument("<workflow-id>", "Workflow cluster id")
+    .option("--data-dir <path>", "Override application data directory")
+    .action((workflowId: string, options: { dataDir?: string }) => {
+      const result = withDatabase(options.dataDir, (database) =>
+        saveWorkflowReview(database, {
+          workflowId,
+          excluded: false,
+        }),
+      );
+
+      console.log(
+        JSON.stringify(
+          {
+            status: "workflow_included",
+            workflowId,
+            ...summarizeWorkflowFeedbackResult(result),
+          },
+          null,
+          2,
+        ),
+      );
+    }),
+);
+
+workflowCommand.addCommand(
+  new Command("hide")
+    .description("Hide an incorrect workflow cluster")
+    .argument("<workflow-id>", "Workflow cluster id")
+    .option("--data-dir <path>", "Override application data directory")
+    .action((workflowId: string, options: { dataDir?: string }) => {
+      const result = withDatabase(options.dataDir, (database) =>
+        saveWorkflowReview(database, {
+          workflowId,
+          hidden: true,
+        }),
+      );
+
+      console.log(
+        JSON.stringify(
+          {
+            status: "workflow_hidden",
+            workflowId,
+            ...summarizeWorkflowFeedbackResult(result),
+          },
+          null,
+          2,
+        ),
+      );
+    }),
+);
+
+workflowCommand.addCommand(
+  new Command("unhide")
+    .description("Unhide a hidden workflow cluster")
+    .argument("<workflow-id>", "Workflow cluster id")
+    .option("--data-dir <path>", "Override application data directory")
+    .action((workflowId: string, options: { dataDir?: string }) => {
+      const result = withDatabase(options.dataDir, (database) =>
+        saveWorkflowReview(database, {
+          workflowId,
+          hidden: false,
+        }),
+      );
+
+      console.log(
+        JSON.stringify(
+          {
+            status: "workflow_visible",
+            workflowId,
+            ...summarizeWorkflowFeedbackResult(result),
+          },
+          null,
+          2,
+        ),
+      );
+    }),
+);
+
+const sessionCommand = program
+  .command("session")
+  .description("Inspect analyzed sessions");
+
+sessionCommand.addCommand(
+  new Command("list")
+    .description("List analyzed sessions")
+    .option("--data-dir <path>", "Override application data directory")
+    .option("--json", "Print machine-readable JSON")
+    .action((options: { dataDir?: string; json?: boolean }) => {
+      renderSessionList(options.json, options.dataDir);
+    }),
+);
+
+sessionCommand.addCommand(
+  new Command("show")
+    .description("Show one analyzed session and its ordered steps")
+    .argument("<session-id>", "Session id")
+    .option("--data-dir <path>", "Override application data directory")
+    .option("--json", "Print machine-readable JSON")
+    .action((sessionId: string, options: { dataDir?: string; json?: boolean }) => {
+      renderSessionDetail(sessionId, options.dataDir, options.json);
+    }),
+);
+
+sessionCommand.addCommand(
+  new Command("delete")
+    .description("Delete a session by removing its source raw events and rerunning analysis")
+    .argument("<session-id>", "Session id")
+    .option("--data-dir <path>", "Override application data directory")
+    .action((sessionId: string, options: { dataDir?: string }) => {
+      const summary = withDatabase(options.dataDir, (database) => {
+        const deletedRawEventCount = database.deleteSessionSourceEvents(sessionId);
+        const remainingRawEvents = database.getRawEventsChronological();
+        const analysisResult = analyzeRawEvents(remainingRawEvents, {
+          ...resolveConfiguredAnalyzeOptions(options.dataDir),
+          feedbackByWorkflowSignature: database.listWorkflowFeedbackSummary(),
+        });
+
+        database.replaceAnalysisArtifacts(analysisResult);
+
+        return {
+          deletedRawEventCount,
+          remainingRawEventCount: remainingRawEvents.length,
+          remainingSessionCount: analysisResult.sessions.length,
+          remainingWorkflowClusterCount: analysisResult.workflowClusters.length,
+        };
+      });
+
+      console.log(
+        JSON.stringify(
+          {
+            status: "session_deleted",
+            sessionId,
+            ...summary,
+          },
+          null,
+          2,
+        ),
+      );
+    }),
+);
 
 program
   .command("workflow:list")
