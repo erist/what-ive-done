@@ -19,7 +19,30 @@ export interface SaveWorkflowReviewInput {
 
 export interface SaveWorkflowReviewResult {
   feedback: WorkflowFeedback;
-  workflow: WorkflowCluster;
+  workflow?: WorkflowCluster | undefined;
+  affectedWorkflows: WorkflowCluster[];
+  resolvedWorkflowId?: string | undefined;
+  analysisRefreshed: boolean;
+}
+
+function hasUserFeedback(feedback: WorkflowFeedbackSummary | undefined): boolean {
+  if (!feedback) {
+    return false;
+  }
+
+  return Boolean(
+    feedback.renameTo ??
+      feedback.businessPurpose ??
+      feedback.excluded ??
+      feedback.hidden ??
+      feedback.repetitive ??
+      feedback.automationCandidate ??
+      feedback.automationDifficulty ??
+      feedback.approvedAutomationCandidate ??
+      feedback.mergeIntoWorkflowId ??
+      feedback.mergeIntoWorkflowSignature ??
+      feedback.splitAfterActionName,
+  );
 }
 
 export function applyWorkflowFeedbackToCluster(
@@ -48,16 +71,7 @@ export function applyWorkflowFeedbackToCluster(
     mergeIntoWorkflowSignature:
       feedback.mergeIntoWorkflowSignature ?? cluster.mergeIntoWorkflowSignature,
     splitAfterActionName: feedback.splitAfterActionName ?? cluster.splitAfterActionName,
-    userLabeled:
-      cluster.userLabeled ||
-      Boolean(
-        feedback.renameTo ??
-          feedback.businessPurpose ??
-          feedback.repetitive ??
-          feedback.automationCandidate ??
-          feedback.automationDifficulty ??
-          feedback.approvedAutomationCandidate,
-      ),
+    userLabeled: cluster.userLabeled || hasUserFeedback(feedback),
   };
 }
 
@@ -98,11 +112,108 @@ function ensureWorkflowArtifacts(
   database.replaceAnalysisArtifacts(analysisResult);
 }
 
+function rebuildWorkflowArtifacts(database: AppDatabase): WorkflowCluster[] {
+  const feedbackByWorkflowSignature = database.listWorkflowFeedbackSummary();
+  const analysisResult = analyzeRawEvents(database.getRawEventsChronological(), {
+    ...resolveConfiguredAnalyzeOptions(database.paths.dataDir),
+    feedbackByWorkflowSignature,
+  });
+
+  database.replaceAnalysisArtifacts(analysisResult);
+
+  return applyWorkflowFeedbackToClusters(
+    database.listWorkflowClusters(),
+    database.listWorkflowFeedbackSummary(),
+  );
+}
+
+function collectNormalizedEventIdsForWorkflow(
+  database: AppDatabase,
+  workflow: WorkflowCluster,
+): Set<string> {
+  const normalizedEventIds = new Set<string>();
+
+  for (const sessionId of workflow.sessionIds) {
+    const session = database.getSessionById(sessionId);
+
+    for (const step of session?.steps ?? []) {
+      if (step.normalizedEventId) {
+        normalizedEventIds.add(step.normalizedEventId);
+      }
+    }
+  }
+
+  return normalizedEventIds;
+}
+
+function workflowOverlapsNormalizedEvents(
+  database: AppDatabase,
+  workflow: WorkflowCluster,
+  normalizedEventIds: Set<string>,
+): boolean {
+  if (normalizedEventIds.size === 0) {
+    return false;
+  }
+
+  for (const sessionId of workflow.sessionIds) {
+    const session = database.getSessionById(sessionId);
+
+    if (session?.steps.some((step) => normalizedEventIds.has(step.normalizedEventId))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function sortAffectedWorkflows(workflows: WorkflowCluster[]): WorkflowCluster[] {
+  return [...workflows].sort(
+    (left, right) =>
+      right.frequency - left.frequency ||
+      right.totalDurationSeconds - left.totalDurationSeconds ||
+      left.name.localeCompare(right.name),
+  );
+}
+
+function deriveSplitSequences(
+  workflow: WorkflowCluster,
+  splitAfterActionName: string | undefined,
+): string[][] {
+  if (!splitAfterActionName) {
+    return [];
+  }
+
+  const splitIndex = workflow.representativeSequence.findIndex(
+    (actionName) => actionName === splitAfterActionName,
+  );
+
+  if (splitIndex < 0) {
+    return [];
+  }
+
+  return [
+    workflow.representativeSequence.slice(0, splitIndex + 1),
+    workflow.representativeSequence.slice(splitIndex + 1),
+  ].filter((sequence) => sequence.length > 0);
+}
+
+function matchesAnyRepresentativeSequence(
+  workflow: WorkflowCluster,
+  expectedSequences: string[][],
+): boolean {
+  const sequence = workflow.representativeSequence.join(">");
+
+  return expectedSequences.some((candidate) => candidate.join(">") === sequence);
+}
+
 export function saveWorkflowReview(
   database: AppDatabase,
   input: SaveWorkflowReviewInput,
 ): SaveWorkflowReviewResult {
   ensureWorkflowArtifacts(database, input.workflowId);
+  const sourceWorkflow = getWorkflowClusterForReview(database, input.workflowId);
+  const sourceNormalizedEventIds = collectNormalizedEventIdsForWorkflow(database, sourceWorkflow);
+  const expectedSplitSequences = deriveSplitSequences(sourceWorkflow, input.splitAfterActionName);
 
   const feedback = database.saveWorkflowFeedback({
     workflowClusterId: input.workflowId,
@@ -117,9 +228,29 @@ export function saveWorkflowReview(
     mergeIntoWorkflowId: input.mergeIntoWorkflowId,
     splitAfterActionName: input.splitAfterActionName,
   });
+  const refreshedWorkflows = rebuildWorkflowArtifacts(database);
+  const affectedWorkflows = sortAffectedWorkflows(
+    refreshedWorkflows.filter(
+      (workflow) =>
+        workflow.id === input.workflowId ||
+        workflow.id === input.mergeIntoWorkflowId ||
+        workflow.workflowSignature === feedback.workflowSignature ||
+        matchesAnyRepresentativeSequence(workflow, expectedSplitSequences) ||
+        workflowOverlapsNormalizedEvents(database, workflow, sourceNormalizedEventIds),
+    ),
+  );
+  const resolvedWorkflowId =
+    refreshedWorkflows.find((workflow) => workflow.id === input.workflowId)?.id ??
+    refreshedWorkflows.find((workflow) => workflow.id === input.mergeIntoWorkflowId)?.id ??
+    affectedWorkflows[0]?.id;
 
   return {
     feedback,
-    workflow: getWorkflowClusterForReview(database, input.workflowId),
+    workflow: resolvedWorkflowId
+      ? refreshedWorkflows.find((workflow) => workflow.id === resolvedWorkflowId)
+      : undefined,
+    affectedWorkflows,
+    resolvedWorkflowId,
+    analysisRefreshed: true,
   };
 }
