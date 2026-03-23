@@ -141,6 +141,79 @@ test("setup accepts a positional data dir and initializes storage", () => {
   }
 });
 
+test("workflow list explains when no activity has been collected yet", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "what-ive-done-cli-workflow-empty-"));
+
+  try {
+    runCli(["init", dataDir], repoRoot);
+
+    const output = runCli(["workflow", "list", "--data-dir", dataDir], repoRoot);
+
+    assert.match(output, /No activity has been collected yet\./u);
+    assert.match(output, /wid collect:mock/u);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("workflow list explains when analysis has not been built and refresh can recover it", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "what-ive-done-cli-workflow-refresh-"));
+
+  try {
+    runCli(["init", dataDir], repoRoot);
+    runCli(["collect:mock", "--data-dir", dataDir], repoRoot);
+
+    const missingAnalysisOutput = runCli(["workflow", "list", "--data-dir", dataDir], repoRoot);
+    const refreshedWorkflows = JSON.parse(
+      runCli(["workflow", "list", "--data-dir", dataDir, "--refresh", "--json", "--non-interactive"], repoRoot),
+    ) as Array<{ id: string }>;
+    const refreshedSessions = JSON.parse(
+      runCli(["session", "list", "--data-dir", dataDir, "--refresh", "--json", "--non-interactive"], repoRoot),
+    ) as Array<{ id: string }>;
+
+    assert.match(missingAnalysisOutput, /stored workflows have not been analyzed yet/u);
+    assert.match(missingAnalysisOutput, /wid workflow list --refresh or wid analyze/u);
+    assert.ok(refreshedWorkflows.length > 0);
+    assert.ok(refreshedSessions.length > 0);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("workflow list warns when stored analysis is stale", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "what-ive-done-cli-workflow-stale-"));
+
+  try {
+    runCli(["init", dataDir], repoRoot);
+    runCli(["collect:mock", "--data-dir", dataDir], repoRoot);
+    runCli(["analyze", "--data-dir", dataDir], repoRoot);
+    runCli(["collect:mock", "--data-dir", dataDir], repoRoot);
+
+    const output = runCli(["workflow", "list", "--data-dir", dataDir, "--non-interactive"], repoRoot);
+
+    assert.match(output, /Stored workflows are older than the latest raw events\./u);
+    assert.match(output, /wid workflow list --refresh or wid analyze/u);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("report explains that it uses live reanalysis when stored views are missing", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "what-ive-done-cli-report-live-reanalysis-"));
+
+  try {
+    runCli(["init", dataDir], repoRoot);
+    runCli(["collect:mock", "--data-dir", dataDir], repoRoot);
+
+    const output = runCli(["report", "--data-dir", dataDir], repoRoot);
+
+    assert.match(output, /This report was generated from live raw events\./u);
+    assert.match(output, /wid workflow list --refresh/u);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test("init --interactive applies detected collector defaults and creates an ingest token", async () => {
   const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-cli-init-interactive-"));
   const fakeBinDir = join(tempDir, "bin");
@@ -790,10 +863,16 @@ test("natural command groups reuse the workflow, report, agent, and ingest handl
     ) as { configured: boolean };
     const healthPayload = JSON.parse(
       runCli(["agent", "health", "--data-dir", dataDir], repoRoot),
-    ) as { status: string };
+    ) as { status: string; surface: string };
+    const quickHealthPayload = JSON.parse(
+      runCli(["health", "--data-dir", dataDir], repoRoot),
+    ) as { status: string; surface: string };
     const statusPayload = JSON.parse(
       runCli(["agent", "status", "--data-dir", dataDir], repoRoot),
-    ) as { status: string };
+    ) as { status: string; surface: string };
+    const quickStatusPayload = JSON.parse(
+      runCli(["status", "--data-dir", dataDir], repoRoot),
+    ) as { status: string; surface: string };
     const collectorsPayload = JSON.parse(
       runCli(["agent", "collectors", "--data-dir", dataDir], repoRoot),
     ) as unknown[];
@@ -807,9 +886,104 @@ test("natural command groups reuse the workflow, report, agent, and ingest handl
     assert.ok("currentTimeWindow" in reportComparison);
     assert.equal(tokenPayload.configured, true);
     assert.equal(healthPayload.status, "stopped");
+    assert.equal(healthPayload.surface, "health_summary");
+    assert.equal(quickHealthPayload.surface, "health_summary");
     assert.equal(statusPayload.status, "stopped");
+    assert.equal(statusPayload.surface, "runtime_status");
+    assert.equal(quickStatusPayload.surface, "health_summary");
     assert.deepEqual(collectorsPayload, []);
     assert.deepEqual(latestSnapshotsPayload, []);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("workflow and session reads explain missing stored analysis and refresh on demand", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "what-ive-done-cli-analysis-refresh-"));
+
+  try {
+    runCli(["init", dataDir], repoRoot);
+    runCli(["collect:mock", "--data-dir", dataDir], repoRoot);
+
+    const workflowOutput = runCli(["workflow", "list", "--data-dir", dataDir], repoRoot);
+    const sessionOutput = runCli(["session", "list", "--data-dir", dataDir], repoRoot);
+    const refreshedWorkflows = JSON.parse(
+      runCli(["workflow", "list", "--refresh", "--json", "--data-dir", dataDir], repoRoot),
+    ) as Array<{ id: string }>;
+    const sessions = JSON.parse(
+      runCli(["session", "list", "--json", "--data-dir", dataDir], repoRoot),
+    ) as Array<{ id: string }>;
+
+    assert.match(workflowOutput, /wid workflow list --refresh/u);
+    assert.match(sessionOutput, /wid session list --refresh/u);
+    assert.ok(refreshedWorkflows.length > 0);
+    assert.ok(sessions.length > 0);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("workflow list warns when stored analysis is stale and report explains live reanalysis", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "what-ive-done-cli-analysis-stale-"));
+
+  try {
+    runCli(["init", dataDir], repoRoot);
+    runCli(["collect:mock", "--data-dir", dataDir], repoRoot);
+    runCli(["analyze", "--data-dir", dataDir], repoRoot);
+    runCli(["collect:mock", "--data-dir", dataDir], repoRoot);
+
+    const workflowOutput = runCli(["workflow", "list", "--data-dir", dataDir], repoRoot);
+    const reportOutput = runCli(["report", "--data-dir", dataDir], repoRoot);
+
+    assert.match(workflowOutput, /Stored workflows are older than the latest raw events/u);
+    assert.match(reportOutput, /This report was generated from live raw events/u);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("empty workflow and session reads explain that no raw events exist", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "what-ive-done-cli-analysis-empty-"));
+
+  try {
+    runCli(["init", dataDir], repoRoot);
+
+    const workflowOutput = runCli(["workflow", "list", "--data-dir", dataDir], repoRoot);
+    const sessionOutput = runCli(["session", "list", "--data-dir", dataDir], repoRoot);
+    const reportOutput = runCli(["report", "--data-dir", dataDir], repoRoot);
+
+    assert.match(workflowOutput, /No activity has been collected yet/u);
+    assert.match(sessionOutput, /No activity has been collected yet/u);
+    assert.match(reportOutput, /No activity has been collected yet/u);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("status, health, and agent status expose different surfaces", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "what-ive-done-cli-status-surfaces-"));
+
+  try {
+    runCli(["init", dataDir], repoRoot);
+
+    const statusPayload = JSON.parse(runCli(["status", "--data-dir", dataDir], repoRoot)) as {
+      surface: string;
+      status: string;
+    };
+    const healthPayload = JSON.parse(runCli(["health", "--data-dir", dataDir], repoRoot)) as {
+      surface: string;
+      status: string;
+    };
+    const agentStatusPayload = JSON.parse(runCli(["agent", "status", "--data-dir", dataDir], repoRoot)) as {
+      surface: string;
+      status: string;
+    };
+
+    assert.equal(statusPayload.surface, "health_summary");
+    assert.equal(healthPayload.surface, "health_summary");
+    assert.equal(agentStatusPayload.surface, "runtime_status");
+    assert.equal(statusPayload.status, "stopped");
+    assert.equal(agentStatusPayload.status, "stopped");
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }

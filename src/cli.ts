@@ -60,6 +60,11 @@ import {
 } from "./config/schema.js";
 import { normalizeCliArgv } from "./cli/aliases.js";
 import {
+  getAnalysisReadiness,
+  refreshStoredAnalysis,
+  type AnalysisReadiness,
+} from "./cli/analysis-state.js";
+import {
   createPromptSessionForCommand,
   type InteractiveCommandOptions,
 } from "./cli/interaction.js";
@@ -157,6 +162,21 @@ function withDatabase<T>(dataDir: string | undefined, fn: (database: AppDatabase
   }
 }
 
+async function withDatabaseAsync<T>(
+  dataDir: string | undefined,
+  fn: (database: AppDatabase) => Promise<T>,
+): Promise<T> {
+  const resolvedDataDir = ConfigManager.resolveDataDir(dataDir);
+  const database = new AppDatabase(resolveAppPaths(resolvedDataDir));
+  database.initialize();
+
+  try {
+    return await fn(database);
+  } finally {
+    database.close();
+  }
+}
+
 function resolveCommandDataDir(dataDir?: string): string {
   return ConfigManager.resolveDataDir(dataDir);
 }
@@ -232,6 +252,14 @@ interface AuthLoginCommandOptions extends InteractiveCommandOptions {
   issuerUrl?: string;
   port: string;
 }
+
+interface AnalysisReadCommandOptions extends InteractiveCommandOptions {
+  dataDir?: string;
+  json?: boolean;
+  refresh?: boolean;
+}
+
+type CommandPromptSession = NonNullable<ReturnType<typeof createPromptSessionForCommand>>;
 
 async function resolvePromptedText(
   question: string,
@@ -781,50 +809,6 @@ function renderComparisonTable(
   );
 }
 
-function buildStoredWorkflowReport(
-  dataDir: string | undefined,
-  options: {
-    window?: ReportWindow | undefined;
-    date?: string | undefined;
-    includeExcluded?: boolean | undefined;
-    includeHidden?: boolean | undefined;
-  } = {},
-): WorkflowReport {
-  return withDatabase(dataDir, (database) =>
-    buildWorkflowReportFromDatabase(database, {
-      window: options.window,
-      date: options.date,
-      includeExcluded: options.includeExcluded,
-      includeHidden: options.includeHidden,
-    }),
-  );
-}
-
-function buildStoredWorkflowReportComparison(
-  dataDir: string | undefined,
-  options: {
-    window?: ReportWindow | undefined;
-    date?: string | undefined;
-    includeExcluded?: boolean | undefined;
-    includeHidden?: boolean | undefined;
-  } = {},
-): WorkflowReportComparison {
-  const comparison = withDatabase(dataDir, (database) =>
-    buildWorkflowReportComparisonFromDatabase(database, {
-      window: options.window,
-      date: options.date,
-      includeExcluded: options.includeExcluded,
-      includeHidden: options.includeHidden,
-    }),
-  );
-
-  if (!comparison) {
-    throw new Error("Comparison is available only for day and week windows.");
-  }
-
-  return comparison;
-}
-
 function renderWorkflowReportComparison(
   comparison: WorkflowReportComparison,
   json = false,
@@ -923,6 +907,89 @@ function renderWindowedWorkflowReport(report: WorkflowReport, json = false): voi
   }
 }
 
+function writeCommandNotice(message: string, json = false): void {
+  if (json) {
+    process.stderr.write(`${message}\n`);
+    return;
+  }
+
+  console.log(message);
+}
+
+function buildAnalysisUnavailableMessage(
+  viewLabel: "workflows" | "sessions",
+  commandName: string,
+  readiness: AnalysisReadiness,
+): string {
+  if (readiness.kind === "empty") {
+    return `No activity has been collected yet. Start wid up or run wid collect:mock, then rerun ${commandName}.`;
+  }
+
+  return `Raw events were collected, but stored ${viewLabel} have not been analyzed yet. Run: ${commandName} --refresh or wid analyze`;
+}
+
+function buildAnalysisStaleMessage(
+  viewLabel: "workflows" | "sessions",
+  commandName: string,
+): string {
+  return `Stored ${viewLabel} are older than the latest raw events. Run: ${commandName} --refresh or wid analyze`;
+}
+
+function buildReportAnalysisNotice(readiness: AnalysisReadiness): string | undefined {
+  if (readiness.kind === "empty") {
+    return "No activity has been collected yet. Start wid up or run wid collect:mock to generate a live report.";
+  }
+
+  if (readiness.kind === "needs_analysis") {
+    return "This report was generated from live raw events. Stored workflow and session views have not been initialized yet. Run: wid workflow list --refresh";
+  }
+
+  if (readiness.kind === "stale") {
+    return "This report was generated from live raw events. Stored workflow and session views are older than the latest raw events. Run: wid workflow list --refresh";
+  }
+
+  return undefined;
+}
+
+async function ensureStoredAnalysisReady(
+  database: AppDatabase,
+  options: {
+    commandName: string;
+    viewLabel: "workflows" | "sessions";
+    refresh?: boolean | undefined;
+    prompts?: CommandPromptSession | undefined;
+  },
+): Promise<AnalysisReadiness> {
+  let readiness = getAnalysisReadiness(database);
+
+  if (options.refresh) {
+    refreshStoredAnalysis(database);
+    return getAnalysisReadiness(database);
+  }
+
+  if (readiness.kind !== "needs_analysis" && readiness.kind !== "stale") {
+    return readiness;
+  }
+
+  if (!options.prompts) {
+    return readiness;
+  }
+
+  const question =
+    readiness.kind === "needs_analysis"
+      ? `Raw events were collected, but stored ${options.viewLabel} have not been analyzed yet. Refresh now?`
+      : `Stored ${options.viewLabel} are older than the latest raw events. Refresh now?`;
+  const shouldRefresh = await options.prompts.confirm(question, true);
+
+  if (!shouldRefresh) {
+    return readiness;
+  }
+
+  refreshStoredAnalysis(database);
+  readiness = getAnalysisReadiness(database);
+  return readiness;
+}
+
 function renderReport(
   json = false,
   dataDir?: string,
@@ -933,7 +1000,21 @@ function renderReport(
     includeHidden?: boolean | undefined;
   } = {},
 ): void {
-  const report = buildStoredWorkflowReport(dataDir, options);
+  const { report, readiness } = withDatabase(dataDir, (database) => ({
+    report: buildWorkflowReportFromDatabase(database, {
+      window: options.window,
+      date: options.date,
+      includeExcluded: options.includeExcluded,
+      includeHidden: options.includeHidden,
+    }),
+    readiness: getAnalysisReadiness(database),
+  }));
+  const notice = buildReportAnalysisNotice(readiness);
+
+  if (notice) {
+    writeCommandNotice(notice, json);
+  }
+
   renderWindowedWorkflowReport(report, json);
 }
 
@@ -947,7 +1028,26 @@ function renderReportComparison(
     includeHidden?: boolean | undefined;
   } = {},
 ): void {
-  const comparison = buildStoredWorkflowReportComparison(dataDir, options);
+  const { comparison, readiness } = withDatabase(dataDir, (database) => ({
+    comparison: buildWorkflowReportComparisonFromDatabase(database, {
+      window: options.window,
+      date: options.date,
+      includeExcluded: options.includeExcluded,
+      includeHidden: options.includeHidden,
+    }),
+    readiness: getAnalysisReadiness(database),
+  }));
+
+  if (!comparison) {
+    throw new Error("Comparison is available only for day and week windows.");
+  }
+
+  const notice = buildReportAnalysisNotice(readiness);
+
+  if (notice) {
+    writeCommandNotice(notice, json);
+  }
+
   renderWorkflowReportComparison(comparison, json);
 }
 
@@ -1035,6 +1135,36 @@ function resolveViewerUrl(
   const port = status.state?.ingestServer?.port ?? fallback.port ?? 4318;
 
   return `http://${host}:${port}/`;
+}
+
+function printAgentRuntimeStatus(dataDir?: string): void {
+  const status = getAgentStatusSnapshot(dataDir);
+
+  console.log(
+    JSON.stringify(
+      {
+        surface: "runtime_status",
+        ...status,
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+function printAgentHealthSummary(dataDir?: string): void {
+  const report = getAgentHealthReport(dataDir);
+
+  console.log(
+    JSON.stringify(
+      {
+        surface: "health_summary",
+        ...report,
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 async function waitForAgentToStop(dataDir: string, pid: number, timeoutMs = 15_000): Promise<void> {
@@ -1334,84 +1464,176 @@ async function runLegacyReportSchedulerCommand(options: {
   } while (!stopped);
 }
 
-function renderWorkflowList(json = false, dataDir?: string): void {
-  const workflows = withDatabase(dataDir, (database) => database.listWorkflowClusters());
+async function renderWorkflowList(options: {
+  dataDir?: string | undefined;
+  json?: boolean | undefined;
+  refresh?: boolean | undefined;
+  prompts?: CommandPromptSession | undefined;
+}): Promise<void> {
+  await withDatabaseAsync(options.dataDir, async (database) => {
+    const readiness = await ensureStoredAnalysisReady(database, {
+      commandName: "wid workflow list",
+      viewLabel: "workflows",
+      refresh: options.refresh,
+      prompts: options.prompts,
+    });
 
-  if (json) {
-    console.log(JSON.stringify(workflows, null, 2));
-    return;
-  }
+    if (readiness.kind === "empty" || readiness.kind === "needs_analysis") {
+      writeCommandNotice(
+        buildAnalysisUnavailableMessage("workflows", "wid workflow list", readiness),
+        options.json,
+      );
+      return;
+    }
 
-  console.table(
-    workflows.map((workflow) => ({
-      id: workflow.id,
-      workflow: workflow.name,
-      mode: workflow.detectionMode,
-      frequency: workflow.frequency,
-      averageDuration: formatDuration(workflow.averageDurationSeconds),
-      totalDuration: formatDuration(workflow.totalDurationSeconds),
-      excluded: workflow.excluded,
-      hidden: workflow.hidden,
-      recommendation: workflow.recommendedApproach,
-    })),
-  );
+    if (readiness.kind === "stale") {
+      writeCommandNotice(buildAnalysisStaleMessage("workflows", "wid workflow list"), options.json);
+    }
+
+    const workflows = database.listWorkflowClusters();
+
+    if (options.json) {
+      console.log(JSON.stringify(workflows, null, 2));
+      return;
+    }
+
+    if (workflows.length === 0) {
+      console.log("No workflows were detected in the current stored analysis.");
+      return;
+    }
+
+    console.table(
+      workflows.map((workflow) => ({
+        id: workflow.id,
+        workflow: workflow.name,
+        mode: workflow.detectionMode,
+        frequency: workflow.frequency,
+        averageDuration: formatDuration(workflow.averageDurationSeconds),
+        totalDuration: formatDuration(workflow.totalDurationSeconds),
+        excluded: workflow.excluded,
+        hidden: workflow.hidden,
+        recommendation: workflow.recommendedApproach,
+      })),
+    );
+  });
 }
 
-function renderSessionList(json = false, dataDir?: string): void {
-  const sessions = withDatabase(dataDir, (database) => database.listSessionSummaries());
+async function renderSessionList(options: {
+  dataDir?: string | undefined;
+  json?: boolean | undefined;
+  refresh?: boolean | undefined;
+  prompts?: CommandPromptSession | undefined;
+}): Promise<void> {
+  await withDatabaseAsync(options.dataDir, async (database) => {
+    const readiness = await ensureStoredAnalysisReady(database, {
+      commandName: "wid session list",
+      viewLabel: "sessions",
+      refresh: options.refresh,
+      prompts: options.prompts,
+    });
 
-  if (json) {
-    console.log(JSON.stringify(sessions, null, 2));
-    return;
-  }
+    if (readiness.kind === "empty" || readiness.kind === "needs_analysis") {
+      writeCommandNotice(
+        buildAnalysisUnavailableMessage("sessions", "wid session list", readiness),
+        options.json,
+      );
+      return;
+    }
 
-  console.table(
-    sessions.map((session) => ({
-      id: session.id,
-      startTime: session.startTime,
-      endTime: session.endTime,
-      primaryApplication: session.primaryApplication,
-      primaryDomain: session.primaryDomain ?? "",
-      stepCount: session.stepCount,
-    })),
-  );
-}
+    if (readiness.kind === "stale") {
+      writeCommandNotice(buildAnalysisStaleMessage("sessions", "wid session list"), options.json);
+    }
 
-function renderSessionDetail(sessionId: string, dataDir?: string, json = false): void {
-  const session = withDatabase(dataDir, (database) => database.getSessionById(sessionId));
+    const sessions = database.listSessionSummaries();
 
-  if (!session) {
-    throw new Error(`Session not found: ${sessionId}`);
-  }
+    if (options.json) {
+      console.log(JSON.stringify(sessions, null, 2));
+      return;
+    }
 
-  if (json) {
-    console.log(JSON.stringify(session, null, 2));
-    return;
-  }
+    if (sessions.length === 0) {
+      console.log("No sessions were detected in the current stored analysis.");
+      return;
+    }
 
-  console.log(
-    JSON.stringify(
-      {
+    console.table(
+      sessions.map((session) => ({
         id: session.id,
         startTime: session.startTime,
         endTime: session.endTime,
         primaryApplication: session.primaryApplication,
-        primaryDomain: session.primaryDomain,
-      },
-      null,
-      2,
-    ),
-  );
-  console.table(
-    session.steps.map((step) => ({
-      order: step.order,
-      timestamp: step.timestamp,
-      application: step.application,
-      domain: step.domain ?? "",
-      action: step.action,
-      target: step.target ?? "",
-    })),
-  );
+        primaryDomain: session.primaryDomain ?? "",
+        stepCount: session.stepCount,
+      })),
+    );
+  });
+}
+
+async function renderSessionDetail(
+  sessionId: string,
+  options: {
+    dataDir?: string | undefined;
+    json?: boolean | undefined;
+    refresh?: boolean | undefined;
+    prompts?: CommandPromptSession | undefined;
+  },
+): Promise<void> {
+  await withDatabaseAsync(options.dataDir, async (database) => {
+    const commandName = `wid session show ${sessionId}`;
+    const readiness = await ensureStoredAnalysisReady(database, {
+      commandName,
+      viewLabel: "sessions",
+      refresh: options.refresh,
+      prompts: options.prompts,
+    });
+
+    if (readiness.kind === "empty" || readiness.kind === "needs_analysis") {
+      throw new Error(buildAnalysisUnavailableMessage("sessions", commandName, readiness));
+    }
+
+    if (readiness.kind === "stale") {
+      writeCommandNotice(buildAnalysisStaleMessage("sessions", commandName), options.json);
+    }
+
+    const session = database.getSessionById(sessionId);
+
+    if (!session) {
+      if (readiness.snapshot.sessionCount === 0) {
+        throw new Error("No sessions were detected in the current stored analysis.");
+      }
+
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    if (options.json) {
+      console.log(JSON.stringify(session, null, 2));
+      return;
+    }
+
+    console.log(
+      JSON.stringify(
+        {
+          id: session.id,
+          startTime: session.startTime,
+          endTime: session.endTime,
+          primaryApplication: session.primaryApplication,
+          primaryDomain: session.primaryDomain,
+        },
+        null,
+        2,
+      ),
+    );
+    console.table(
+      session.steps.map((step) => ({
+        order: step.order,
+        timestamp: step.timestamp,
+        application: step.application,
+        domain: step.domain ?? "",
+        action: step.action,
+        target: step.target ?? "",
+      })),
+    );
+  });
 }
 
 function renderRawEventList(options: {
@@ -1649,42 +1871,72 @@ function renderWorkflowSummaryPayloads(
   console.log(JSON.stringify(payloadRecords, null, 2));
 }
 
-function renderWorkflowDetail(workflowId: string, dataDir?: string, json = false): void {
-  const workflow = withDatabase(dataDir, (database) => database.getWorkflowClusterById(workflowId));
+async function renderWorkflowDetail(
+  workflowId: string,
+  options: {
+    dataDir?: string | undefined;
+    json?: boolean | undefined;
+    refresh?: boolean | undefined;
+    prompts?: CommandPromptSession | undefined;
+  },
+): Promise<void> {
+  await withDatabaseAsync(options.dataDir, async (database) => {
+    const commandName = `wid workflow show ${workflowId}`;
+    const readiness = await ensureStoredAnalysisReady(database, {
+      commandName,
+      viewLabel: "workflows",
+      refresh: options.refresh,
+      prompts: options.prompts,
+    });
 
-  if (!workflow) {
-    throw new Error(`Workflow cluster not found: ${workflowId}`);
-  }
+    if (readiness.kind === "empty" || readiness.kind === "needs_analysis") {
+      throw new Error(buildAnalysisUnavailableMessage("workflows", commandName, readiness));
+    }
 
-  if (json) {
-    console.log(JSON.stringify(workflow, null, 2));
-    return;
-  }
+    if (readiness.kind === "stale") {
+      writeCommandNotice(buildAnalysisStaleMessage("workflows", commandName), options.json);
+    }
 
-  console.log(
-    JSON.stringify(
-      {
-        id: workflow.id,
-        name: workflow.name,
-        detectionMode: workflow.detectionMode,
-        frequency: workflow.frequency,
-        averageDurationSeconds: workflow.averageDurationSeconds,
-        totalDurationSeconds: workflow.totalDurationSeconds,
-        automationSuitability: workflow.automationSuitability,
-        recommendedApproach: workflow.recommendedApproach,
-        excluded: workflow.excluded,
-        hidden: workflow.hidden,
-      },
-      null,
-      2,
-    ),
-  );
-  console.table(
-    workflow.representativeSteps.map((step, index) => ({
-      order: index + 1,
-      step,
-    })),
-  );
+    const workflow = database.getWorkflowClusterById(workflowId);
+
+    if (!workflow) {
+      if (readiness.snapshot.workflowCount === 0) {
+        throw new Error("No workflows were detected in the current stored analysis.");
+      }
+
+      throw new Error(`Workflow cluster not found: ${workflowId}`);
+    }
+
+    if (options.json) {
+      console.log(JSON.stringify(workflow, null, 2));
+      return;
+    }
+
+    console.log(
+      JSON.stringify(
+        {
+          id: workflow.id,
+          name: workflow.name,
+          detectionMode: workflow.detectionMode,
+          frequency: workflow.frequency,
+          averageDurationSeconds: workflow.averageDurationSeconds,
+          totalDurationSeconds: workflow.totalDurationSeconds,
+          automationSuitability: workflow.automationSuitability,
+          recommendedApproach: workflow.recommendedApproach,
+          excluded: workflow.excluded,
+          hidden: workflow.hidden,
+        },
+        null,
+        2,
+      ),
+    );
+    console.table(
+      workflow.representativeSteps.map((step, index) => ({
+        order: index + 1,
+        step,
+      })),
+    );
+  });
 }
 
 function summarizeWorkflowFeedbackResult(result: SaveWorkflowReviewResult): Record<string, unknown> {
@@ -2055,22 +2307,18 @@ configureAgentRuntimeCommand(
 
 agentCommand
   .command("status")
-  .description("Show resident agent runtime status")
+  .description("Show detailed resident agent runtime state")
   .option("--data-dir <path>", "Override application data directory")
   .action((options: { dataDir?: string }) => {
-    const status = getAgentStatusSnapshot(options.dataDir);
-
-    console.log(JSON.stringify(status, null, 2));
+    printAgentRuntimeStatus(options.dataDir);
   });
 
 agentCommand
   .command("health")
-  .description("Show a concise health summary for the resident agent")
+  .description("Show a concise resident agent health summary")
   .option("--data-dir <path>", "Override application data directory")
   .action((options: { dataDir?: string }) => {
-    const report = getAgentHealthReport(options.dataDir);
-
-    console.log(JSON.stringify(report, null, 2));
+    printAgentHealthSummary(options.dataDir);
   });
 
 agentCommand
@@ -2210,12 +2458,10 @@ program
 
 program
   .command("agent:status")
-  .description("Show resident agent runtime status")
+  .description("Show detailed resident agent runtime state")
   .option("--data-dir <path>", "Override application data directory")
   .action((options: { dataDir?: string }) => {
-    const status = getAgentStatusSnapshot(options.dataDir);
-
-    console.log(JSON.stringify(status, null, 2));
+    printAgentRuntimeStatus(options.dataDir);
   });
 
 program
@@ -2231,13 +2477,12 @@ program
 
 program
   .command("agent:health")
-  .description("Show a concise health summary for the resident agent")
+  .description("Show a concise resident agent health summary (same surface as wid status)")
   .alias("status")
+  .alias("health")
   .option("--data-dir <path>", "Override application data directory")
   .action((options: { dataDir?: string }) => {
-    const report = getAgentHealthReport(options.dataDir);
-
-    console.log(JSON.stringify(report, null, 2));
+    printAgentHealthSummary(options.dataDir);
   });
 
 program
@@ -2481,29 +2726,19 @@ program
   .description("Normalize events, build sessions, and detect workflows")
   .option("--data-dir <path>", "Override application data directory")
   .action((options: { dataDir?: string }) => {
-    const { analysisResult, rawEventCount } = withDatabase(options.dataDir, (database) => {
-      const rawEvents = database.getRawEventsChronological();
-      const result = analyzeRawEvents(rawEvents, {
-        ...resolveConfiguredAnalyzeOptions(options.dataDir),
-        feedbackByWorkflowSignature: database.listWorkflowFeedbackSummary(),
-      });
-
-      database.replaceAnalysisArtifacts(result);
-
-      return {
-        analysisResult: result,
-        rawEventCount: rawEvents.length,
-      };
-    });
+    const summary = withDatabase(
+      options.dataDir,
+      (database) => refreshStoredAnalysis(database),
+    );
 
     console.log(
       JSON.stringify(
         {
           status: "analysis_completed",
-          rawEvents: rawEventCount,
-          normalizedEvents: analysisResult.normalizedEvents.length,
-          sessions: analysisResult.sessions.length,
-          workflowClusters: analysisResult.workflowClusters.length,
+          rawEvents: summary.rawEventCount,
+          normalizedEvents: summary.normalizedEventCount,
+          sessions: summary.sessionCount,
+          workflowClusters: summary.workflowCount,
         },
         null,
         2,
@@ -3327,8 +3562,23 @@ workflowCommand.addCommand(
     .description("List workflow clusters including feedback state")
     .option("--data-dir <path>", "Override application data directory")
     .option("--json", "Print machine-readable JSON")
-    .action((options: { dataDir?: string; json?: boolean }) => {
-      renderWorkflowList(options.json, options.dataDir);
+    .option("--refresh", "Rerun analysis from current raw events before reading workflows")
+    .option("--interactive", "Force an interactive refresh prompt when needed")
+    .option("--non-interactive", "Disable refresh prompts")
+    .action(async (options: AnalysisReadCommandOptions, command: Command) => {
+      const resolvedOptions = mergeActionOptions(options, command);
+      const prompts = createPromptSessionForCommand(resolvedOptions);
+
+      try {
+        await renderWorkflowList({
+          dataDir: resolvedOptions.dataDir,
+          json: resolvedOptions.json,
+          refresh: resolvedOptions.refresh,
+          prompts,
+        });
+      } finally {
+        prompts?.close();
+      }
     }),
 );
 
@@ -3338,8 +3588,23 @@ workflowCommand.addCommand(
     .argument("<workflow-id>", "Workflow cluster id")
     .option("--data-dir <path>", "Override application data directory")
     .option("--json", "Print machine-readable JSON")
-    .action((workflowId: string, options: { dataDir?: string; json?: boolean }) => {
-      renderWorkflowDetail(workflowId, options.dataDir, options.json);
+    .option("--refresh", "Rerun analysis from current raw events before reading workflows")
+    .option("--interactive", "Force an interactive refresh prompt when needed")
+    .option("--non-interactive", "Disable refresh prompts")
+    .action(async (workflowId: string, options: AnalysisReadCommandOptions, command: Command) => {
+      const resolvedOptions = mergeActionOptions(options, command);
+      const prompts = createPromptSessionForCommand(resolvedOptions);
+
+      try {
+        await renderWorkflowDetail(workflowId, {
+          dataDir: resolvedOptions.dataDir,
+          json: resolvedOptions.json,
+          refresh: resolvedOptions.refresh,
+          prompts,
+        });
+      } finally {
+        prompts?.close();
+      }
     }),
 );
 
@@ -3588,8 +3853,23 @@ sessionCommand.addCommand(
     .description("List analyzed sessions")
     .option("--data-dir <path>", "Override application data directory")
     .option("--json", "Print machine-readable JSON")
-    .action((options: { dataDir?: string; json?: boolean }) => {
-      renderSessionList(options.json, options.dataDir);
+    .option("--refresh", "Rerun analysis from current raw events before reading sessions")
+    .option("--interactive", "Force an interactive refresh prompt when needed")
+    .option("--non-interactive", "Disable refresh prompts")
+    .action(async (options: AnalysisReadCommandOptions, command: Command) => {
+      const resolvedOptions = mergeActionOptions(options, command);
+      const prompts = createPromptSessionForCommand(resolvedOptions);
+
+      try {
+        await renderSessionList({
+          dataDir: resolvedOptions.dataDir,
+          json: resolvedOptions.json,
+          refresh: resolvedOptions.refresh,
+          prompts,
+        });
+      } finally {
+        prompts?.close();
+      }
     }),
 );
 
@@ -3599,8 +3879,23 @@ sessionCommand.addCommand(
     .argument("<session-id>", "Session id")
     .option("--data-dir <path>", "Override application data directory")
     .option("--json", "Print machine-readable JSON")
-    .action((sessionId: string, options: { dataDir?: string; json?: boolean }) => {
-      renderSessionDetail(sessionId, options.dataDir, options.json);
+    .option("--refresh", "Rerun analysis from current raw events before reading sessions")
+    .option("--interactive", "Force an interactive refresh prompt when needed")
+    .option("--non-interactive", "Disable refresh prompts")
+    .action(async (sessionId: string, options: AnalysisReadCommandOptions, command: Command) => {
+      const resolvedOptions = mergeActionOptions(options, command);
+      const prompts = createPromptSessionForCommand(resolvedOptions);
+
+      try {
+        await renderSessionDetail(sessionId, {
+          dataDir: resolvedOptions.dataDir,
+          json: resolvedOptions.json,
+          refresh: resolvedOptions.refresh,
+          prompts,
+        });
+      } finally {
+        prompts?.close();
+      }
     }),
 );
 
@@ -3647,8 +3942,22 @@ program
   .description("List workflow clusters including feedback state")
   .option("--data-dir <path>", "Override application data directory")
   .option("--json", "Print machine-readable JSON")
-  .action((options: { dataDir?: string; json?: boolean }) => {
-    renderWorkflowList(options.json, options.dataDir);
+  .option("--refresh", "Rerun analysis from current raw events before reading workflows")
+  .option("--interactive", "Force an interactive refresh prompt when needed")
+  .option("--non-interactive", "Disable refresh prompts")
+  .action(async (options: AnalysisReadCommandOptions) => {
+    const prompts = createPromptSessionForCommand(options);
+
+    try {
+      await renderWorkflowList({
+        dataDir: options.dataDir,
+        json: options.json,
+        refresh: options.refresh,
+        prompts,
+      });
+    } finally {
+      prompts?.close();
+    }
   });
 
 program
@@ -3657,8 +3966,22 @@ program
   .argument("<workflow-id>", "Workflow cluster id")
   .option("--data-dir <path>", "Override application data directory")
   .option("--json", "Print machine-readable JSON")
-  .action((workflowId: string, options: { dataDir?: string; json?: boolean }) => {
-    renderWorkflowDetail(workflowId, options.dataDir, options.json);
+  .option("--refresh", "Rerun analysis from current raw events before reading workflows")
+  .option("--interactive", "Force an interactive refresh prompt when needed")
+  .option("--non-interactive", "Disable refresh prompts")
+  .action(async (workflowId: string, options: AnalysisReadCommandOptions) => {
+    const prompts = createPromptSessionForCommand(options);
+
+    try {
+      await renderWorkflowDetail(workflowId, {
+        dataDir: options.dataDir,
+        json: options.json,
+        refresh: options.refresh,
+        prompts,
+      });
+    } finally {
+      prompts?.close();
+    }
   });
 
 program
@@ -3928,8 +4251,22 @@ program
   .description("List analyzed sessions")
   .option("--data-dir <path>", "Override application data directory")
   .option("--json", "Print machine-readable JSON")
-  .action((options: { dataDir?: string; json?: boolean }) => {
-    renderSessionList(options.json, options.dataDir);
+  .option("--refresh", "Rerun analysis from current raw events before reading sessions")
+  .option("--interactive", "Force an interactive refresh prompt when needed")
+  .option("--non-interactive", "Disable refresh prompts")
+  .action(async (options: AnalysisReadCommandOptions) => {
+    const prompts = createPromptSessionForCommand(options);
+
+    try {
+      await renderSessionList({
+        dataDir: options.dataDir,
+        json: options.json,
+        refresh: options.refresh,
+        prompts,
+      });
+    } finally {
+      prompts?.close();
+    }
   });
 
 program
@@ -3938,8 +4275,22 @@ program
   .argument("<session-id>", "Session id")
   .option("--data-dir <path>", "Override application data directory")
   .option("--json", "Print machine-readable JSON")
-  .action((sessionId: string, options: { dataDir?: string; json?: boolean }) => {
-    renderSessionDetail(sessionId, options.dataDir, options.json);
+  .option("--refresh", "Rerun analysis from current raw events before reading sessions")
+  .option("--interactive", "Force an interactive refresh prompt when needed")
+  .option("--non-interactive", "Disable refresh prompts")
+  .action(async (sessionId: string, options: AnalysisReadCommandOptions) => {
+    const prompts = createPromptSessionForCommand(options);
+
+    try {
+      await renderSessionDetail(sessionId, {
+        dataDir: options.dataDir,
+        json: options.json,
+        refresh: options.refresh,
+        prompts,
+      });
+    } finally {
+      prompts?.close();
+    }
   });
 
 program
