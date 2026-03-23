@@ -82,6 +82,23 @@ test("deriveRouteTaxonomy captures hash-based SPA routes without raw ids", () =>
   });
 });
 
+test("deriveRouteTaxonomy accepts hash routes without a leading slash and normalizes opaque ids", () => {
+  const routeTaxonomy = chromeContextApi().deriveRouteTaxonomy(
+    "https://mail.google.com/mail/u/0/#inbox/FMfcgzQbdrjVCmfjprgSrLxwNfwbmQhH",
+  );
+
+  assert.deepEqual(routeTaxonomy, {
+    source: "hash",
+    signature: "hash:/inbox/{id}",
+    routeTemplate: "/inbox/{id}",
+    depth: 2,
+    primarySection: "inbox",
+    secondarySection: "{id}",
+    leafSection: "{id}",
+    dynamicSegmentCount: 1,
+  });
+});
+
 test("deriveDocumentTypeHash stays stable for the same document shape", async () => {
   const firstHash = await chromeContextApi().deriveDocumentTypeHash(
     createFakeDocument({

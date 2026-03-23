@@ -6,15 +6,21 @@ import type {
 } from "./types.js";
 import { bigqueryActionPack } from "./packs/bigquery.js";
 import { desktopProductivityActionPack } from "./packs/desktop-productivity.js";
+import { googleCalendarActionPack } from "./packs/google-calendar.js";
+import { googleMailActionPack } from "./packs/google-mail.js";
 import { generalWebActionPack } from "./packs/general-web.js";
 import { googleSheetsActionPack } from "./packs/google-sheets.js";
 import { makestarAdminActionPack } from "./packs/makestar-admin.js";
+import { notionActionPack } from "./packs/notion.js";
 
 export const ACTION_PACK_REGISTRY_VERSION = 1;
 
 export const DEFAULT_ACTION_PACKS: ActionPackDefinition[] = [
   makestarAdminActionPack,
   googleSheetsActionPack,
+  googleMailActionPack,
+  googleCalendarActionPack,
+  notionActionPack,
   bigqueryActionPack,
   generalWebActionPack,
   desktopProductivityActionPack,
@@ -29,6 +35,7 @@ function specificity(rule: ActionPackRule): number {
     rule.eventTypes,
     rule.pageTypes,
     rule.targetIncludes,
+    rule.requireExplicitTarget ? ["explicit_target"] : undefined,
     rule.resourceHints,
   ].filter((value) => Boolean(value && value.length > 0)).length;
 }
@@ -39,7 +46,11 @@ function eventMatchesRule(context: ActionPackContext, rule: ActionPackRule): boo
     .filter((value): value is string => Boolean(value))
     .join(" ")
     .toLowerCase();
-  const targetValue = ((event.target ?? "").toLowerCase() || contextualTargetValue).trim();
+  const targetValue = (
+    rule.requireExplicitTarget
+      ? (event.target ?? "").toLowerCase()
+      : (event.target ?? "").toLowerCase() || contextualTargetValue
+  ).trim();
   const pageType = event.pageType ?? context.previousNearby?.pageType ?? context.nextNearby?.pageType;
   const resourceHint =
     event.resourceHint ??

@@ -164,3 +164,70 @@ test("normalizeRawEvents derives git metadata actions even without a target", ()
   assert.equal(events[1]?.actionName, "record_git_commit");
   assert.equal((events[0]?.metadata.actionMatch as Record<string, unknown>)?.strategy, "git_context");
 });
+
+test("normalizeRawEvents derives Gmail, Calendar, and Notion semantic actions from domain packs", () => {
+  const events = normalizeRawEvents([
+    createRawEvent({
+      id: "raw-gmail-1",
+      timestamp: "2026-03-14T10:19:23.000Z",
+      sourceEventType: "chrome.navigation",
+      domain: "mail.google.com",
+      browserSchemaVersion: 2,
+      metadata: {
+        browserContext: {
+          routeTaxonomy: {
+            source: "hash",
+            signature: "hash:/inbox/{id}",
+            routeTemplate: "/inbox/{id}",
+            primarySection: "inbox",
+            secondarySection: "{id}",
+            leafSection: "{id}",
+            dynamicSegmentCount: 1,
+          },
+        },
+      },
+    }),
+    createRawEvent({
+      id: "raw-gmail-2",
+      timestamp: "2026-03-14T10:19:53.000Z",
+      sourceEventType: "browser.click",
+      action: "click",
+      domain: "mail.google.com",
+      target: "reply_send",
+      browserSchemaVersion: 2,
+      metadata: {
+        browserContext: {
+          routeTaxonomy: {
+            source: "hash",
+            signature: "hash:/inbox/{id}",
+            routeTemplate: "/inbox/{id}",
+            primarySection: "inbox",
+            secondarySection: "{id}",
+            leafSection: "{id}",
+            dynamicSegmentCount: 1,
+          },
+        },
+      },
+    }),
+    createRawEvent({
+      id: "raw-calendar-1",
+      timestamp: "2026-03-14T10:20:23.000Z",
+      domain: "calendar.google.com",
+      url: "https://calendar.google.com/calendar/u/0/r/eventedit/opaqueEventKey123456",
+      target: "save_event",
+    }),
+    createRawEvent({
+      id: "raw-notion-1",
+      timestamp: "2026-03-14T10:20:53.000Z",
+      domain: "www.notion.so",
+      url: "https://www.notion.so/Project-Roadmap-0123456789abcdef0123456789abcdef",
+      target: "edit_block",
+    }),
+  ]);
+
+  assert.equal(events[0]?.actionName, "open_mail_thread");
+  assert.equal(events[1]?.actionName, "reply_mail_thread");
+  assert.equal(events[2]?.actionName, "schedule_calendar_event");
+  assert.equal(events[3]?.actionName, "edit_notion_page");
+  assert.equal((events[3]?.metadata.actionMatch as Record<string, unknown>)?.packId, "notion");
+});
