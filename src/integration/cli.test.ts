@@ -117,8 +117,28 @@ test("help uses wid as the canonical command name", () => {
   const helpOutput = runCli(["--help"], repoRoot);
 
   assert.match(helpOutput, /Usage: wid /u);
+  assert.match(helpOutput, /\bsetup\b/u);
   assert.match(helpOutput, /\bworkflow\b/u);
   assert.match(helpOutput, /\breport\b/u);
+});
+
+test("setup accepts a positional data dir and initializes storage", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "what-ive-done-cli-setup-"));
+
+  try {
+    const setupPayload = JSON.parse(runCli(["setup", dataDir], repoRoot)) as {
+      dataDir: string;
+      configPath: string;
+    };
+
+    assert.equal(realpathSync(setupPayload.dataDir), realpathSync(dataDir));
+    assert.equal(
+      realpathSync(setupPayload.configPath),
+      realpathSync(join(dataDir, ".wid", "config.json")),
+    );
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
 });
 
 test("init --interactive applies detected collector defaults and creates an ingest token", async () => {
@@ -377,6 +397,15 @@ test("auth login natural command honors --non-interactive failure path", () => {
     output,
     /Gemini OAuth requires client id, client secret, and project id/u,
   );
+});
+
+test("up guides users to wid setup when the data directory is missing", () => {
+  const output = runCliFailure(
+    ["up", "--no-collectors", "--no-snapshot-scheduler", "--ingest-port", "0"],
+    repoRoot,
+  );
+
+  assert.match(output, /wid setup \[path\]/u);
 });
 
 test("tools add configures collectors and tools prints their managed status", () => {

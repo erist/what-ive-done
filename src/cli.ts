@@ -64,6 +64,7 @@ import {
   type InteractiveCommandOptions,
 } from "./cli/interaction.js";
 import { runInit, runInteractiveInit } from "./init/flow.js";
+import { isMissingDataDirError, runSetup } from "./setup/flow.js";
 import { buildDatasetQualityReport } from "./debug/quality.js";
 import {
   buildRawEventTrace,
@@ -1056,7 +1057,38 @@ async function runAgentRuntimeCommand(
   options: AgentRuntimeCommandOptions,
   invokedAs: "agent:run" | "agent:restart",
 ): Promise<void> {
-  const { dataDir, config } = loadCommandConfig(options.dataDir);
+  let dataDir: string;
+  let config: WidConfig;
+
+  try {
+    ({ dataDir, config } = loadCommandConfig(options.dataDir));
+  } catch (error) {
+    if (!isMissingDataDirError(error)) {
+      throw error;
+    }
+
+    const prompts = createPromptSessionForCommand();
+
+    if (!prompts) {
+      throw new Error("Setup is required before starting the agent. Run: wid setup [path]");
+    }
+
+    try {
+      const shouldRunSetup = await prompts.confirm("No data directory found. Run guided setup now?", true);
+
+      if (!shouldRunSetup) {
+        throw new Error("Setup is required before starting the agent. Run: wid setup [path]");
+      }
+
+      await runSetup(options.dataDir, {
+        prompts,
+      });
+    } finally {
+      prompts.close();
+    }
+
+    ({ dataDir, config } = loadCommandConfig(options.dataDir));
+  }
 
   if (invokedAs === "agent:restart") {
     const stopResult = stopAgentRuntime(dataDir);
@@ -2292,6 +2324,35 @@ program
     });
 
     console.log(JSON.stringify(status, null, 2));
+  });
+
+program
+  .command("setup")
+  .description("Run the guided setup flow")
+  .argument("[data-dir]", "Application data directory")
+  .option("--data-dir <path>", "Override application data directory")
+  .option("--interactive", "Force the interactive setup wizard")
+  .option("--non-interactive", "Disable prompts and use the non-interactive flow")
+  .action(async (
+    positionalDataDir: string | undefined,
+    options: { dataDir?: string; interactive?: boolean; nonInteractive?: boolean },
+  ) => {
+    const prompts = createPromptSessionForCommand(options);
+    const dataDir = resolvePreferredDataDir(positionalDataDir, options.dataDir);
+
+    try {
+      console.log(
+        JSON.stringify(
+          await runSetup(dataDir, {
+            prompts,
+          }),
+          null,
+          2,
+        ),
+      );
+    } finally {
+      prompts?.close();
+    }
   });
 
 program

@@ -153,7 +153,7 @@ export class ConfigManager {
     const dataDir = ConfigManager.findDataDir(explicit);
 
     if (!dataDir) {
-      throw new Error("No data directory found. Run: wid init [path]");
+      throw new Error("No data directory found. Run: wid setup [path]");
     }
 
     return dataDir;
