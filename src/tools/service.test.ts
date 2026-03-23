@@ -26,12 +26,14 @@ function initializeDataDir(dataDir: string): void {
 function createPromptStub(overrides: {
   secret?: string;
   confirm?: boolean;
+  text?: string;
+  select?: string;
 } = {}) {
   return {
-    text: async (_question: string, defaultValue?: string) => defaultValue ?? "",
+    text: async (_question: string, defaultValue?: string) => overrides.text ?? defaultValue ?? "",
     confirm: async () => overrides.confirm ?? false,
     select: async (_question: string, options: string[], defaultIndex = 0) =>
-      options[defaultIndex] ?? "",
+      overrides.select ?? options[defaultIndex] ?? "",
     secret: async () => overrides.secret ?? "",
   };
 }
@@ -189,6 +191,64 @@ test("addTool stores openai-codex OAuth credentials and analyzer config", async 
 
     assert.equal(removed.status, "removed");
     assert.equal(getOpenAICodexOAuthCredentials(credentialStore), undefined);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("addTool prompts for missing analyzer auth, model, and credentials in interactive mode", async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-tools-gemini-prompts-"));
+  const dataDir = join(tempDir, "data");
+  const credentialDir = join(tempDir, "credentials");
+  const promptsSeen: string[] = [];
+
+  try {
+    initializeDataDir(dataDir);
+
+    const credentialStore = createLinuxFileCredentialStore(credentialDir);
+
+    const added = await addTool(
+      dataDir,
+      "gemini",
+      {},
+      {
+        credentialStore,
+        prompts: {
+          text: async (question: string, defaultValue?: string) => {
+            promptsSeen.push(question);
+            return question === "Model" ? "gemini-2.5-pro" : defaultValue ?? "";
+          },
+          confirm: async () => false,
+          select: async (question: string, options: string[]) => {
+            promptsSeen.push(question);
+            return question === "Authentication method"
+              ? "api-key"
+              : options[0] ?? "";
+          },
+          secret: async (question: string) => {
+            promptsSeen.push(question);
+            return "sk-gemini-test";
+          },
+        },
+      },
+    );
+
+    const config = ConfigManager.load(dataDir) as {
+      tools: Record<string, Record<string, unknown> | undefined>;
+      llm: { default?: string };
+    };
+
+    assert.equal(added.status, "added");
+    assert.equal(config.tools.gemini?.added, true);
+    assert.equal(config.tools.gemini?.auth, "api-key");
+    assert.equal(config.tools.gemini?.model, "gemini-2.5-pro");
+    assert.equal(config.llm.default, "gemini");
+    assert.equal(getLLMApiKey(credentialStore, "gemini"), "sk-gemini-test");
+    assert.deepEqual(promptsSeen, [
+      "Authentication method",
+      "Model",
+      "gemini API key",
+    ]);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

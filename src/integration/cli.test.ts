@@ -25,6 +25,26 @@ function runCli(args: string[], cwd: string, env: NodeJS.ProcessEnv = process.en
   });
 }
 
+function runCliFailure(args: string[], cwd: string, env: NodeJS.ProcessEnv = process.env): string {
+  try {
+    runCli(args, cwd, env);
+  } catch (error) {
+    const commandError = error as {
+      stdout?: string | Buffer;
+      stderr?: string | Buffer;
+      message: string;
+    };
+
+    return [
+      typeof commandError.stdout === "string" ? commandError.stdout : commandError.stdout?.toString("utf8") ?? "",
+      typeof commandError.stderr === "string" ? commandError.stderr : commandError.stderr?.toString("utf8") ?? "",
+      commandError.message,
+    ].join("\n");
+  }
+
+  throw new Error(`Expected command to fail: ${args.join(" ")}`);
+}
+
 function writeExecutable(path: string, content: string): void {
   writeFileSync(path, content, "utf8");
   chmodSync(path, 0o755);
@@ -236,6 +256,127 @@ exit 1
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
+});
+
+test("tools add git --interactive prompts for a repo path when omitted", async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "what-ive-done-cli-tools-git-prompt-"));
+  const fakeBinDir = join(tempDir, "bin");
+  const repoDir = join(tempDir, "workspace", "repo");
+  const dataDir = join(tempDir, "agent-data");
+  const env = {
+    ...process.env,
+    PATH: `${fakeBinDir}:${dirname(process.execPath)}`,
+  };
+
+  try {
+    mkdirSync(fakeBinDir, { recursive: true });
+    mkdirSync(join(repoDir, ".git"), { recursive: true });
+
+    writeExecutable(
+      join(fakeBinDir, "git"),
+      `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "git version 2.44.0"
+  exit 0
+fi
+if [ "$1" = "-C" ] && [ "$3" = "rev-parse" ]; then
+  echo "$2"
+  exit 0
+fi
+if [ "$1" = "-C" ] && [ "$3" = "status" ]; then
+  exit 0
+fi
+if [ "$1" = "-C" ] && [ "$3" = "log" ]; then
+  echo "2026-03-18T00:00:00.000Z"
+  exit 0
+fi
+if [ "$1" = "-C" ] && [ "$3" = "remote" ]; then
+  echo "git@github.com:erist/what-ive-done.git"
+  exit 0
+fi
+echo "unexpected git args: $@" >&2
+exit 1
+`,
+    );
+
+    runCli(["init", "--data-dir", dataDir], repoRoot, env);
+
+    const child = spawn(
+      tsxBinary,
+      [cliEntrypoint, "tools", "add", "git", "--data-dir", dataDir, "--interactive"],
+      {
+        cwd: repoDir,
+        env,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+
+      if (stdout.includes("Git repo path")) {
+        child.stdin.write("\n");
+        child.stdin.end();
+      }
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+
+    const exitCode = await new Promise<number | null>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error(`Timed out waiting for tools add git --interactive.\nstdout:\n${stdout}\nstderr:\n${stderr}`));
+      }, 15_000);
+
+      child.on("exit", (code) => {
+        clearTimeout(timeout);
+        resolve(code);
+      });
+
+      child.on("error", (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+    });
+
+    assert.equal(exitCode, 0);
+    assert.match(stdout, /Added git collector/u);
+
+    const config = JSON.parse(
+      runCli(["config", "show", "--data-dir", dataDir], repoRoot, env),
+    ) as {
+      tools: {
+        git?: { "repo-path"?: string };
+      };
+    };
+
+    assert.equal(realpathSync(config.tools.git?.["repo-path"] ?? ""), realpathSync(repoDir));
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("auth login natural command honors --non-interactive failure path", () => {
+  const output = runCliFailure(
+    ["auth", "login", "gemini", "--non-interactive"],
+    repoRoot,
+    {
+      ...process.env,
+      GOOGLE_CLIENT_ID: "",
+      GOOGLE_CLIENT_SECRET: "",
+      GOOGLE_CLOUD_PROJECT: "",
+    },
+  );
+
+  assert.match(
+    output,
+    /Gemini OAuth requires client id, client secret, and project id/u,
+  );
 });
 
 test("tools add configures collectors and tools prints their managed status", () => {
