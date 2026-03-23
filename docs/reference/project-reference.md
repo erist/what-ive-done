@@ -67,7 +67,7 @@ The current runtime is split into three planes.
   - collector supervision
   - snapshot scheduler
 - control plane
-  - CLI commands such as `agent:status`, `agent:health`, and `agent:run-once`
+  - CLI commands such as `agent status`, `health`, and `agent run-once`
 - data plane
   - raw events
   - normalized events
@@ -85,6 +85,44 @@ The resident agent is implemented under `src/agent/`.
 - `src/agent/scheduler.ts`
 - `src/agent/control.ts`
 - `src/agent/autostart/`
+
+## Canonical CLI Surface
+
+The canonical user-facing CLI surface is now `wid` first, with space-separated commands.
+
+- `wid setup [path]`
+- `wid up`
+- `wid status`
+- `wid health`
+- `wid report`
+- `wid report compare`
+- `wid workflow list`
+- `wid workflow show <id>`
+- `wid session list`
+- `wid session show <id>`
+- `wid token`
+- `wid stop`
+
+Meaningful shorthand is preserved:
+
+- `wid status` and `wid health` both print the quick agent health summary
+- `wid agent status` prints the detailed runtime snapshot
+- legacy `:` commands such as `wid workflow:list` and `wid report:compare` remain supported for compatibility
+
+## Analysis Freshness Model
+
+The CLI now exposes two distinct read models:
+
+- `wid report` performs live reanalysis from raw events every time it runs
+- `wid workflow list|show` and `wid session list|show` read stored analysis artifacts
+
+When raw events exist but stored analysis is missing or stale, workflow/session reads now:
+
+- explain the next action instead of silently returning an empty surface
+- support `--refresh` to rebuild stored analysis before reading
+- prompt for refresh by default on TTY, unless `--non-interactive` is used
+
+This means `wid report` may already show current activity even when `wid workflow list` still needs `--refresh`.
 
 ## Analysis Pipeline
 
@@ -409,10 +447,10 @@ http://127.0.0.1:4318/
 Inspect or stop it:
 
 ```bash
-npm run dev -- agent:status --data-dir ./tmp/live-data
-npm run dev -- agent:health --data-dir ./tmp/live-data
-npm run dev -- agent:collectors --data-dir ./tmp/live-data
-npm run dev -- agent:stop --data-dir ./tmp/live-data
+npm run dev -- health --data-dir ./tmp/live-data
+npm run dev -- agent status --data-dir ./tmp/live-data
+npm run dev -- agent collectors --data-dir ./tmp/live-data
+npm run dev -- stop --data-dir ./tmp/live-data
 ```
 
 Manual analysis flow:
@@ -531,7 +569,7 @@ Run analysis through OpenAI Codex OAuth:
 
 ```bash
 export OPENAI_CODEX_CLIENT_ID="your-openai-client-id"
-npm run dev -- auth:login openai-codex --data-dir ./tmp/local-data
+npm run dev -- auth login openai-codex --data-dir ./tmp/local-data
 npm run dev -- llm:config:set --data-dir ./tmp/local-data --provider openai-codex --auth oauth2 --model gpt-5.4
 npm run dev -- llm:analyze --data-dir ./tmp/local-data --json
 ```
@@ -561,17 +599,17 @@ Provider OAuth login:
 export GOOGLE_CLIENT_ID="your-client-id"
 export GOOGLE_CLIENT_SECRET="your-client-secret"
 export GOOGLE_CLOUD_PROJECT="your-project-id"
-npm run dev -- auth:login gemini --data-dir ./tmp/local-data
-npm run dev -- auth:logout gemini --data-dir ./tmp/local-data
+npm run dev -- auth login gemini --data-dir ./tmp/local-data
+npm run dev -- auth logout gemini --data-dir ./tmp/local-data
 
 export OPENAI_CODEX_CLIENT_ID="your-openai-client-id"
 # Optional when you need a non-default issuer:
 # export OPENAI_CODEX_ISSUER="https://auth.openai.com"
-npm run dev -- auth:login openai-codex --data-dir ./tmp/local-data
-npm run dev -- auth:logout openai-codex --data-dir ./tmp/local-data
+npm run dev -- auth login openai-codex --data-dir ./tmp/local-data
+npm run dev -- auth logout openai-codex --data-dir ./tmp/local-data
 ```
 
-`auth:login openai-codex` requires `--client-id` or `OPENAI_CODEX_CLIENT_ID`.
+`auth login openai-codex` requires `--client-id` or `OPENAI_CODEX_CLIENT_ID`.
 The command stores OAuth credentials securely, surfaces readiness in `credential:status`
 and `tools list`, and powers `llm:analyze` for the `openai-codex` provider.
 
@@ -585,18 +623,18 @@ and `tools list`, and powers `llm:analyze` for the `openai-codex` provider.
 | `collect:macos:once` | Capture the current macOS frontmost app once and store it. |
 | `import:events` | Import raw events from a JSON or NDJSON file. |
 | `analyze` | Normalize events, build sessions, and detect workflows. |
-| `ingest:token` | Print or rotate the shared local ingest auth token. |
-| `agent:run` | Run the resident local agent. |
-| `agent:status` | Show agent status and runtime state. |
-| `agent:stop` | Stop the running agent. |
-| `agent:health` | Show ingest, scheduler, and collector health. |
-| `agent:run-once` | Run one agent collection and snapshot cycle. |
-| `agent:snapshot:latest` | Show the latest stored snapshots. |
-| `agent:collectors` | Show collector supervision state. |
+| `token` or `ingest token` | Print or rotate the shared local ingest auth token. |
+| `up` or `agent run` | Run the resident local agent. |
+| `status` or `health` | Show the quick ingest, scheduler, and collector health summary. |
+| `agent status` | Show detailed agent runtime state. |
+| `stop` or `agent stop` | Stop the running agent. |
+| `agent run-once` | Run one agent collection and snapshot cycle. |
+| `agent snapshot latest` | Show the latest stored snapshots. |
+| `agent collectors` | Show collector supervision state. |
 | `agent:autostart:status` | Show macOS or Windows autostart status. |
 | `agent:autostart:install` | Install the macOS LaunchAgent or Windows startup-script helper. |
 | `agent:autostart:uninstall` | Remove the macOS LaunchAgent or Windows startup-script helper. |
-| `viewer:open` | Open the local browser viewer in the default browser. |
+| `viewer` or `viewer:open` | Open the local browser viewer in the default browser. |
 | `debug:raw:list` | List recent raw events for trace selection. |
 | `debug:normalized:list` | List recent normalized events and semantic actions. |
 | `debug:trace:raw` | Trace one raw event through the interpretation pipeline. |
@@ -612,22 +650,22 @@ and `tools list`, and powers `llm:analyze` for the `openai-codex` provider.
 | `collector:macos:info` | Show macOS collector usage, permissions, and file paths. |
 | `collector:windows:info` | Show Windows collector usage and file paths. |
 | `report` | Print all-time, daily, or weekly workflow reports. |
-| `report:compare` | Compare a day or week report against the previous matching window. |
-| `report:generate` | Generate and store a report snapshot. |
-| `report:snapshot:list` | List stored report snapshots. |
-| `report:snapshot:show` | Show one stored report snapshot. |
-| `workflow:list` | List workflow clusters with feedback state, including `detectionMode` in JSON output. |
-| `workflow:show` | Show one workflow cluster in detail. |
-| `workflow:label` | Save workflow name, purpose, repetitive flag, and automation review fields. |
-| `workflow:merge` | Merge one workflow into another on future analyses. |
-| `workflow:split` | Split a workflow after a selected action on future analyses. |
-| `workflow:exclude` | Exclude a workflow cluster from report output. |
-| `workflow:include` | Re-include an excluded workflow cluster. |
-| `workflow:hide` | Hide an incorrect workflow cluster. |
-| `workflow:unhide` | Show a hidden workflow cluster again. |
-| `session:list` | List analyzed sessions. |
-| `session:show` | Show one analyzed session with ordered steps. |
-| `session:delete` | Delete a session's source events and rerun analysis. |
+| `report compare` | Compare a day or week report against the previous matching window. |
+| `report generate` | Generate and store a report snapshot. |
+| `report snapshot list` | List stored report snapshots. |
+| `report snapshot show` | Show one stored report snapshot. |
+| `workflow list` | List workflow clusters with feedback state. Use `--refresh` when new raw events have arrived. JSON output includes `detectionMode`. |
+| `workflow show` | Show one workflow cluster in detail. |
+| `workflow label` | Save workflow name, purpose, repetitive flag, and automation review fields. |
+| `workflow merge` | Merge one workflow into another on future analyses. |
+| `workflow split` | Split a workflow after a selected action on future analyses. |
+| `workflow exclude` | Exclude a workflow cluster from report output. |
+| `workflow include` | Re-include an excluded workflow cluster. |
+| `workflow hide` | Hide an incorrect workflow cluster. |
+| `workflow unhide` | Show a hidden workflow cluster again. |
+| `session list` | List analyzed sessions. Use `--refresh` when new raw events have arrived. |
+| `session show` | Show one analyzed session with ordered steps. |
+| `session delete` | Delete a session's source events and rerun analysis. |
 | `llm:payloads` | Print summarized workflow payloads without raw logs; `short_form` workflows stay out unless `--include-short-form` is passed. |
 | `llm:providers` | List supported OpenAI, OpenAI Codex, Gemini, and Claude providers with auth methods. |
 | `llm:config:show` | Show the saved default LLM provider/model/auth configuration. |
@@ -637,11 +675,13 @@ and `tools list`, and powers `llm:analyze` for the `openai-codex` provider.
 | `credential:status` | Show secure credential backend status for macOS Keychain or Windows DPAPI. |
 | `credential:set` | Store an API-key provider credential in secure OS credential storage. |
 | `credential:delete` | Delete a stored provider API key from secure storage. |
-| `auth:login` | Run Gemini or OpenAI Codex OAuth login and store the resulting credentials securely. |
-| `auth:logout` | Delete stored Gemini or OpenAI Codex OAuth credentials. |
+| `auth login` | Run Gemini or OpenAI Codex OAuth login and store the resulting credentials securely. |
+| `auth logout` | Delete stored Gemini or OpenAI Codex OAuth credentials. |
 | `server:run` | Run the local HTTP server for collectors and the browser viewer. |
 | `demo` | Reset data, seed mock events, run analysis, and print a report. |
 | `reset` | Delete all locally stored events and analysis artifacts. |
+
+Legacy `:` commands such as `workflow:list`, `report:compare`, `agent:health`, and `agent:status` remain supported for backward compatibility.
 
 ## Project Structure
 

@@ -150,6 +150,27 @@ import type {
 
 const program = new Command("wid");
 
+program.addHelpText(
+  "after",
+  `
+Recommended first commands:
+  wid setup [path]
+  wid up --open-viewer
+  wid status
+  wid agent status
+  wid report
+  wid workflow list --refresh
+  wid token
+  wid stop
+
+Notes:
+  wid status / wid health -> quick agent health summary
+  wid agent status -> detailed runtime snapshot
+  wid report -> live reanalysis from raw events
+  wid workflow list -> stored analysis view; use --refresh when raw events changed
+`,
+);
+
 function withDatabase<T>(dataDir: string | undefined, fn: (database: AppDatabase) => T): T {
   const resolvedDataDir = ConfigManager.resolveDataDir(dataDir);
   const database = new AppDatabase(resolveAppPaths(resolvedDataDir));
@@ -2465,6 +2486,22 @@ program
   });
 
 program
+  .command("status")
+  .description("Show a concise resident agent health summary")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    printAgentHealthSummary(options.dataDir);
+  });
+
+program
+  .command("health")
+  .description("Show a concise resident agent health summary")
+  .option("--data-dir <path>", "Override application data directory")
+  .action((options: { dataDir?: string }) => {
+    printAgentHealthSummary(options.dataDir);
+  });
+
+program
   .command("agent:stop")
   .description("Stop the resident agent runtime if it is running")
   .alias("stop")
@@ -2477,9 +2514,7 @@ program
 
 program
   .command("agent:health")
-  .description("Show a concise resident agent health summary (same surface as wid status)")
-  .alias("status")
-  .alias("health")
+  .description("Show a concise resident agent health summary")
   .option("--data-dir <path>", "Override application data directory")
   .action((options: { dataDir?: string }) => {
     printAgentHealthSummary(options.dataDir);
@@ -4867,5 +4902,4 @@ program
 
     console.log(JSON.stringify({ status: "reset_completed" }, null, 2));
   });
-
 await program.parseAsync(normalizeCliArgv(process.argv));

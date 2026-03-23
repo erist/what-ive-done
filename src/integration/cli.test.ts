@@ -117,7 +117,9 @@ test("help uses wid as the canonical command name", () => {
   const helpOutput = runCli(["--help"], repoRoot);
 
   assert.match(helpOutput, /Usage: wid /u);
+  assert.match(helpOutput, /Recommended first commands:/u);
   assert.match(helpOutput, /\bsetup\b/u);
+  assert.match(helpOutput, /\bhealth\b/u);
   assert.match(helpOutput, /\bworkflow\b/u);
   assert.match(helpOutput, /\breport\b/u);
 });
@@ -984,6 +986,68 @@ test("status, health, and agent status expose different surfaces", () => {
     assert.equal(agentStatusPayload.surface, "runtime_status");
     assert.equal(statusPayload.status, "stopped");
     assert.equal(agentStatusPayload.status, "stopped");
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("README wid-first flow remains runnable", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "what-ive-done-cli-readme-flow-"));
+
+  try {
+    runCli(["setup", dataDir], repoRoot);
+    const toolsOutput = runCli(["tools", "--data-dir", dataDir], repoRoot);
+    const healthPayload = JSON.parse(runCli(["health", "--data-dir", dataDir], repoRoot)) as {
+      surface: string;
+      status: string;
+    };
+    const agentStatusPayload = JSON.parse(runCli(["agent", "status", "--data-dir", dataDir], repoRoot)) as {
+      surface: string;
+      status: string;
+    };
+
+    runCli(["collect:mock", "--data-dir", dataDir], repoRoot);
+    const workflows = JSON.parse(
+      runCli(["workflow", "list", "--refresh", "--json", "--data-dir", dataDir], repoRoot),
+    ) as Array<{ id: string }>;
+    const reportOutput = runCli(["report", "--data-dir", dataDir], repoRoot);
+    const comparisonOutput = runCli(["report", "compare", "--window", "week", "--data-dir", dataDir], repoRoot);
+
+    assert.match(toolsOutput, /COLLECTORS/u);
+    assert.equal(healthPayload.surface, "health_summary");
+    assert.equal(agentStatusPayload.surface, "runtime_status");
+    assert.ok(workflows.length > 0);
+    assert.match(reportOutput, /analysisSource/u);
+    assert.match(comparisonOutput, /currentWindow/u);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("legacy colon commands remain compatible after wid-first docs shift", () => {
+  const dataDir = mkdtempSync(join(tmpdir(), "what-ive-done-cli-legacy-gate-"));
+
+  try {
+    runCli(["setup", dataDir], repoRoot);
+    runCli(["collect:mock", "--data-dir", dataDir], repoRoot);
+
+    const workflows = JSON.parse(
+      runCli(["workflow:list", "--refresh", "--json", "--data-dir", dataDir], repoRoot),
+    ) as Array<{ id: string }>;
+    const comparisonOutput = runCli(["report:compare", "--json", "--data-dir", dataDir], repoRoot);
+    const healthPayload = JSON.parse(runCli(["agent:health", "--data-dir", dataDir], repoRoot)) as {
+      surface: string;
+      status: string;
+    };
+    const statusPayload = JSON.parse(runCli(["agent:status", "--data-dir", dataDir], repoRoot)) as {
+      surface: string;
+      status: string;
+    };
+
+    assert.ok(workflows.length > 0);
+    assert.match(comparisonOutput, /currentTimeWindow/u);
+    assert.equal(healthPayload.surface, "health_summary");
+    assert.equal(statusPayload.surface, "runtime_status");
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }

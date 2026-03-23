@@ -33,41 +33,50 @@ npm run build
 npm link
 ```
 
-Initialize a data directory:
+Create one data directory with the guided `wid` flow:
 
 ```bash
-wid init --data-dir ./data/live-data --interactive
+wid setup ./data/live-data
 ```
 
-After `init`, move into the data directory and use the short `wid` commands:
+From the repository root, you can still inspect setup and tool state:
+
+```bash
+wid tools --data-dir ./data/live-data
+wid health --data-dir ./data/live-data
+```
+
+After `setup`, move into the data directory and use the short `wid` commands:
 
 ```bash
 cd ./data/live-data
-wid up --open
+wid up --open-viewer
+wid health
+wid agent status
+wid report
+wid workflow list --refresh
+wid report compare --window week
 ```
 
 Default viewer URL: `http://127.0.0.1:4318/`
 
-Show or rotate the Chrome extension ingest token:
+Inspect the ingest token or stop the agent:
 
 ```bash
-wid token --rotate
-```
-
-Check runtime health and stop the agent:
-
-```bash
-wid status
+wid token
 wid stop
 ```
+
+`wid status` and `wid health` both print the quick health summary. Use `wid agent status` when you need the detailed runtime snapshot.
+
+`wid report` always uses live reanalysis from raw events. `wid workflow list` and `wid session list` read stored analysis, so use `--refresh` when new raw events have been collected or when the report looks newer than the stored views.
 
 Tune confirmed-workflow thresholds:
 
 ```bash
 wid config set analysis.confirmationWindowDays 14
 wid config set analysis.minSessionDurationSeconds 15
-wid analyze
-wid workflow:list --json
+wid workflow list --refresh --json
 ```
 
 Repeated quick sessions that stay below the standard duration threshold can now be promoted as `short_form` workflow clusters. JSON workflow output includes a `detectionMode` field so standard and short-form clusters can be separated downstream.
@@ -108,41 +117,50 @@ npm run build
 npm link
 ```
 
-데이터 디렉터리 초기화:
+가이드형 `wid` 흐름으로 데이터 디렉터리 생성:
 
 ```bash
-wid init --data-dir ./data/live-data --interactive
+wid setup ./data/live-data
 ```
 
-`init` 이후에는 데이터 디렉터리로 이동해서 짧은 `wid` 명령만 사용:
+저장소 루트에서도 setup/tool 상태를 확인할 수 있습니다:
+
+```bash
+wid tools --data-dir ./data/live-data
+wid health --data-dir ./data/live-data
+```
+
+`setup` 이후에는 데이터 디렉터리로 이동해서 짧은 `wid` 명령만 사용:
 
 ```bash
 cd ./data/live-data
-wid up --open
+wid up --open-viewer
+wid health
+wid agent status
+wid report
+wid workflow list --refresh
+wid report compare --window week
 ```
 
 기본 viewer URL: `http://127.0.0.1:4318/`
 
-Chrome extension용 ingest token 확인 또는 재발급:
+ingest token 확인 또는 에이전트 종료:
 
 ```bash
-wid token --rotate
-```
-
-런타임 상태 확인과 종료:
-
-```bash
-wid status
+wid token
 wid stop
 ```
+
+`wid status`와 `wid health`는 같은 quick health summary를 출력합니다. 자세한 runtime snapshot이 필요하면 `wid agent status`를 사용합니다.
+
+`wid report`는 항상 raw event 기준 live reanalysis를 사용합니다. 반면 `wid workflow list`와 `wid session list`는 저장된 분석 결과를 읽으므로, 새 raw event가 들어오거나 report가 더 최신처럼 보일 때는 `--refresh`를 사용하세요.
 
 confirmed workflow 기준 조정:
 
 ```bash
 wid config set analysis.confirmationWindowDays 14
 wid config set analysis.minSessionDurationSeconds 15
-wid analyze
-wid workflow:list --json
+wid workflow list --refresh --json
 ```
 
 표준 duration 기준보다 짧은 반복 세션도 이제 `short_form` workflow cluster로 승격될 수 있습니다. JSON 기반 workflow 출력에는 `detectionMode`가 포함되어 standard cluster와 short-form cluster를 구분할 수 있습니다.
