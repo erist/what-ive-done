@@ -1063,10 +1063,15 @@ export class AppDatabase {
         userLabeled: Boolean(
           feedback?.renameTo ??
             feedback?.businessPurpose ??
+            feedback?.excluded ??
+            feedback?.hidden ??
             feedback?.repetitive ??
             feedback?.automationCandidate ??
             feedback?.automationDifficulty ??
-            feedback?.approvedAutomationCandidate,
+            feedback?.approvedAutomationCandidate ??
+            feedback?.mergeIntoWorkflowId ??
+            feedback?.mergeIntoWorkflowSignature ??
+            feedback?.splitAfterActionName,
         ),
       };
     });

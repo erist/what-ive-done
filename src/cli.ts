@@ -72,7 +72,7 @@ import {
   describeActionMatchMetadata,
   inspectActionCoverage,
 } from "./action-packs/service.js";
-import { saveWorkflowReview } from "./feedback/service.js";
+import { saveWorkflowReview, type SaveWorkflowReviewResult } from "./feedback/service.js";
 import {
   runClusterBenchmark,
 } from "./pipeline/cluster-benchmark.js";
@@ -1363,6 +1363,22 @@ function renderWorkflowDetail(workflowId: string, dataDir?: string, json = false
       step,
     })),
   );
+}
+
+function summarizeWorkflowFeedbackResult(result: SaveWorkflowReviewResult): Record<string, unknown> {
+  return {
+    analysisRefreshed: result.analysisRefreshed,
+    resolvedWorkflowId: result.resolvedWorkflowId ?? null,
+    affectedWorkflowCount: result.affectedWorkflows.length,
+    affectedWorkflows: result.affectedWorkflows.map((workflow) => ({
+      id: workflow.id,
+      name: workflow.name,
+      detectionMode: workflow.detectionMode,
+      frequency: workflow.frequency,
+      excluded: workflow.excluded,
+      hidden: workflow.hidden,
+    })),
+  };
 }
 
 function requireEnv(name: string): string {
@@ -2668,14 +2684,25 @@ program
       replacement: `workflow:label ${workflowId} --name "${name}"`,
     });
 
-    withDatabase(options.dataDir, (database) => {
+    const result = withDatabase(options.dataDir, (database) =>
       saveWorkflowReview(database, {
         workflowId,
         name,
-      });
-    });
+      }),
+    );
 
-    console.log(JSON.stringify({ status: "workflow_renamed", workflowId, name }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          status: "workflow_renamed",
+          workflowId,
+          name,
+          ...summarizeWorkflowFeedbackResult(result),
+        },
+        null,
+        2,
+      ),
+    );
   });
 
 program
@@ -2710,7 +2737,7 @@ program
         approveCandidate?: boolean;
       },
     ) => {
-      withDatabase(options.dataDir, (database) => {
+      const result = withDatabase(options.dataDir, (database) =>
         saveWorkflowReview(database, {
           workflowId,
           name: options.name,
@@ -2719,8 +2746,8 @@ program
           automationCandidate: options.automationCandidate,
           difficulty: options.difficulty,
           approvedAutomationCandidate: options.approveCandidate,
-        });
-      });
+        }),
+      );
 
       console.log(
         JSON.stringify(
@@ -2733,6 +2760,7 @@ program
             automationCandidate: options.automationCandidate ?? null,
             difficulty: options.difficulty ?? null,
             approvedAutomationCandidate: options.approveCandidate ?? null,
+            ...summarizeWorkflowFeedbackResult(result),
           },
           null,
           2,
@@ -2748,16 +2776,21 @@ program
   .argument("<target-workflow-id>", "Workflow cluster id to merge into")
   .option("--data-dir <path>", "Override application data directory")
   .action((workflowId: string, targetWorkflowId: string, options: { dataDir?: string }) => {
-    withDatabase(options.dataDir, (database) => {
+    const result = withDatabase(options.dataDir, (database) =>
       saveWorkflowReview(database, {
         workflowId,
         mergeIntoWorkflowId: targetWorkflowId,
-      });
-    });
+      }),
+    );
 
     console.log(
       JSON.stringify(
-        { status: "workflow_merge_saved", workflowId, targetWorkflowId },
+        {
+          status: "workflow_merge_saved",
+          workflowId,
+          targetWorkflowId,
+          ...summarizeWorkflowFeedbackResult(result),
+        },
         null,
         2,
       ),
@@ -2775,12 +2808,12 @@ program
       workflowId: string,
       options: { dataDir?: string; afterAction: string },
     ) => {
-      withDatabase(options.dataDir, (database) => {
+      const result = withDatabase(options.dataDir, (database) =>
         saveWorkflowReview(database, {
           workflowId,
           splitAfterActionName: options.afterAction,
-        });
-      });
+        }),
+      );
 
       console.log(
         JSON.stringify(
@@ -2788,6 +2821,7 @@ program
             status: "workflow_split_saved",
             workflowId,
             splitAfterActionName: options.afterAction,
+            ...summarizeWorkflowFeedbackResult(result),
           },
           null,
           2,
@@ -2802,14 +2836,24 @@ program
   .argument("<workflow-id>", "Workflow cluster id")
   .option("--data-dir <path>", "Override application data directory")
   .action((workflowId: string, options: { dataDir?: string }) => {
-    withDatabase(options.dataDir, (database) => {
+    const result = withDatabase(options.dataDir, (database) =>
       saveWorkflowReview(database, {
         workflowId,
         excluded: true,
-      });
-    });
+      }),
+    );
 
-    console.log(JSON.stringify({ status: "workflow_excluded", workflowId }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          status: "workflow_excluded",
+          workflowId,
+          ...summarizeWorkflowFeedbackResult(result),
+        },
+        null,
+        2,
+      ),
+    );
   });
 
 program
@@ -2818,14 +2862,24 @@ program
   .argument("<workflow-id>", "Workflow cluster id")
   .option("--data-dir <path>", "Override application data directory")
   .action((workflowId: string, options: { dataDir?: string }) => {
-    withDatabase(options.dataDir, (database) => {
+    const result = withDatabase(options.dataDir, (database) =>
       saveWorkflowReview(database, {
         workflowId,
         excluded: false,
-      });
-    });
+      }),
+    );
 
-    console.log(JSON.stringify({ status: "workflow_included", workflowId }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          status: "workflow_included",
+          workflowId,
+          ...summarizeWorkflowFeedbackResult(result),
+        },
+        null,
+        2,
+      ),
+    );
   });
 
 program
@@ -2834,14 +2888,24 @@ program
   .argument("<workflow-id>", "Workflow cluster id")
   .option("--data-dir <path>", "Override application data directory")
   .action((workflowId: string, options: { dataDir?: string }) => {
-    withDatabase(options.dataDir, (database) => {
+    const result = withDatabase(options.dataDir, (database) =>
       saveWorkflowReview(database, {
         workflowId,
         hidden: true,
-      });
-    });
+      }),
+    );
 
-    console.log(JSON.stringify({ status: "workflow_hidden", workflowId }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          status: "workflow_hidden",
+          workflowId,
+          ...summarizeWorkflowFeedbackResult(result),
+        },
+        null,
+        2,
+      ),
+    );
   });
 
 program
@@ -2850,14 +2914,24 @@ program
   .argument("<workflow-id>", "Workflow cluster id")
   .option("--data-dir <path>", "Override application data directory")
   .action((workflowId: string, options: { dataDir?: string }) => {
-    withDatabase(options.dataDir, (database) => {
+    const result = withDatabase(options.dataDir, (database) =>
       saveWorkflowReview(database, {
         workflowId,
         hidden: false,
-      });
-    });
+      }),
+    );
 
-    console.log(JSON.stringify({ status: "workflow_visible", workflowId }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          status: "workflow_visible",
+          workflowId,
+          ...summarizeWorkflowFeedbackResult(result),
+        },
+        null,
+        2,
+      ),
+    );
   });
 
 program
