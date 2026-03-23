@@ -165,3 +165,7 @@ M11 -> M12 -> M13 -> M14 -> M15
 ```text
 M11 -> M12 -> M13 -> M14 -> M15 (complete)
 ```
+
+후속 열차:
+
+- `wid` 문법 정리, interactive 기본화, setup 단일 진입점, 상태 UX 정합화는 [cli-wid-first-roadmap.md](./cli-wid-first-roadmap.md) 에서 이어서 관리한다.

@@ -28,3 +28,10 @@ test("normalizeCliArgv leaves long-form commands untouched", () => {
     ["node", "wid", "agent:run", "--open-viewer"],
   );
 });
+
+test("normalizeCliArgv leaves natural command groups untouched", () => {
+  assert.deepEqual(
+    normalizeCliArgv(["node", "wid", "workflow", "list", "--json"]),
+    ["node", "wid", "workflow", "list", "--json"],
+  );
+});
