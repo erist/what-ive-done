@@ -59,7 +59,10 @@ import {
   type WidConfig,
 } from "./config/schema.js";
 import { normalizeCliArgv } from "./cli/aliases.js";
-import { isInteractiveTerminal, PromptSession } from "./cli/prompts.js";
+import {
+  createPromptSessionForCommand,
+  type InteractiveCommandOptions,
+} from "./cli/interaction.js";
 import { runInit, runInteractiveInit } from "./init/flow.js";
 import { buildDatasetQualityReport } from "./debug/quality.js";
 import {
@@ -161,7 +164,7 @@ function resolvePreferredDataDir(positionalDataDir?: string, optionDataDir?: str
   return positionalDataDir ?? optionDataDir;
 }
 
-function mergeActionOptions<T extends Record<string, unknown>>(
+function mergeActionOptions<T extends object>(
   options: T,
   command?: Command,
 ): T {
@@ -216,8 +219,268 @@ const BROWSER_DIAGNOSTIC_APPLICATIONS = new Set([
 ]);
 const BROWSER_DIAGNOSTIC_EVENT_TYPE = /^(?:browser|chrome|dom|form|tab)\./u;
 
-function createPromptSessionIfInteractive(): PromptSession | undefined {
-  return isInteractiveTerminal() ? new PromptSession() : undefined;
+interface ToolCommandCliOptions extends InteractiveCommandOptions {
+  dataDir?: string;
+}
+
+interface AuthLoginCommandOptions extends InteractiveCommandOptions {
+  dataDir?: string;
+  clientId?: string;
+  clientSecret?: string;
+  projectId?: string;
+  issuerUrl?: string;
+  port: string;
+}
+
+async function resolvePromptedText(
+  question: string,
+  prompts: ReturnType<typeof createPromptSessionForCommand>,
+  value?: string,
+  defaultValue?: string,
+): Promise<string | undefined> {
+  const resolvedValue = normalizeOptionalConfigString(value) ?? normalizeOptionalConfigString(defaultValue);
+
+  if (resolvedValue) {
+    return resolvedValue;
+  }
+
+  if (!prompts) {
+    return undefined;
+  }
+
+  return normalizeOptionalConfigString(await prompts.text(question, defaultValue));
+}
+
+async function resolvePromptedSecret(
+  question: string,
+  prompts: ReturnType<typeof createPromptSessionForCommand>,
+  value?: string,
+  defaultValue?: string,
+): Promise<string | undefined> {
+  const resolvedValue = normalizeOptionalConfigString(value) ?? normalizeOptionalConfigString(defaultValue);
+
+  if (resolvedValue) {
+    return resolvedValue;
+  }
+
+  if (!prompts) {
+    return undefined;
+  }
+
+  return normalizeOptionalConfigString(await prompts.secret(question, defaultValue));
+}
+
+async function runAuthLoginCommand(
+  providerName: string,
+  options: AuthLoginCommandOptions,
+): Promise<void> {
+  const provider = normalizeLLMProvider(providerName);
+  const credentialStore = resolveCredentialStore();
+
+  if (provider !== "gemini" && provider !== "openai-codex") {
+    throw new Error(`${provider} does not expose a public OAuth login flow for direct API usage`);
+  }
+
+  if (!credentialStore.isSupported()) {
+    throw new Error("Secure credential storage is required for OAuth login on this platform");
+  }
+
+  const prompts = createPromptSessionForCommand(options);
+
+  try {
+    if (provider === "openai-codex") {
+      const clientId = await resolvePromptedText(
+        "OpenAI Codex OAuth client id",
+        prompts,
+        options.clientId,
+        process.env.OPENAI_CODEX_CLIENT_ID,
+      );
+
+      if (!clientId) {
+        throw new Error(
+          "OpenAI Codex OAuth requires a client id. Provide --client-id or OPENAI_CODEX_CLIENT_ID.",
+        );
+      }
+
+      let authorizationUrl = "";
+      let redirectUri = "";
+      const credentials = await runOpenAICodexOAuthInteractiveLogin({
+        clientId,
+        issuer:
+          normalizeOptionalConfigString(options.issuerUrl) ??
+          normalizeOptionalConfigString(process.env.OPENAI_CODEX_ISSUER) ??
+          DEFAULT_OPENAI_CODEX_ISSUER,
+        port: Number.parseInt(options.port, 10),
+        openBrowser: openSystemBrowser,
+        onAuthorizationUrl: (url, resolvedRedirectUri) => {
+          authorizationUrl = url;
+          redirectUri = resolvedRedirectUri;
+          console.log(
+            JSON.stringify(
+              {
+                status: "oauth2_login_started",
+                provider: "openai-codex",
+                authorizationUrl: url,
+                redirectUri: resolvedRedirectUri,
+              },
+              null,
+              2,
+            ),
+          );
+        },
+      });
+
+      setOpenAICodexOAuthCredentials(credentialStore, credentials);
+      withDatabase(options.dataDir, (database) =>
+        updateLLMConfiguration(database, {
+          provider: "openai-codex",
+          authMethod: "oauth2",
+        }),
+      );
+
+      console.log(
+        JSON.stringify(
+          {
+            status: "oauth2_login_completed",
+            provider: "openai-codex",
+            authorizationUrl,
+            redirectUri,
+            expiresAt: credentials.expiresAt,
+            email: credentials.email,
+            scopes: credentials.scope,
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+
+    const clientId = await resolvePromptedText(
+      "Google OAuth client id",
+      prompts,
+      options.clientId,
+      process.env.GOOGLE_CLIENT_ID,
+    );
+    const clientSecret = await resolvePromptedSecret(
+      "Google OAuth client secret",
+      prompts,
+      options.clientSecret,
+      process.env.GOOGLE_CLIENT_SECRET,
+    );
+    const projectId = await resolvePromptedText(
+      "Google Cloud project id",
+      prompts,
+      options.projectId,
+      process.env.GOOGLE_CLOUD_PROJECT,
+    );
+
+    if (!clientId || !clientSecret || !projectId) {
+      throw new Error(
+        "Gemini OAuth requires client id, client secret, and project id. Provide flags/env vars or run from a TTY without --non-interactive.",
+      );
+    }
+
+    let authorizationUrl = "";
+    let redirectUri = "";
+    const credentials = await runGoogleOAuthInteractiveLogin({
+      clientId,
+      clientSecret,
+      projectId,
+      port: Number.parseInt(options.port, 10),
+      openBrowser: openSystemBrowser,
+      onAuthorizationUrl: (url, resolvedRedirectUri) => {
+        authorizationUrl = url;
+        redirectUri = resolvedRedirectUri;
+        console.log(
+          JSON.stringify(
+            {
+              status: "oauth2_login_started",
+              provider: "gemini",
+              authorizationUrl: url,
+              redirectUri: resolvedRedirectUri,
+            },
+            null,
+            2,
+          ),
+        );
+      },
+    });
+
+    setGeminiOAuthCredentials(credentialStore, credentials);
+    withDatabase(options.dataDir, (database) =>
+      updateLLMConfiguration(database, {
+        provider: "gemini",
+        authMethod: "oauth2",
+        googleProjectId: credentials.projectId,
+      }),
+    );
+
+    console.log(
+      JSON.stringify(
+        {
+          status: "oauth2_login_completed",
+          provider: "gemini",
+          authorizationUrl,
+          redirectUri,
+          expiresAt: credentials.expiresAt,
+          scopes: credentials.scope,
+        },
+        null,
+        2,
+      ),
+    );
+  } finally {
+    prompts?.close();
+  }
+}
+
+function runAuthLogoutCommand(providerName: string, options: { dataDir?: string }): void {
+  const provider = normalizeLLMProvider(providerName);
+
+  if (provider !== "gemini" && provider !== "openai-codex") {
+    throw new Error(`${provider} does not have stored OAuth credentials in this CLI`);
+  }
+
+  const credentialStore = resolveCredentialStore();
+
+  if (provider === "openai-codex") {
+    deleteOpenAICodexOAuthCredentials(credentialStore);
+
+    console.log(
+      JSON.stringify(
+        {
+          status: "oauth2_credentials_deleted",
+          provider: "openai-codex",
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  deleteGeminiOAuthCredentials(credentialStore);
+  withDatabase(options.dataDir, (database) => {
+    const current = getStoredLLMConfiguration(database);
+
+    if (current.provider === "gemini" && current.authMethod === "oauth2") {
+      updateLLMConfiguration(database, {
+        authMethod: "api-key",
+      });
+    }
+  });
+
+  console.log(
+    JSON.stringify(
+      {
+        status: "oauth2_credentials_deleted",
+        provider: "gemini",
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 interface AgentRuntimeCommandOptions {
@@ -1505,6 +1768,8 @@ toolsCommand.addCommand(
     .description("Add a collector or analyzer tool to the persisted config")
     .argument("<name>", "Tool name: gws|git|gh|gemini|claude|openai|openai-codex")
     .option("--data-dir <path>", "Override application data directory")
+    .option("--interactive", "Force prompts for missing values")
+    .option("--non-interactive", "Disable prompts and require explicit arguments")
     .option("--auth <method>", "Analyzer auth method: api-key|oauth2")
     .option("--model <name>", "Analyzer model override")
     .option("--repo-path <path>", "Git repository path")
@@ -1519,6 +1784,7 @@ toolsCommand.addCommand(
       name: string,
       options: {
         dataDir?: string;
+        nonInteractive?: boolean;
         auth?: string;
         model?: string;
         repoPath?: string;
@@ -1533,7 +1799,7 @@ toolsCommand.addCommand(
       command: Command,
     ) => {
       const { dataDir } = loadActionCommandConfig(options, command);
-      const prompts = createPromptSessionIfInteractive();
+      const prompts = createPromptSessionForCommand(options);
 
       try {
         const result = await addTool(
@@ -1582,7 +1848,7 @@ toolsCommand.addCommand(
       command: Command,
     ) => {
       const { dataDir } = loadActionCommandConfig(options, command);
-      const prompts = createPromptSessionIfInteractive();
+      const prompts = createPromptSessionForCommand();
 
       try {
         const result = await removeTool(
@@ -1629,6 +1895,8 @@ toolsCommand.addCommand(
     .description("Authenticate or re-authenticate a managed tool")
     .argument("<name>", "Tool name")
     .option("--data-dir <path>", "Override application data directory")
+    .option("--interactive", "Force prompts for missing values")
+    .option("--non-interactive", "Disable prompts and require explicit arguments")
     .option("--auth <method>", "Analyzer auth method: api-key|oauth2")
     .option("--model <name>", "Analyzer model override")
     .option("--api-key <value>", "Analyzer API key")
@@ -1641,6 +1909,7 @@ toolsCommand.addCommand(
       name: string,
       options: {
         dataDir?: string;
+        nonInteractive?: boolean;
         auth?: string;
         model?: string;
         apiKey?: string;
@@ -1653,7 +1922,7 @@ toolsCommand.addCommand(
       command: Command,
     ) => {
       const { dataDir } = loadActionCommandConfig(options, command);
-      const prompts = createPromptSessionIfInteractive();
+      const prompts = createPromptSessionForCommand(options);
 
       try {
         const result = await authenticateTool(
@@ -2030,16 +2299,17 @@ program
   .description("Initialize local application storage")
   .argument("[data-dir]", "Application data directory")
   .option("--data-dir <path>", "Override application data directory")
-  .option("--interactive", "Run an interactive setup wizard")
+  .option("--interactive", "Force the interactive setup wizard")
+  .option("--non-interactive", "Disable prompts and use the non-interactive flow")
   .action(async (
     positionalDataDir: string | undefined,
-    options: { dataDir?: string; interactive?: boolean },
+    options: { dataDir?: string; interactive?: boolean; nonInteractive?: boolean },
   ) => {
-    const prompts = createPromptSessionIfInteractive();
+    const prompts = createPromptSessionForCommand(options);
     const dataDir = resolvePreferredDataDir(positionalDataDir, options.dataDir);
 
     try {
-      if (options.interactive) {
+      if (prompts) {
         await runInteractiveInit(dataDir, {
           prompts,
         });
@@ -3977,146 +4247,52 @@ program
     );
   });
 
+const authCommand = program
+  .command("auth")
+  .description("Run provider authentication flows");
+
+authCommand.addCommand(
+  new Command("login")
+    .description("Run a provider OAuth login flow when supported")
+    .argument("<provider>", "Provider name")
+    .option("--data-dir <path>", "Override application data directory")
+    .option("--interactive", "Force prompts for missing values")
+    .option("--non-interactive", "Disable prompts and require explicit arguments")
+    .option("--client-id <id>", "OAuth client id")
+    .option("--client-secret <secret>", "OAuth client secret for providers that require it")
+    .option("--project-id <id>", "Google Cloud project id for Gemini")
+    .option("--issuer-url <url>", "OAuth issuer base URL for OpenAI Codex")
+    .option("--port <port>", "Local callback port", "0")
+    .action(async (providerName: string, options: AuthLoginCommandOptions, command: Command) => {
+      await runAuthLoginCommand(providerName, mergeActionOptions(options, command));
+    }),
+);
+
+authCommand.addCommand(
+  new Command("logout")
+    .description("Delete stored OAuth credentials for a provider")
+    .argument("<provider>", "Provider name")
+    .option("--data-dir <path>", "Override application data directory")
+    .action((providerName: string, options: { dataDir?: string }) => {
+      runAuthLogoutCommand(providerName, options);
+    }),
+);
+
 program
   .command("auth:login")
   .description("Run a provider OAuth login flow when supported")
   .argument("<provider>", "Provider name")
   .option("--data-dir <path>", "Override application data directory")
+  .option("--interactive", "Force prompts for missing values")
+  .option("--non-interactive", "Disable prompts and require explicit arguments")
   .option("--client-id <id>", "OAuth client id")
   .option("--client-secret <secret>", "OAuth client secret for providers that require it")
   .option("--project-id <id>", "Google Cloud project id for Gemini")
   .option("--issuer-url <url>", "OAuth issuer base URL for OpenAI Codex")
   .option("--port <port>", "Local callback port", "0")
   .action(
-    async (
-      providerName: string,
-      options: {
-        dataDir?: string;
-        clientId?: string;
-        clientSecret?: string;
-        projectId?: string;
-        issuerUrl?: string;
-        port: string;
-      },
-    ) => {
-      const provider = normalizeLLMProvider(providerName);
-      const credentialStore = resolveCredentialStore();
-
-      if (provider !== "gemini" && provider !== "openai-codex") {
-        throw new Error(`${provider} does not expose a public OAuth login flow for direct API usage`);
-      }
-
-      if (!credentialStore.isSupported()) {
-        throw new Error("Secure credential storage is required for OAuth login on this platform");
-      }
-
-      if (provider === "openai-codex") {
-        const clientId = options.clientId ?? process.env.OPENAI_CODEX_CLIENT_ID;
-
-        if (!clientId) {
-          throw new Error("OpenAI Codex OAuth requires --client-id or OPENAI_CODEX_CLIENT_ID");
-        }
-
-        let authorizationUrl = "";
-        let redirectUri = "";
-        const credentials = await runOpenAICodexOAuthInteractiveLogin({
-          clientId,
-          issuer: options.issuerUrl ?? process.env.OPENAI_CODEX_ISSUER ?? DEFAULT_OPENAI_CODEX_ISSUER,
-          port: Number.parseInt(options.port, 10),
-          openBrowser: openSystemBrowser,
-          onAuthorizationUrl: (url, resolvedRedirectUri) => {
-            authorizationUrl = url;
-            redirectUri = resolvedRedirectUri;
-            console.log(
-              JSON.stringify(
-                {
-                  status: "oauth2_login_started",
-                  provider: "openai-codex",
-                  authorizationUrl: url,
-                  redirectUri: resolvedRedirectUri,
-                },
-                null,
-                2,
-              ),
-            );
-          },
-        });
-
-        setOpenAICodexOAuthCredentials(credentialStore, credentials);
-        withDatabase(options.dataDir, (database) =>
-          updateLLMConfiguration(database, {
-            provider: "openai-codex",
-            authMethod: "oauth2",
-          }),
-        );
-
-        console.log(
-          JSON.stringify(
-            {
-              status: "oauth2_login_completed",
-              provider: "openai-codex",
-              authorizationUrl,
-              redirectUri,
-              expiresAt: credentials.expiresAt,
-              email: credentials.email,
-              scopes: credentials.scope,
-            },
-            null,
-            2,
-          ),
-        );
-        return;
-      }
-
-      let authorizationUrl = "";
-      let redirectUri = "";
-      const credentials = await runGoogleOAuthInteractiveLogin({
-        clientId: options.clientId ?? requireEnv("GOOGLE_CLIENT_ID"),
-        clientSecret: options.clientSecret ?? requireEnv("GOOGLE_CLIENT_SECRET"),
-        projectId: options.projectId ?? requireEnv("GOOGLE_CLOUD_PROJECT"),
-        port: Number.parseInt(options.port, 10),
-        openBrowser: openSystemBrowser,
-        onAuthorizationUrl: (url, resolvedRedirectUri) => {
-          authorizationUrl = url;
-          redirectUri = resolvedRedirectUri;
-          console.log(
-            JSON.stringify(
-              {
-                status: "oauth2_login_started",
-                provider: "gemini",
-                authorizationUrl: url,
-                redirectUri: resolvedRedirectUri,
-              },
-              null,
-              2,
-            ),
-          );
-        },
-      });
-
-      setGeminiOAuthCredentials(credentialStore, credentials);
-      withDatabase(options.dataDir, (database) =>
-        updateLLMConfiguration(database, {
-          provider: "gemini",
-          authMethod: "oauth2",
-          googleProjectId: credentials.projectId,
-        }),
-      );
-
-      console.log(
-        JSON.stringify(
-          {
-            status: "oauth2_login_completed",
-            provider: "gemini",
-            authorizationUrl,
-            redirectUri,
-            expiresAt: credentials.expiresAt,
-            scopes: credentials.scope,
-          },
-          null,
-          2,
-        ),
-      );
+    async (providerName: string, options: AuthLoginCommandOptions) => {
+      await runAuthLoginCommand(providerName, options);
     },
   );
 
@@ -4126,52 +4302,7 @@ program
   .argument("<provider>", "Provider name")
   .option("--data-dir <path>", "Override application data directory")
   .action((providerName: string, options: { dataDir?: string }) => {
-    const provider = normalizeLLMProvider(providerName);
-
-    if (provider !== "gemini" && provider !== "openai-codex") {
-      throw new Error(`${provider} does not have stored OAuth credentials in this CLI`);
-    }
-
-    const credentialStore = resolveCredentialStore();
-
-    if (provider === "openai-codex") {
-      deleteOpenAICodexOAuthCredentials(credentialStore);
-
-      console.log(
-        JSON.stringify(
-          {
-            status: "oauth2_credentials_deleted",
-            provider: "openai-codex",
-          },
-          null,
-          2,
-        ),
-      );
-      return;
-    }
-
-    deleteGeminiOAuthCredentials(credentialStore);
-
-    withDatabase(options.dataDir, (database) => {
-      const current = getStoredLLMConfiguration(database);
-
-      if (current.provider === "gemini" && current.authMethod === "oauth2") {
-        updateLLMConfiguration(database, {
-          authMethod: "api-key",
-        });
-      }
-    });
-
-    console.log(
-      JSON.stringify(
-        {
-          status: "oauth2_credentials_deleted",
-          provider: "gemini",
-        },
-        null,
-        2,
-      ),
-    );
+    runAuthLogoutCommand(providerName, options);
   });
 
 program

@@ -326,11 +326,12 @@ async function buildListedTool(
   };
 }
 
-function selectAuthMethod(
+async function resolveAuthMethod(
   definition: ToolDefinition,
   currentConfig: WidToolConfig | undefined,
   explicitAuthMethod: string | undefined,
-): LLMAuthMethod | undefined {
+  prompts?: ToolCommandPrompts | undefined,
+): Promise<LLMAuthMethod | undefined> {
   if (!definition.authMethods || definition.authMethods.length === 0) {
     return undefined;
   }
@@ -343,6 +344,12 @@ function selectAuthMethod(
 
   if (configuredAuth) {
     return normalizeLLMAuthMethod(configuredAuth);
+  }
+
+  if (prompts && definition.authMethods.length > 1) {
+    return normalizeLLMAuthMethod(
+      await prompts.select("Authentication method", definition.authMethods),
+    );
   }
 
   return definition.authMethods[0];
@@ -476,16 +483,17 @@ async function resolveModel(
   explicitModel: string | undefined,
   prompts?: ToolCommandPrompts | undefined,
 ): Promise<string> {
+  const configuredModel = normalizeOptionalString(currentConfig?.model);
   const defaultModel =
     explicitModel ??
-    normalizeOptionalString(currentConfig?.model) ??
+    configuredModel ??
     normalizeOptionalString(definition.prompts?.find((prompt) => prompt.key === "model")?.defaultValue) ??
     (isAnalyzerToolName(definition.name)
       ? getLLMProviderDescriptor(definition.name).defaultModel
       : undefined) ??
     "";
 
-  if (explicitModel || !prompts) {
+  if (explicitModel || configuredModel || !prompts) {
     return defaultModel;
   }
 
@@ -633,7 +641,12 @@ export async function addTool(
   const provider = definition.name;
   const prompts = dependencies.prompts;
   const credentialStore = resolveCredentialStoreWithFallback(dependencies);
-  const authMethod = selectAuthMethod(definition, config.tools[provider], options.authMethod);
+  const authMethod = await resolveAuthMethod(
+    definition,
+    config.tools[provider],
+    options.authMethod,
+    prompts,
+  );
 
   if (!authMethod) {
     throw new Error(`No auth method is configured for ${provider}`);
