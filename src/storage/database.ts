@@ -118,6 +118,15 @@ interface WorkflowFeedbackRow {
   created_at: string;
 }
 
+export interface StoredAnalysisSummary {
+  rawEventCount: number;
+  latestRawEventAt?: string | undefined;
+  normalizedEventCount: number;
+  latestNormalizedEventAt?: string | undefined;
+  sessionCount: number;
+  workflowCount: number;
+}
+
 interface SessionSummaryRow {
   id: string;
   start_time: string;
@@ -620,6 +629,46 @@ export class AppDatabase {
       .all(startInclusive, endExclusive) as unknown as RawEventRow[];
 
     return rows.map((row) => mapRawEventRow(row));
+  }
+
+  getStoredAnalysisSummary(): StoredAnalysisSummary {
+    const rawRow = this.connection
+      .prepare(`
+        SELECT
+          COUNT(*) AS total,
+          MAX(timestamp) AS latest_timestamp
+        FROM raw_events
+      `)
+      .get() as { total: number; latest_timestamp: string | null };
+    const normalizedRow = this.connection
+      .prepare(`
+        SELECT
+          COUNT(*) AS total,
+          MAX(timestamp) AS latest_timestamp
+        FROM normalized_events
+      `)
+      .get() as { total: number; latest_timestamp: string | null };
+    const sessionRow = this.connection
+      .prepare(`
+        SELECT COUNT(*) AS total
+        FROM sessions
+      `)
+      .get() as { total: number };
+    const workflowRow = this.connection
+      .prepare(`
+        SELECT COUNT(*) AS total
+        FROM workflow_clusters
+      `)
+      .get() as { total: number };
+
+    return {
+      rawEventCount: rawRow.total,
+      latestRawEventAt: rawRow.latest_timestamp ?? undefined,
+      normalizedEventCount: normalizedRow.total,
+      latestNormalizedEventAt: normalizedRow.latest_timestamp ?? undefined,
+      sessionCount: sessionRow.total,
+      workflowCount: workflowRow.total,
+    };
   }
 
   listNormalizedEvents(limit = 50): NormalizedEvent[] {
