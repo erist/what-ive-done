@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="wid-viewer-action-token" content="{{VIEWER_ACTION_TOKEN}}" />
+    <title>What I've Done</title>
+    <link rel="stylesheet" href="/viewer.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="hero">
+        <div class="hero-main">
+          <div class="hero-title-row">
+            <h1>What I've Done</h1>
+            <div id="status-indicator" class="status-indicator" title="Agent status">
+              <span class="status-dot"></span>
+              <span id="agent-status-text" class="status-text">connecting...</span>
+            </div>
+          </div>
+          <div id="summary-strip" class="summary-strip"></div>
+        </div>
+        <div class="hero-actions">
+          <label class="control">
+            <span>Window</span>
+            <select id="window-select">
+              <option value="day">Today</option>
+              <option value="week">This Week</option>
+              <option value="all">All Time</option>
+            </select>
+          </label>
+          <label class="control">
+            <span>Date</span>
+            <input id="date-input" type="date" />
+          </label>
+          <button id="refresh-button" type="button">Refresh</button>
+          <button id="theme-toggle" type="button" class="theme-toggle" aria-label="Toggle dark mode">
+            <span class="theme-icon"></span>
+          </button>
+        </div>
+      </header>
+
+      <section class="command-bar">
+        <div id="review-progress" class="review-progress"></div>
+        <nav class="viewer-nav">
+          <button class="view-toggle" type="button" data-view-target="review" aria-pressed="true">Review</button>
+          <button class="view-toggle" type="button" data-view-target="insights" aria-pressed="false">Insights</button>
+          <button class="view-toggle" type="button" data-view-target="analysis" aria-pressed="false">Analysis</button>
+        </nav>
+      </section>
+
+      <div id="error-banner" class="error-banner hidden"></div>
+
+      <main class="view-stack">
+        <!-- REVIEW (default landing) -->
+        <section class="view-panel" data-view-panel="review">
+          <div class="review-layout">
+            <aside class="review-sidebar">
+              <div class="sidebar-header">
+                <p class="section-title">Workflows</p>
+                <button id="next-unreviewed-button" type="button" class="button-small">Next unreviewed</button>
+              </div>
+              <div id="feedback-workflow-list" class="feedback-workflow-list"></div>
+            </aside>
+            <div id="workflow-detail" class="workflow-detail empty-detail">
+              Select a workflow to review its automation potential and label it.
+            </div>
+          </div>
+
+          <details class="panel collapsible-section" style="margin-top: 18px;">
+            <summary class="section-header collapsible-trigger">
+              <div>
+                <p class="section-title">Sessions</p>
+                <p class="section-subtitle">Recent live-analysis sessions for the selected window.</p>
+              </div>
+              <span class="collapse-icon"></span>
+            </summary>
+            <div class="sessions-layout">
+              <div id="session-list" class="session-list"></div>
+              <div id="session-detail" class="session-detail empty-detail">
+                Select a session to inspect the ordered steps.
+              </div>
+            </div>
+          </details>
+        </section>
+
+        <!-- INSIGHTS (replaces Overview) -->
+        <section class="view-panel hidden" data-view-panel="insights">
+          <div class="content-grid">
+            <section class="panel panel-span-2 ref-panel">
+              <div class="section-header">
+                <div>
+                  <p class="section-title">Highlights</p>
+                  <p class="section-subtitle">Key patterns detected in the current window.</p>
+                </div>
+              </div>
+              <div id="highlights-grid" class="highlights-grid"></div>
+            </section>
+
+            <section class="panel ref-panel">
+              <div class="section-header">
+                <div>
+                  <p class="section-title">System Status</p>
+                </div>
+              </div>
+              <div id="status-panel" class="status-detail-grid">
+                <div>
+                  <p class="panel-label">Agent</p>
+                  <p id="agent-status" class="status-pill">unknown</p>
+                </div>
+                <div>
+                  <p class="panel-label">Ingest Server</p>
+                  <p id="server-status" class="panel-value">-</p>
+                </div>
+                <div>
+                  <p class="panel-label">Collectors</p>
+                  <p id="collector-status" class="panel-value">-</p>
+                </div>
+                <div>
+                  <p class="panel-label">Last Refresh</p>
+                  <p id="generated-at" class="panel-value">-</p>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel ref-panel">
+              <div class="section-header">
+                <div>
+                  <p class="section-title">Snapshots</p>
+                  <p class="section-subtitle">Stored day and week summaries.</p>
+                </div>
+              </div>
+              <div id="snapshot-list" class="card-list"></div>
+            </section>
+
+            <details class="panel panel-span-2 collapsible-section ref-panel">
+              <summary class="section-header collapsible-trigger">
+                <div>
+                  <p class="section-title">Comparison View</p>
+                  <p class="section-subtitle">Compare the selected day or week against the previous matching window.</p>
+                </div>
+                <span class="collapse-icon"></span>
+              </summary>
+              <div id="comparison-view" class="comparison-shell"></div>
+            </details>
+
+            <details class="panel panel-span-2 collapsible-section ref-panel">
+              <summary class="section-header collapsible-trigger">
+                <div>
+                  <p class="section-title">Confirmed Workflows</p>
+                  <p class="section-subtitle">Full table of repeated workflows above the clustering threshold.</p>
+                </div>
+                <span class="collapse-icon"></span>
+              </summary>
+              <div id="workflow-list" class="table-shell"></div>
+            </details>
+
+            <details class="panel panel-span-2 collapsible-section ref-panel">
+              <summary class="section-header collapsible-trigger">
+                <div>
+                  <p class="section-title">Emerging Workflows</p>
+                  <p class="section-subtitle">Early signals that still need more repeated sessions.</p>
+                </div>
+                <span class="collapse-icon"></span>
+              </summary>
+              <div id="emerging-workflow-list" class="card-list"></div>
+            </details>
+          </div>
+        </section>
+
+        <!-- ANALYSIS -->
+        <section class="view-panel hidden" data-view-panel="analysis">
+          <div class="content-grid">
+            <section class="panel">
+              <div class="section-header">
+                <div>
+                  <p class="section-title">Ready Workflows</p>
+                  <p class="section-subtitle">Top candidates for interpretation.</p>
+                </div>
+              </div>
+              <div id="analysis-ready-list" class="card-list"></div>
+            </section>
+
+            <section class="panel action-panel">
+              <div class="section-header">
+                <div>
+                  <p class="section-title">Analysis Surface</p>
+                  <p class="section-subtitle">Run a summarized analysis request and review the latest interpretation.</p>
+                </div>
+              </div>
+              <div id="analysis-surface" class="analysis-layout">
+                <div class="empty-state">Analysis readiness will appear here after the local dashboard loads.</div>
+              </div>
+            </section>
+
+            <section class="panel panel-span-2">
+              <div class="section-header">
+                <div>
+                  <p class="section-title">Latest Results</p>
+                  <p class="section-subtitle">Stored workflow interpretations from the most recent analysis run.</p>
+                </div>
+              </div>
+              <div id="analysis-results-list" class="card-list"></div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/viewer.js"></script>
+  </body>
+</html>

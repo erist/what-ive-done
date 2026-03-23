@@ -1,0 +1,388 @@
+.app-shell {
+  width: min(1280px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 28px 0 40px;
+}
+
+.hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  padding: 20px 28px;
+  border-radius: 32px;
+  background: var(--hero-bg);
+  box-shadow: var(--shadow);
+  border: 1px solid var(--hero-border);
+}
+
+.hero-main {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.hero-title-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.hero-title-row h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.hero-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+/* Summary strip (compact header metrics) */
+.summary-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.strip-item {
+  white-space: nowrap;
+}
+
+.strip-item strong {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.strip-item.accent strong {
+  color: var(--accent);
+}
+
+.strip-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--panel-border);
+  flex-shrink: 0;
+}
+
+/* Status indicator (compact dot in hero) */
+.status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+.status-text {
+  color: var(--accent);
+}
+
+.status-indicator.status-running .status-dot { background: var(--accent); }
+.status-indicator.status-running .status-text { color: var(--accent); }
+.status-indicator.status-running { background: var(--accent-soft); }
+
+.status-indicator.status-stopped .status-dot { background: var(--error); }
+.status-indicator.status-stopped .status-text { color: var(--error); }
+.status-indicator.status-stopped { background: rgba(185, 28, 28, 0.1); }
+
+.status-indicator.status-degraded .status-dot { background: var(--warn); }
+.status-indicator.status-degraded .status-text { color: var(--warn); }
+.status-indicator.status-degraded { background: rgba(180, 83, 9, 0.1); }
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.command-bar {
+  position: sticky;
+  top: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 18px;
+  padding: 16px 20px;
+  border-radius: 20px;
+  background: var(--command-bar-bg);
+  border: 1px solid var(--command-bar-border);
+  box-shadow: 0 12px 30px rgba(38, 45, 40, 0.08);
+  backdrop-filter: blur(12px);
+}
+
+/* Review progress bar */
+.review-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.progress-bar-container {
+  flex: 1;
+  min-width: 80px;
+  max-width: 200px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--chip-subtle-bg);
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--button-gradient);
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  font-size: 0.82rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.progress-text strong {
+  color: var(--text);
+}
+
+/* Review layout (sidebar + detail) */
+.review-layout {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 16px;
+  min-height: 480px;
+}
+
+.review-sidebar {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 10px;
+  min-height: 0;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sidebar-header .section-title {
+  margin: 0;
+}
+
+.button-small {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 0.82rem;
+  border-radius: 10px;
+}
+
+/* Status detail grid (insights tab) */
+.status-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.command-bar-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.viewer-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.content-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.view-stack {
+  display: grid;
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.view-panel {
+  display: block;
+}
+
+.view-panel.hidden {
+  display: none;
+}
+
+.panel-span-2 {
+  grid-column: 1 / -1;
+}
+
+.panel-span-3 {
+  grid-column: 1 / -1;
+}
+
+.status-panel {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  padding: 22px 24px;
+}
+
+.sessions-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) 1fr;
+  gap: 16px;
+}
+
+.feedback-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 360px) 1fr;
+  gap: 16px;
+}
+
+.analysis-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.comparison-shell,
+.comparison-summary-grid,
+.comparison-columns {
+  display: grid;
+  gap: 16px;
+}
+
+.comparison-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.comparison-columns {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.detail-stat-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 16px;
+}
+
+.workflow-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+/* Reference & action panel markers */
+.ref-panel {
+  border-left: 3px solid var(--panel-border);
+}
+
+.action-panel {
+  border-left: 3px solid var(--accent);
+}
+
+/* Responsive */
+@media (max-width: 980px) {
+  .hero,
+  .command-bar,
+  .status-panel,
+  .summary-grid,
+  .analysis-layout,
+  .content-grid,
+  .sessions-layout,
+  .feedback-layout,
+  .workflow-form-grid,
+  .detail-stat-grid,
+  .comparison-summary-grid,
+  .comparison-columns,
+  .status-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .review-layout {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+
+  .feedback-workflow-list {
+    max-height: 320px;
+  }
+
+  .hero {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 20px 24px;
+  }
+
+  .command-bar {
+    position: static;
+  }
+
+  .progress-bar-container {
+    max-width: 140px;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-shell {
+    width: calc(100% - 16px);
+    padding: 16px 0 24px;
+  }
+
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hero {
+    padding: 16px 20px;
+    border-radius: 20px;
+  }
+
+  .hero-title-row h1 {
+    font-size: 1.25rem;
+  }
+
+  .summary-strip {
+    font-size: 0.8rem;
+  }
+
+  .command-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .detail-header {
+    flex-direction: column;
+  }
+}

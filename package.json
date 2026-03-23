@@ -8,10 +8,13 @@
     "what-ive-done": "./dist/cli.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build:web": "node --import tsx src/web/build.ts",
+    "build": "node --import tsx src/web/build.ts && tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
+    "dev:web": "node --import tsx src/web/build.ts --watch",
     "start": "node dist/cli.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "test": "node --import tsx --test src/**/*.test.ts"
   },
   "engines": {

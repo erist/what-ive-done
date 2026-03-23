@@ -1,0 +1,112 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f4efe5;
+  --bg-accent: #e4f0ea;
+  --panel: rgba(255, 252, 247, 0.88);
+  --panel-border: rgba(51, 64, 52, 0.12);
+  --text: #1d241f;
+  --muted: #5d685f;
+  --accent: #0f766e;
+  --accent-soft: rgba(15, 118, 110, 0.12);
+  --warn: #b45309;
+  --error: #b91c1c;
+  --shadow: 0 18px 50px rgba(38, 45, 40, 0.09);
+  --radius-lg: 24px;
+  --radius-md: 16px;
+  --radius-sm: 12px;
+  --font-sans: "IBM Plex Sans", "Noto Sans KR", "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", monospace;
+
+  --bg-body-gradient: radial-gradient(circle at top left, rgba(255, 255, 255, 0.8), transparent 30%),
+    radial-gradient(circle at top right, rgba(15, 118, 110, 0.12), transparent 24%),
+    linear-gradient(180deg, var(--bg) 0%, var(--bg-accent) 100%);
+  --hero-bg: linear-gradient(135deg, rgba(255, 252, 247, 0.96), rgba(232, 244, 239, 0.9));
+  --hero-border: rgba(51, 64, 52, 0.08);
+  --command-bar-bg: rgba(255, 252, 247, 0.94);
+  --command-bar-border: rgba(51, 64, 52, 0.08);
+  --button-gradient: linear-gradient(135deg, #0f766e, #155e75);
+  --button-shadow: 0 10px 24px rgba(21, 94, 117, 0.24);
+  --input-bg: rgba(255, 255, 255, 0.9);
+  --input-border: rgba(29, 36, 31, 0.12);
+  --card-bg: rgba(255, 255, 255, 0.78);
+  --card-border: rgba(29, 36, 31, 0.08);
+  --inner-bg: rgba(244, 239, 229, 0.66);
+  --inner-border: rgba(29, 36, 31, 0.08);
+  --toggle-bg: rgba(244, 239, 229, 0.8);
+  --step-pill-bg: rgba(15, 118, 110, 0.08);
+  --step-pill-color: #155e75;
+  --chip-subtle-bg: rgba(29, 36, 31, 0.08);
+  --button-secondary-bg: rgba(29, 36, 31, 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141816;
+    --bg-accent: #1a2420;
+    --panel: rgba(28, 32, 30, 0.92);
+    --panel-border: rgba(200, 220, 200, 0.08);
+    --text: #e0e5e1;
+    --muted: #8a9a8d;
+    --accent: #2dd4bf;
+    --accent-soft: rgba(45, 212, 191, 0.12);
+    --warn: #f59e0b;
+    --error: #f87171;
+    --shadow: 0 18px 50px rgba(0, 0, 0, 0.25);
+
+    --bg-body-gradient: radial-gradient(circle at top left, rgba(45, 212, 191, 0.06), transparent 30%),
+      radial-gradient(circle at top right, rgba(45, 212, 191, 0.04), transparent 24%),
+      linear-gradient(180deg, var(--bg) 0%, var(--bg-accent) 100%);
+    --hero-bg: linear-gradient(135deg, rgba(28, 32, 30, 0.96), rgba(26, 36, 32, 0.9));
+    --hero-border: rgba(200, 220, 200, 0.06);
+    --command-bar-bg: rgba(28, 32, 30, 0.94);
+    --command-bar-border: rgba(200, 220, 200, 0.06);
+    --button-gradient: linear-gradient(135deg, #0d9488, #0e7490);
+    --button-shadow: 0 10px 24px rgba(13, 148, 136, 0.2);
+    --input-bg: rgba(20, 24, 22, 0.9);
+    --input-border: rgba(200, 220, 200, 0.1);
+    --card-bg: rgba(24, 28, 26, 0.78);
+    --card-border: rgba(200, 220, 200, 0.06);
+    --inner-bg: rgba(20, 24, 22, 0.66);
+    --inner-border: rgba(200, 220, 200, 0.06);
+    --toggle-bg: rgba(20, 24, 22, 0.8);
+    --step-pill-bg: rgba(45, 212, 191, 0.1);
+    --step-pill-color: #2dd4bf;
+    --chip-subtle-bg: rgba(200, 220, 200, 0.08);
+    --button-secondary-bg: rgba(200, 220, 200, 0.08);
+  }
+}
+
+[data-theme="dark"] {
+  --bg: #141816;
+  --bg-accent: #1a2420;
+  --panel: rgba(28, 32, 30, 0.92);
+  --panel-border: rgba(200, 220, 200, 0.08);
+  --text: #e0e5e1;
+  --muted: #8a9a8d;
+  --accent: #2dd4bf;
+  --accent-soft: rgba(45, 212, 191, 0.12);
+  --warn: #f59e0b;
+  --error: #f87171;
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.25);
+
+  --bg-body-gradient: radial-gradient(circle at top left, rgba(45, 212, 191, 0.06), transparent 30%),
+    radial-gradient(circle at top right, rgba(45, 212, 191, 0.04), transparent 24%),
+    linear-gradient(180deg, var(--bg) 0%, var(--bg-accent) 100%);
+  --hero-bg: linear-gradient(135deg, rgba(28, 32, 30, 0.96), rgba(26, 36, 32, 0.9));
+  --hero-border: rgba(200, 220, 200, 0.06);
+  --command-bar-bg: rgba(28, 32, 30, 0.94);
+  --command-bar-border: rgba(200, 220, 200, 0.06);
+  --button-gradient: linear-gradient(135deg, #0d9488, #0e7490);
+  --button-shadow: 0 10px 24px rgba(13, 148, 136, 0.2);
+  --input-bg: rgba(20, 24, 22, 0.9);
+  --input-border: rgba(200, 220, 200, 0.1);
+  --card-bg: rgba(24, 28, 26, 0.78);
+  --card-border: rgba(200, 220, 200, 0.06);
+  --inner-bg: rgba(20, 24, 22, 0.66);
+  --inner-border: rgba(200, 220, 200, 0.06);
+  --toggle-bg: rgba(20, 24, 22, 0.8);
+  --step-pill-bg: rgba(45, 212, 191, 0.1);
+  --step-pill-color: #2dd4bf;
+  --chip-subtle-bg: rgba(200, 220, 200, 0.08);
+  --button-secondary-bg: rgba(200, 220, 200, 0.08);
+}
